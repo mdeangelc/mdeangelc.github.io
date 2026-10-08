@@ -61,17 +61,9 @@ body {
 
 .menu-dentro {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-end;
     align-items: center;
     height: 64px;
-}
-
-.logo {
-    font-weight: 800;
-    font-size: 1.2rem;
-    color: var(--principal-claro);
-    text-decoration: none;
-    letter-spacing: 1px;
 }
 
 .menu-enlaces {
