@@ -42,14 +42,47 @@ bloques.forEach((bloque) => observadorBloques.observe(bloque));
 const enlacesMenu = document.querySelectorAll(".menu-enlaces a");
 const secciones = document.querySelectorAll("main section");
 
-const observadorSecciones = new IntersectionObserver((entradas) => {
-    entradas.forEach((entrada) => {
-        if (entrada.isIntersecting) {
-            enlacesMenu.forEach((enlace) => {
-                enlace.classList.toggle("activo", enlace.getAttribute("href") === "#" + entrada.target.id);
-            });
+let porClic = false;
+
+function activar(id) {
+    enlacesMenu.forEach((enlace) => {
+        enlace.classList.toggle("activo", enlace.getAttribute("href") === "#" + id);
+    });
+}
+
+enlacesMenu.forEach((enlace) => {
+    enlace.addEventListener("click", () => {
+        porClic = true;
+        activar(enlace.getAttribute("href").slice(1));
+    });
+});
+
+["wheel", "touchstart", "keydown"].forEach((evento) => {
+    window.addEventListener(evento, () => {
+        porClic = false;
+    });
+});
+
+function marcarSeccion() {
+    if (porClic) {
+        return;
+    }
+
+    let actual = "";
+
+    secciones.forEach((seccion) => {
+        if (seccion.getBoundingClientRect().top <= window.innerHeight * 0.4) {
+            actual = seccion.id;
         }
     });
-}, { rootMargin: "-40% 0px -55% 0px" });
 
-secciones.forEach((seccion) => observadorSecciones.observe(seccion));
+    const alFinal = window.innerHeight + window.scrollY >= document.body.scrollHeight - 2;
+    if (alFinal) {
+        actual = secciones[secciones.length - 1].id;
+    }
+
+    activar(actual);
+}
+
+window.addEventListener("scroll", marcarSeccion);
+marcarSeccion();
