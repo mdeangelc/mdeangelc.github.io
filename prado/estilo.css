@@ -1,0 +1,166 @@
+:root {
+    --cristal: rgba(255, 255, 255, 0.22);
+    --cristal-borde: rgba(255, 255, 255, 0.35);
+    --blanco: #ffffff;
+    --texto-activo: #3a2a1c;
+    --fuente: "Inter", Arial, sans-serif;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html,
+body {
+    height: 100%;
+    overflow: hidden;
+    background: #f4d2b0;
+    font-family: var(--fuente);
+}
+
+canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    touch-action: none;
+}
+
+.volver {
+    position: fixed;
+    top: 18px;
+    left: 18px;
+    z-index: 2;
+    color: var(--blanco);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 8px 14px;
+    border-radius: 20px;
+    background: var(--cristal);
+    border: 1px solid var(--cristal-borde);
+    backdrop-filter: blur(10px);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    transition: background 0.2s;
+}
+
+.volver:hover {
+    background: rgba(255, 255, 255, 0.35);
+}
+
+.momentos {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    display: flex;
+    gap: 4px;
+    padding: 5px;
+    border-radius: 30px;
+    background: var(--cristal);
+    border: 1px solid var(--cristal-borde);
+    backdrop-filter: blur(12px);
+}
+
+.momentos button {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    border: none;
+    background: none;
+    color: var(--blanco);
+    font-family: var(--fuente);
+    font-size: 14px;
+    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: 22px;
+    cursor: pointer;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    transition: background 0.3s, color 0.3s;
+}
+
+.momentos button:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+.momentos button.activo {
+    background: rgba(255, 255, 255, 0.92);
+    color: var(--texto-activo);
+    text-shadow: none;
+}
+
+.momentos svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.pista {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    color: var(--blanco);
+    font-size: 14px;
+    font-weight: 500;
+    padding: 9px 18px;
+    border-radius: 20px;
+    background: var(--cristal);
+    border: 1px solid var(--cristal-borde);
+    backdrop-filter: blur(10px);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    transition: opacity 1.2s;
+}
+
+.pista.oculta {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.cargando {
+    position: fixed;
+    inset: 0;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #6b4a33;
+    font-size: 16px;
+    font-weight: 500;
+    background: #f4d2b0;
+    transition: opacity 0.8s;
+}
+
+.cargando.oculta {
+    opacity: 0;
+    pointer-events: none;
+}
+
+@media (max-width: 640px) {
+    .volver {
+        top: auto;
+        bottom: 18px;
+        left: 50%;
+        transform: translateX(-50%);
+    }
+
+    .momentos button {
+        padding: 8px 11px;
+        font-size: 13px;
+        gap: 5px;
+    }
+
+    .pista {
+        bottom: 70px;
+        white-space: nowrap;
+    }
+}
