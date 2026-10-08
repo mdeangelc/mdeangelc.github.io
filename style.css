@@ -1,0 +1,148 @@
+:root {
+    --fondo: #f6f7f9;
+    --blanco: #ffffff;
+    --texto: #1c2430;
+    --suave: #5b6675;
+    --principal: #0f3d5e;
+    --acento: #1f7a8c;
+    --borde: #dde2e8;
+    --fuente: "Inter", Arial, sans-serif;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--fuente);
+    background: var(--fondo);
+    color: var(--texto);
+    line-height: 1.6;
+}
+
+.contenedor {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 0 24px;
+}
+
+.cabecera {
+    background: var(--principal);
+    color: var(--blanco);
+    padding: 80px 0 64px;
+}
+
+.saludo {
+    color: #9fc3d6;
+    font-weight: 500;
+}
+
+.cabecera h1 {
+    font-size: 2.6rem;
+    line-height: 1.15;
+    margin: 4px 0 8px;
+}
+
+.puesto {
+    color: #d3e2ea;
+    font-size: 1.1rem;
+}
+
+.enlaces {
+    margin-top: 28px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.enlaces a {
+    color: var(--blanco);
+    text-decoration: none;
+    border: 1px solid #9fc3d6;
+    padding: 8px 18px;
+    border-radius: 6px;
+    font-weight: 500;
+    transition: background 0.2s;
+}
+
+.enlaces a:hover {
+    background: var(--acento);
+    border-color: var(--acento);
+}
+
+.bloque {
+    background: var(--blanco);
+    border: 1px solid var(--borde);
+    border-radius: 10px;
+    padding: 32px;
+    margin: 32px 0;
+}
+
+.bloque h2 {
+    color: var(--principal);
+    font-size: 1.4rem;
+    margin-bottom: 16px;
+}
+
+.bloque p + p {
+    margin-top: 12px;
+}
+
+.habilidades {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 20px;
+}
+
+.grupo h3 {
+    font-size: 0.95rem;
+    color: var(--acento);
+    margin-bottom: 8px;
+}
+
+.grupo ul {
+    list-style: none;
+}
+
+.grupo li {
+    color: var(--suave);
+    padding: 2px 0;
+}
+
+.estudio + .estudio {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--borde);
+}
+
+.estudio h3 {
+    font-size: 1.05rem;
+}
+
+.lugar {
+    color: var(--suave);
+    font-size: 0.95rem;
+}
+
+.pie {
+    text-align: center;
+    color: var(--suave);
+    font-size: 0.9rem;
+    padding: 24px 0 40px;
+}
+
+@media (max-width: 600px) {
+    .cabecera {
+        padding: 56px 0 44px;
+    }
+
+    .cabecera h1 {
+        font-size: 2rem;
+    }
+
+    .bloque {
+        padding: 24px;
+    }
+}
