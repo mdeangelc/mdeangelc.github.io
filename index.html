@@ -7,29 +7,47 @@
     <meta name="description" content="Portfolio de Miguel Ángel Calvente, estudiante de Desarrollo de Aplicaciones Web en Málaga.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <script>
+        if (localStorage.getItem("tema") === "oscuro") {
+            document.documentElement.classList.add("oscuro");
+        }
+    </script>
 </head>
 <body>
-    <header class="cabecera">
+    <nav class="menu">
+        <div class="contenedor menu-dentro">
+            <a href="#inicio" class="logo">MAC</a>
+            <div class="menu-enlaces">
+                <a href="#sobre-mi">Sobre mí</a>
+                <a href="#habilidades">Habilidades</a>
+                <a href="#formacion">Formación</a>
+                <button class="tema" id="boton-tema" aria-label="Cambiar entre modo claro y oscuro">Modo oscuro</button>
+            </div>
+        </div>
+    </nav>
+
+    <header class="cabecera" id="inicio">
         <div class="contenedor">
             <p class="saludo">Hola, soy</p>
             <h1>Miguel Ángel Calvente</h1>
-            <p class="puesto">Estudiante de Desarrollo de Aplicaciones Web · Málaga</p>
-            <nav class="enlaces">
-                <a href="https://github.com/mdeangelc" target="_blank" rel="noopener">GitHub</a>
-            </nav>
+            <p class="puesto">Estudiante de Desarrollo de Aplicaciones Web en Málaga</p>
+            <div class="botones">
+                <a href="https://github.com/mdeangelc" target="_blank" rel="noopener" class="boton principal">Ver mi GitHub</a>
+                <a href="#sobre-mi" class="boton secundario">Conóceme</a>
+            </div>
         </div>
     </header>
 
     <main class="contenedor">
-        <section class="bloque">
+        <section class="bloque aparecer" id="sobre-mi">
             <h2>Sobre mí</h2>
             <p>Mis dos pasiones son la geografía y la informática. Por eso estoy terminando el Grado en Geografía y Gestión del Territorio en la Universidad de Málaga y, a la vez, cursando segundo de DAW en Digitech FP Málaga. He decidido centrar mi carrera en el desarrollo web, que es donde veo más posibilidades de crecer.</p>
             <p>Soy una persona resolutiva e independiente. Me gusta aprender y hacer las cosas lo mejor posible, porque si mi trabajo sale bien, a la empresa le va bien, y eso también es bueno para mí.</p>
         </section>
 
-        <section class="bloque">
+        <section class="bloque aparecer" id="habilidades">
             <h2>Habilidades técnicas</h2>
             <div class="habilidades">
                 <div class="grupo">
@@ -73,7 +91,7 @@
             </div>
         </section>
 
-        <section class="bloque">
+        <section class="bloque aparecer" id="formacion">
             <h2>Formación</h2>
             <article class="estudio">
                 <h3>Técnico Superior en Desarrollo de Aplicaciones Web</h3>
@@ -91,5 +109,7 @@
             <p>Miguel Ángel Calvente · 2026</p>
         </div>
     </footer>
+
+    <script src="script.js"></script>
 </body>
 </html>
