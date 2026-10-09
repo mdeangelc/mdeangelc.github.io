@@ -25,8 +25,8 @@ const tocarHierba = parametros.get("tocar") !== "no";
 const factorCalidad = (parametros.get("calidad") === "baja" ? 0.25 : 1) * (movil ? 0.4 : 1);
 
 const ajustes = {
-    hierbaCamino: Math.floor(110000 * factorCalidad),
-    hierbaPrado: Math.floor(110000 * factorCalidad),
+    hierbaCamino: Math.floor(150000 * factorCalidad),
+    hierbaPrado: Math.floor(140000 * factorCalidad),
     rodalesFlores: Math.max(12, Math.floor(40 * Math.max(factorCalidad, 0.5))),
     luciernagas: movil ? 50 : 110,
     estrellas: 1800,
@@ -56,23 +56,19 @@ function suave(a, b, x) {
 // =====================================================================
 // 2. EL TERRENO Y EL CAMINO
 // alturaTerreno() da la altura de cualquier punto del mundo.
-// El castillo está sobre una colina con la cima plana, y el camino
-// llega hasta su puerta. Tú solo recorres el primer tramo.
+// El camino cruza un valle largo hacia una montaña rocosa enorme con el
+// castillo en la cima. Está tan lejos que, aunque camines, nunca llegas.
 // =====================================================================
 
-const castillo = { x: 0, z: -215 };
+const castillo = { x: 0, z: -700 };
+const cimaPena = 170;
 
 function alturaTerreno(x, z) {
     const ondas = 0.55 * Math.sin(x * 0.07 + 1.3) * Math.cos(z * 0.05 + 0.4)
                 + 0.3 * Math.sin(x * 0.15 + z * 0.09);
     const laderas = 8 * suave(18, 55, Math.abs(x)) * (0.65 + 0.35 * Math.sin(z * 0.035 + x * 0.01));
-    const rampa = 3 * suave(-30, -120, z);
-    const dx = x - castillo.x;
-    const dz = z - castillo.z;
-    const radio = Math.sqrt(dx * dx + dz * dz);
-    const colina = 26 * suave(40, 11, radio);
-    const rocas = 1.6 * Math.sin(dx * 0.4) * Math.cos(dz * 0.35) * suave(40, 18, radio) * suave(8, 16, radio);
-    return ondas + laderas + rampa + colina + rocas;
+    const rampa = 3 * suave(-30, -120, z) + 10 * suave(-330, -480, z);
+    return ondas + laderas + rampa;
 }
 
 const camino = new THREE.CatmullRomCurve3([
@@ -88,9 +84,14 @@ const camino = new THREE.CatmullRomCurve3([
     new THREE.Vector3(1, 0, -136),
     new THREE.Vector3(-7, 0, -152),
     new THREE.Vector3(-3, 0, -168),
-    new THREE.Vector3(6, 0, -180),
-    new THREE.Vector3(3, 0, -193),
-    new THREE.Vector3(0, 0, -202)
+    new THREE.Vector3(6, 0, -184),
+    new THREE.Vector3(-4, 0, -212),
+    new THREE.Vector3(5, 0, -245),
+    new THREE.Vector3(12, 0, -280),
+    new THREE.Vector3(2, 0, -318),
+    new THREE.Vector3(-10, 0, -355),
+    new THREE.Vector3(-2, 0, -392),
+    new THREE.Vector3(6, 0, -430)
 ], false, "catmullrom", 0.5);
 
 const largoCamino = camino.getLength();
@@ -103,8 +104,8 @@ function fraccionHastaZ(zLimite) {
     }
     return 1;
 }
-const finCaminable = fraccionHastaZ(-72);
-const finHierba = fraccionHastaZ(-150);
+const finCaminable = fraccionHastaZ(-140);
+const finHierba = fraccionHastaZ(-300);
 
 function distanciaAlCamino(x, z) {
     let mejor = Infinity;
@@ -129,9 +130,9 @@ renderizador.toneMappingExposure = 1.05;
 document.body.prepend(renderizador.domElement);
 
 const escena = new THREE.Scene();
-escena.fog = new THREE.Fog("#f3cfaa", 140, 950);
+escena.fog = new THREE.Fog("#f3cfaa", 200, 2600);
 
-const camara = new THREE.PerspectiveCamera(pantallaEstrecha ? 64 : 50, window.innerWidth / window.innerHeight, 0.1, 1400);
+const camara = new THREE.PerspectiveCamera(pantallaEstrecha ? 64 : 50, window.innerWidth / window.innerHeight, 0.1, 4000);
 
 // =====================================================================
 // 4. MOMENTOS DEL DÍA
@@ -270,8 +271,8 @@ const ruidoGLSL = `
 
 const nieblaGLSL = `
     vec3 aplicarNiebla(vec3 color, float distancia) {
-        float n = smoothstep(55.0, 460.0, distancia);
-        return mix(color, uNiebla, n * 0.8);
+        float n = smoothstep(60.0, 1100.0, distancia);
+        return mix(color, uNiebla, n * 0.85);
     }
 `;
 
@@ -340,9 +341,9 @@ const materialCielo = new THREE.ShaderMaterial({
             color = mix(color, uColorLuna * sombraLuna * 1.4, discoLuna * uLunaVisible);
 
             if (h > 0.0) {
-                vec2 uv = d.xz / (h + 0.15) * 1.1 + vec2(uTiempo * 0.012, uTiempo * 0.004);
+                vec2 uv = d.xz / (h + 0.12) * 0.55 + vec2(uTiempo * 0.006, uTiempo * 0.002);
                 float n = fbm(uv * 0.8);
-                float nube = smoothstep(0.52, 0.82, n) * smoothstep(0.02, 0.3, h) * uNubes;
+                float nube = smoothstep(0.47, 0.72, n) * smoothstep(0.03, 0.25, h) * uNubes;
                 vec3 colorNube = mix(uNubeSombra, uNubeLuz, smoothstep(0.5, 0.95, n));
                 colorNube += uColorSol * pow(sol, 4.0) * 0.35 * uSolVisible;
                 color = mix(color, colorNube, nube);
@@ -355,7 +356,7 @@ const materialCielo = new THREE.ShaderMaterial({
     `
 });
 
-const cielo = new THREE.Mesh(new THREE.SphereGeometry(1000, 48, 24), materialCielo);
+const cielo = new THREE.Mesh(new THREE.SphereGeometry(3500, 48, 24), materialCielo);
 cielo.frustumCulled = false;
 escena.add(cielo);
 
@@ -368,7 +369,7 @@ for (let i = 0; i < ajustes.estrellas; i++) {
     const angulo = azar() * Math.PI * 2;
     const y = 0.05 + Math.pow(azar(), 0.7) * 0.95;
     const horizontal = Math.sqrt(1 - y * y);
-    posicionesEstrellas.push(Math.cos(angulo) * horizontal * 900, y * 900, Math.sin(angulo) * horizontal * 900);
+    posicionesEstrellas.push(Math.cos(angulo) * horizontal * 3200, y * 3200, Math.sin(angulo) * horizontal * 3200);
 }
 const geometriaEstrellas = new THREE.BufferGeometry();
 geometriaEstrellas.setAttribute("position", new THREE.Float32BufferAttribute(posicionesEstrellas, 3));
@@ -417,10 +418,9 @@ function crearMontana(x, z, radio, alto, conNieve) {
 }
 
 const listaMontanas = [
-    [-430, -560, 190, 170, true], [-250, -620, 170, 210, true], [-60, -700, 220, 240, true],
-    [150, -640, 180, 200, true], [360, -580, 200, 180, true], [560, -520, 160, 140, false],
-    [-600, -480, 150, 130, false], [-330, -420, 110, 95, false], [-150, -470, 120, 120, false],
-    [110, -450, 110, 105, false], [280, -410, 120, 90, false], [470, -400, 100, 85, false]
+    [-760, -1350, 420, 560, true], [-1250, -1100, 320, 330, true], [900, -1550, 440, 470, true],
+    [1350, -1150, 320, 300, false], [250, -1900, 480, 420, true], [-450, -1700, 380, 380, true],
+    [620, -950, 220, 170, false], [-620, -900, 220, 160, false]
 ];
 listaMontanas.forEach(([x, z, r, a, nieve]) => crearMontana(x, z, r, a, nieve));
 
@@ -439,7 +439,7 @@ for (let i = 0; i < verticesSuelo.count; i++) {
     const x = verticesSuelo.getX(i);
     const z = verticesSuelo.getZ(i);
     verticesSuelo.setY(i, alturaTerreno(x, z));
-    if (Math.abs(x) < 16 && z < 20 && z > -210) {
+    if (Math.abs(x) < 40 && z < 20 && z > -440) {
         const ancho = 1.6 + 1.6 * suave(-95, -150, z);
         tierraCamino[i] = 1 - suave(ancho * 0.7, ancho, distanciaAlCamino(x, z));
     }
@@ -501,6 +501,18 @@ const materialSuelo = new THREE.ShaderMaterial({
 });
 
 escena.add(new THREE.Mesh(geometriaSuelo, materialSuelo));
+
+// Suelo lejano: más grande y con menos detalle, hasta el pie de la montaña
+const geometriaLejana = new THREE.PlaneGeometry(2400, 1400, 160, 100);
+geometriaLejana.rotateX(-Math.PI / 2);
+geometriaLejana.translate(0, 0, -1140);
+const verticesLejanos = geometriaLejana.attributes.position;
+for (let i = 0; i < verticesLejanos.count; i++) {
+    verticesLejanos.setY(i, alturaTerreno(verticesLejanos.getX(i), verticesLejanos.getZ(i)));
+}
+geometriaLejana.setAttribute("aCamino", new THREE.BufferAttribute(new Float32Array(verticesLejanos.count), 1));
+geometriaLejana.computeVertexNormals();
+escena.add(new THREE.Mesh(geometriaLejana, materialSuelo));
 
 // =====================================================================
 // 10. PIEDRAS DEL CAMINO (solo en el tramo cercano; lejos basta la tierra)
@@ -735,7 +747,7 @@ function crearHierba(cantidad, segmentos, tMax, distanciaMin, distanciaMax, pote
 
 crearHierba(ajustes.hierbaCamino, 4, finCaminable + 0.06, 1.25, 7, 1.4, [0.22, 0.48], [0.026, 0.045]);
 crearHierba(ajustes.hierbaPrado, 2, finCaminable + 0.12, 7, 40, 1.6, [0.3, 0.6], [0.05, 0.08]);
-crearHierba(Math.floor(ajustes.hierbaPrado * 0.35), 1, 1, 1.6, 30, 1.3, [0.35, 0.65], [0.07, 0.1]);
+crearHierba(Math.floor(ajustes.hierbaPrado * 0.35), 1, finHierba, 1.6, 30, 1.3, [0.35, 0.65], [0.07, 0.1]);
 
 let calidadHierba = 1;
 
@@ -895,10 +907,10 @@ function crearFlores() {
 crearFlores();
 
 // =====================================================================
-// 13. EL CASTILLO (low poly de cuento)
-// Muros color crema, tejados azules muy puntiagudos y caras planas.
-// Está lejos, sobre la colina, y el camino entra por su puerta.
-// De noche se encienden las ventanas y la puerta.
+// 13. LA MONTAÑA Y EL CASTILLO
+// Una peña de roca enorme con laderas verdes abajo y acantilados
+// arriba, rodeada de agujas de piedra. Encima, un castillo muy ancho:
+// la torre del homenaje en el centro y dos alas de torres a los lados.
 // =====================================================================
 
 const castilloGrupo = new THREE.Group();
@@ -906,15 +918,106 @@ const materialVentanas = new THREE.MeshBasicMaterial({ color: "#2a2430" });
 const materialPuertaLuz = new THREE.MeshBasicMaterial({ color: "#2a2430" });
 const luzPuerta = new THREE.PointLight("#ffb766", 0, 40, 1.5);
 const banderas = [];
-const baseCastillo = alturaTerreno(castillo.x, castillo.z);
+const baseCastillo = cimaPena;
+
+function moverVertices(geometria, fuerzaXZ, fuerzaY, protegerArriba) {
+    const vertices = geometria.attributes.position;
+    const desplazados = new Map();
+    let maxY = -Infinity;
+    for (let i = 0; i < vertices.count; i++) maxY = Math.max(maxY, vertices.getY(i));
+    for (let i = 0; i < vertices.count; i++) {
+        const clave = Math.round(vertices.getX(i) * 10) + "|" + Math.round(vertices.getY(i) * 10) + "|" + Math.round(vertices.getZ(i) * 10);
+        if (!desplazados.has(clave)) {
+            const arriba = protegerArriba && vertices.getY(i) > maxY - 0.01;
+            desplazados.set(clave, [entre(-1, 1) * fuerzaXZ, arriba ? 0 : entre(-1, 1) * fuerzaY, entre(-1, 1) * fuerzaXZ]);
+        }
+        const [dx, dy, dz] = desplazados.get(clave);
+        vertices.setXYZ(i, vertices.getX(i) + dx, vertices.getY(i) + dy, vertices.getZ(i) + dz);
+    }
+    geometria.computeVertexNormals();
+}
+
+function colorearPorAltura(geometria, alto) {
+    const vertices = geometria.attributes.position;
+    const colores = [];
+    const verde = new THREE.Color("#5f8a3e");
+    const verdeOscuro = new THREE.Color("#3e6a33");
+    const roca = new THREE.Color("#8b8d94");
+    const rocaOscura = new THREE.Color("#5c5f6b");
+    const rocaAzul = new THREE.Color("#717a8c");
+    const c = new THREE.Color();
+    for (let i = 0; i < vertices.count; i += 3) {
+        const y = (vertices.getY(i) + vertices.getY(i + 1) + vertices.getY(i + 2)) / 3 / alto + 0.5;
+        const azarCara = azar();
+        const verdeAqui = y < 0.32 + azarCara * 0.18 || (y < 0.85 && azar() < 0.22);
+        if (verdeAqui) c.copy(azarCara < 0.5 ? verde : verdeOscuro);
+        else c.copy(azarCara < 0.33 ? roca : azarCara < 0.66 ? rocaOscura : rocaAzul);
+        for (let k = 0; k < 3; k++) colores.push(c.r, c.g, c.b);
+    }
+    geometria.setAttribute("color", new THREE.Float32BufferAttribute(colores, 3));
+}
+
+function crearPena() {
+    const materialPena = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true });
+    const alto = cimaPena + 30;
+
+    const cuerpo = new THREE.CylinderGeometry(235, 600, alto, 24, 10, true).toNonIndexed();
+    moverVertices(cuerpo, 30, 10, true);
+    colorearPorAltura(cuerpo, alto);
+    const pena = new THREE.Mesh(cuerpo, materialPena);
+    pena.position.set(castillo.x, alto / 2 - 30, castillo.z);
+    pena.scale.z = 0.5;
+    escena.add(pena);
+
+    const meseta = new THREE.Mesh(new THREE.CylinderGeometry(237, 237, 4, 22), new THREE.MeshStandardMaterial({ color: "#5d7a45", roughness: 1, flatShading: true }));
+    meseta.position.set(castillo.x, cimaPena - 2, castillo.z);
+    meseta.scale.z = 0.5;
+    escena.add(meseta);
+
+    const falda = new THREE.ConeGeometry(800, 90, 24, 3, true).toNonIndexed();
+    moverVertices(falda, 30, 8, false);
+    const materialFalda = new THREE.MeshStandardMaterial({ color: "#5e8a3e", roughness: 1, flatShading: true });
+    const laderaVerde = new THREE.Mesh(falda, materialFalda);
+    laderaVerde.position.set(castillo.x, 15, castillo.z + 20);
+    laderaVerde.scale.z = 0.45;
+    escena.add(laderaVerde);
+
+    for (let i = 0; i < 16; i++) {
+        const lado = i < 8 ? -1 : 1;
+        const angulo = entre(0.15, 1.35) * lado;
+        const radio = entre(250, 400);
+        const altoAguja = entre(70, 150);
+        const aguja = new THREE.ConeGeometry(entre(18, 34), altoAguja, 6, 3).toNonIndexed();
+        moverVertices(aguja, 5, 4, false);
+        colorearPorAltura(aguja, altoAguja * 0.4);
+        const malla = new THREE.Mesh(aguja, materialPena);
+        malla.position.set(castillo.x + Math.sin(angulo) * radio, altoAguja / 2 + entre(-10, 25), castillo.z + Math.cos(angulo) * radio * 0.5);
+        escena.add(malla);
+    }
+
+    function grupoAgujas(cx, cz, cuantas, altoMax) {
+        for (let i = 0; i < cuantas; i++) {
+            const altoAguja = entre(altoMax * 0.4, altoMax);
+            const aguja = new THREE.ConeGeometry(entre(10, 22), altoAguja, 5, 2).toNonIndexed();
+            moverVertices(aguja, 3, 3, false);
+            const malla = new THREE.Mesh(aguja, new THREE.MeshStandardMaterial({ color: "#7e8394", roughness: 1, flatShading: true }));
+            malla.position.set(cx + entre(-110, 110), altoAguja / 2 - 5, cz + entre(-80, 80));
+            escena.add(malla);
+        }
+    }
+    grupoAgujas(-500, -1000, 12, 280);
+    grupoAgujas(600, -1100, 10, 250);
+}
+
+crearPena();
 
 function crearCastillo() {
-    const muroClaro = new THREE.MeshStandardMaterial({ color: "#e8dcc4", roughness: 0.9, flatShading: true });
-    const muroSombra = new THREE.MeshStandardMaterial({ color: "#cdbd9f", roughness: 0.9, flatShading: true });
-    const tejado = new THREE.MeshStandardMaterial({ color: "#3b67b8", roughness: 0.7, flatShading: true });
+    const muroClaro = new THREE.MeshStandardMaterial({ color: "#c2bcb3", roughness: 0.9, flatShading: true });
+    const muroSombra = new THREE.MeshStandardMaterial({ color: "#a29b92", roughness: 0.9, flatShading: true });
+    const tejadoPizarra = new THREE.MeshStandardMaterial({ color: "#4a5674", roughness: 0.7, flatShading: true });
+    const tejadoRojo = new THREE.MeshStandardMaterial({ color: "#a5483a", roughness: 0.8, flatShading: true });
     const remate = new THREE.MeshStandardMaterial({ color: "#d9a640", roughness: 0.6, flatShading: true });
-    const roca = new THREE.MeshStandardMaterial({ color: "#7d7468", roughness: 1, flatShading: true });
-    const bandera = new THREE.MeshStandardMaterial({ color: "#d1453b", side: THREE.DoubleSide, flatShading: true });
+    const bandera = new THREE.MeshStandardMaterial({ color: "#2f4f9a", side: THREE.DoubleSide, flatShading: true });
     const ventanas = [];
     const almenas = [];
 
@@ -922,28 +1025,26 @@ function crearCastillo() {
         for (let y = desde; y <= hasta; y += 3.4) {
             for (let c = 0; c < columnas; c++) {
                 const angulo = columnas === 1 ? 0 : (c / (columnas - 1) - 0.5) * 1.2;
-                if (azar() < 0.2) continue;
+                if (azar() < 0.25) continue;
                 ventanas.push({ x: x + Math.sin(angulo) * (radio + 0.04), y, z: z + Math.cos(angulo) * (radio + 0.04), giro: angulo, ancho: 0.6, alto: 1.2 });
             }
         }
     }
 
-    function torre(x, z, radio, alto, altoTejado, base = 0, conBandera = false) {
+    function torre(x, z, radio, alto, altoTejado, base = 0, conBandera = false, rojo = false) {
         const cuerpo = new THREE.Mesh(new THREE.CylinderGeometry(radio, radio * 1.05, alto + 14, 8), muroClaro);
         cuerpo.position.set(x, base + (alto - 14) / 2, z);
         const corona = new THREE.Mesh(new THREE.CylinderGeometry(radio * 1.22, radio * 1.02, 1.2, 8), muroSombra);
         corona.position.set(x, base + alto + 0.3, z);
-        const techo = new THREE.Mesh(new THREE.ConeGeometry(radio * 1.38, altoTejado, 8), tejado);
+        const techo = new THREE.Mesh(new THREE.ConeGeometry(radio * 1.38, altoTejado, 8), rojo ? tejadoRojo : tejadoPizarra);
         techo.position.set(x, base + alto + 0.9 + altoTejado / 2, z);
-        const bola = new THREE.Mesh(new THREE.OctahedronGeometry(radio * 0.18, 0), remate);
-        bola.position.set(x, base + alto + 0.9 + altoTejado + radio * 0.1, z);
-        castilloGrupo.add(cuerpo, corona, techo, bola);
+        castilloGrupo.add(cuerpo, corona, techo);
 
         if (conBandera) {
-            const mastil = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.6, 4), remate);
-            mastil.position.set(x, base + alto + altoTejado + 2.1, z);
-            const tela = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.9, 3, 1), bandera);
-            tela.position.set(x + 0.9, base + alto + altoTejado + 2.9, z);
+            const mastil = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 3, 4), remate);
+            mastil.position.set(x, base + alto + altoTejado + 2.3, z);
+            const tela = new THREE.Mesh(new THREE.PlaneGeometry(2, 1, 3, 1), bandera);
+            tela.position.set(x + 1, base + alto + altoTejado + 3.2, z);
             castilloGrupo.add(mastil, tela);
             banderas.push(tela);
         }
@@ -951,62 +1052,85 @@ function crearCastillo() {
         anadirVentanas(x, z, radio, base + 2.8, base + alto - 2.2, radio > 1.8 ? 3 : 2);
     }
 
-    function bloque(x, z, ancho, alto, fondo, base = 0) {
+    function bloque(x, z, ancho, alto, fondo, base = 0, rojo = false) {
         const caja = new THREE.Mesh(new THREE.BoxGeometry(ancho, alto + 14, fondo), muroClaro);
         caja.position.set(x, base + (alto - 14) / 2, z);
         castilloGrupo.add(caja);
-        const cornisa = new THREE.Mesh(new THREE.BoxGeometry(ancho + 0.5, 0.7, fondo + 0.5), muroSombra);
-        cornisa.position.set(x, base + alto, z);
-        castilloGrupo.add(cornisa);
-        for (let i = -ancho / 2 + 0.6; i < ancho / 2; i += 1.4) {
-            almenas.push([x + i, base + alto + 0.7, z + fondo / 2 + 0.05]);
-        }
+        const tejadoCaja = new THREE.Mesh(new THREE.CylinderGeometry(0.01, fondo * 0.62, ancho, 4, 1).rotateZ(Math.PI / 2).rotateX(Math.PI / 4), rojo ? tejadoRojo : tejadoPizarra);
+        tejadoCaja.scale.set(1, 0.9, 1);
+        tejadoCaja.position.set(x, base + alto + fondo * 0.3, z);
+        castilloGrupo.add(tejadoCaja);
         for (let y = base + 2.8; y < base + alto - 1.8; y += 3.4) {
-            for (let c = -1; c <= 1; c++) {
-                if (azar() < 0.15) continue;
-                ventanas.push({ x: x + c * ancho * 0.28, y, z: z + fondo / 2 + 0.04, giro: 0, ancho: 0.8, alto: 1.4 });
+            for (let i = -ancho / 2 + 1.5; i < ancho / 2 - 1; i += 2.4) {
+                if (azar() < 0.3) continue;
+                ventanas.push({ x: x + i, y, z: z + fondo / 2 + 0.04, giro: 0, ancho: 0.8, alto: 1.4 });
             }
         }
     }
 
-    bloque(0, -2, 13, 19, 10);
-    bloque(0, -3, 8.5, 11, 7, 19);
-    torre(0, -3, 2.5, 21, 13, 30, true);
+    function muro(x1, z1, x2, z2, alto) {
+        const largo = Math.hypot(x2 - x1, z2 - z1);
+        const angulo = Math.atan2(x2 - x1, z2 - z1);
+        const pared = new THREE.Mesh(new THREE.BoxGeometry(1.4, alto + 14, largo), muroSombra);
+        pared.position.set((x1 + x2) / 2, (alto - 14) / 2, (z1 + z2) / 2);
+        pared.rotation.y = angulo;
+        castilloGrupo.add(pared);
+        const cuantas = Math.floor(largo / 1.4);
+        for (let i = 0; i < cuantas; i += 2) {
+            const t = (i + 0.5) / cuantas;
+            almenas.push({ x: x1 + (x2 - x1) * t, y: alto + 0.4, z: z1 + (z2 - z1) * t, giro: angulo });
+        }
+    }
 
+    // Centro: cuerpo principal y torre del homenaje
+    bloque(0, -2, 14, 19, 10);
+    bloque(0, -3, 9, 11, 7, 19);
+    torre(0, -3, 2.6, 22, 14, 30, true);
     torre(-8, -1, 2.2, 28, 12, 0, true);
-    torre(8, -1, 2.2, 25, 11, 0, true);
-    torre(-5, -8, 1.8, 34, 13, 0, true);
-    torre(5.5, -8.5, 1.8, 31, 12);
-    torre(-11.5, 4, 1.6, 15, 8);
-    torre(11.5, 4, 1.6, 14, 8);
+    torre(8, -1, 2.2, 26, 11, 0, true);
+    torre(-5, -9, 1.8, 34, 13, 0, true);
+    torre(5.5, -9.5, 1.8, 31, 12);
+    torre(-4.8, 0.6, 0.9, 5, 5, 25);
+    torre(4.8, 0.6, 0.9, 5, 5, 25);
+    torre(-4.8, -6.6, 0.9, 6, 5, 25);
+    torre(4.8, -6.6, 0.9, 6, 5, 25);
 
-    torre(-4.6, 0.6, 0.9, 5, 5, 25);
-    torre(4.6, 0.6, 0.9, 5, 5, 25);
-    torre(-4.6, -6.6, 0.9, 6, 5, 25);
-    torre(4.6, -6.6, 0.9, 6, 5, 25);
+    // Alas a izquierda y derecha
+    const curva = (x) => -Math.pow(Math.abs(x) / 64, 2) * 16;
+    [-1, 1].forEach((lado) => {
+        const zz = (x, z) => z + curva(x);
+        bloque(lado * 18, zz(18, -1), 9, 13, 8, 0, lado > 0);
+        torre(lado * 14, zz(14, 6), 1.8, 17, 9, 0, true);
+        torre(lado * 24, zz(24, -5), 2.3, 24, 12, 0, true);
+        torre(lado * 21, zz(21, -14), 1.6, 30, 12, 0, false);
+        torre(lado * 31, zz(31, 4), 1.6, 13, 8, 0, false, true);
+        bloque(lado * 37, zz(37, -3), 9, 10, 7, 0, lado < 0);
+        torre(lado * 43, zz(43, -4), 2, 21, 11, 0, true);
+        torre(lado * 40, zz(40, -13), 1.4, 26, 10, 0, false);
+        torre(lado * 50, zz(50, 4), 1.5, 11, 7, 0, false, true);
+        bloque(lado * 55, zz(55, -2), 7, 8, 6);
+        torre(lado * 60, zz(60, -4), 1.4, 15, 8, 0, true);
+        torre(lado * 64, zz(64, 3), 1.2, 9, 6);
+        const tramos = [6, 18, 30, 42, 54, 65];
+        for (let i = 0; i < tramos.length - 1; i++) {
+            muro(lado * tramos[i], zz(tramos[i], 9), lado * tramos[i + 1], zz(tramos[i + 1], 8), 7 - i * 0.6);
+        }
+    });
 
-    const muro = new THREE.Mesh(new THREE.BoxGeometry(22, 8 + 14, 1.4), muroSombra);
-    muro.position.set(0, (8 - 14) / 2, 5.5);
-    castilloGrupo.add(muro);
-    for (let i = -10.4; i <= 10.4; i += 1.4) almenas.push([i, 8.35, 5.5]);
-    torre(-3.2, 6.2, 1.7, 11, 6, 0, true);
-    torre(3.2, 6.2, 1.7, 11, 6, 0, true);
-
-    const arco = new THREE.Mesh(new THREE.PlaneGeometry(3, 4.6), materialPuertaLuz);
-    arco.position.set(0, 2.3, 6.25);
-    const dintel = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 0.3, 8, 1, false, -Math.PI / 2, Math.PI), materialPuertaLuz);
-    dintel.rotation.x = Math.PI / 2;
-    dintel.position.set(0, 4.6, 6.25);
-    castilloGrupo.add(arco, dintel);
-    luzPuerta.position.set(0, 3, 10);
+    // Puerta principal
+    torre(-3.4, 9.4, 1.7, 11, 6, 0, true);
+    torre(3.4, 9.4, 1.7, 11, 6, 0, true);
+    const arco = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 5), materialPuertaLuz);
+    arco.position.set(0, 2.5, 9.8);
+    castilloGrupo.add(arco);
+    luzPuerta.position.set(0, 3, 14);
     castilloGrupo.add(luzPuerta);
 
-    const mallaAlmenas = new THREE.InstancedMesh(new THREE.BoxGeometry(0.75, 0.9, 0.6), muroSombra, almenas.length);
     const ayudante = new THREE.Object3D();
-    almenas.forEach(([x, y, z], i) => {
-        ayudante.position.set(x, y, z);
-        ayudante.rotation.set(0, 0, 0);
-        ayudante.scale.set(1, 1, 1);
+    const mallaAlmenas = new THREE.InstancedMesh(new THREE.BoxGeometry(0.9, 1, 1.5), muroSombra, almenas.length);
+    almenas.forEach((a, i) => {
+        ayudante.position.set(a.x, a.y, a.z);
+        ayudante.rotation.set(0, a.giro, 0);
         ayudante.updateMatrix();
         mallaAlmenas.setMatrixAt(i, ayudante.matrix);
     });
@@ -1022,19 +1146,8 @@ function crearCastillo() {
     });
     castilloGrupo.add(mallaVentanas);
 
-    const geometriaRoca = new THREE.DodecahedronGeometry(1, 0);
-    for (let i = 0; i < 16; i++) {
-        const angulo = (i / 16) * Math.PI * 2 + entre(-0.1, 0.1);
-        if (Math.abs(angulo - Math.PI / 2) < 0.35) continue;
-        const r = entre(12, 15);
-        const roca1 = new THREE.Mesh(geometriaRoca, roca);
-        roca1.position.set(Math.cos(angulo) * r, entre(-2.5, -0.5), Math.sin(angulo) * r * 0.85);
-        roca1.scale.set(entre(2.2, 3.6), entre(1.6, 2.8), entre(2.2, 3.6));
-        roca1.rotation.set(entre(0, 3), entre(0, 3), entre(0, 3));
-        castilloGrupo.add(roca1);
-    }
-
-    castilloGrupo.position.set(castillo.x, baseCastillo, castillo.z + 2);
+    castilloGrupo.scale.setScalar(3.6);
+    castilloGrupo.position.set(castillo.x, baseCastillo, castillo.z + 40);
     escena.add(castilloGrupo);
 }
 
@@ -1067,30 +1180,28 @@ function crearArboles() {
 
     const lugares = [];
     let intentos = 0;
-    const cuantos = movil ? 60 : 130;
+    const cuantos = movil ? 80 : 170;
     while (lugares.length < cuantos && intentos < 30000) {
         intentos++;
         let x;
         let z;
         let escala;
         const tipo = azar();
-        if (tipo < 0.12) {
-            x = (azar() < 0.5 ? -1 : 1) * entre(20, 34);
-            z = entre(-25, -70);
+        if (tipo < 0.15) {
+            x = (azar() < 0.5 ? -1 : 1) * entre(20, 36);
+            z = entre(-25, -100);
             escala = entre(1.6, 2.4);
-        } else if (tipo < 0.55) {
-            const angulo = entre(0, Math.PI * 2);
-            const radio = entre(30, 60);
-            x = castillo.x + Math.cos(angulo) * radio;
-            z = castillo.z + Math.sin(angulo) * radio * 0.8;
-            escala = entre(1.8, 2.8);
+        } else if (tipo < 0.6) {
+            x = (azar() < 0.5 ? -1 : 1) * entre(28, 170);
+            z = entre(-60, -420);
+            escala = entre(1.8, 3);
         } else {
-            x = entre(-110, 110);
-            z = entre(-60, -200);
-            escala = entre(1.6, 2.8);
+            x = entre(-70, -210);
+            z = entre(-150, -360);
+            escala = entre(2, 3.2);
         }
         if (distanciaAlCamino(x, z) < 9) continue;
-        if (Math.abs(x - castillo.x) < 16 && z < -70) continue;
+        if (Math.abs(x) < 70 && z < -160) continue;
         if (Math.abs(x) < 12 && z > -60) continue;
         lugares.push({ x, z, escala });
     }
@@ -1155,6 +1266,52 @@ function crearRocas() {
 }
 
 crearRocas();
+
+// =====================================================================
+// 13d. PÁJAROS
+// Una "V" de dos triángulos que bate las alas cambiando su forma.
+// Vuelan en círculos alrededor de la montaña.
+// =====================================================================
+
+const pajaros = [];
+
+function crearPajaros() {
+    const material = new THREE.MeshBasicMaterial({ color: "#2b2f3a", side: THREE.DoubleSide });
+    for (let i = 0; i < 22; i++) {
+        const geometria = new THREE.BufferGeometry();
+        geometria.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array(18), 3));
+        const malla = new THREE.Mesh(geometria, material);
+        malla.frustumCulled = false;
+        escena.add(malla);
+        pajaros.push({
+            malla,
+            radio: entre(180, 420),
+            altura: entre(200, 330),
+            fase: entre(0, Math.PI * 2),
+            velocidad: entre(0.03, 0.06) * (azar() < 0.5 ? 1 : -1),
+            tamano: entre(3, 5),
+            aleteo: entre(6, 9)
+        });
+    }
+}
+
+crearPajaros();
+
+function moverPajaros(tiempo, visibles) {
+    pajaros.forEach((p) => {
+        p.malla.visible = visibles;
+        if (!visibles) return;
+        const angulo = p.fase + tiempo * p.velocidad;
+        p.malla.position.set(castillo.x + Math.cos(angulo) * p.radio, p.altura + Math.sin(tiempo * 0.5 + p.fase) * 8, castillo.z + 150 + Math.sin(angulo) * p.radio * 0.5);
+        p.malla.rotation.y = -angulo + (p.velocidad > 0 ? 0 : Math.PI);
+        const ala = Math.sin(tiempo * p.aleteo + p.fase) * 0.6 * p.tamano;
+        const t = p.tamano;
+        const v = p.malla.geometry.attributes.position;
+        v.setXYZ(0, 0, 0, 0); v.setXYZ(1, -t, ala, -t * 0.3); v.setXYZ(2, 0, 0, -t * 0.25);
+        v.setXYZ(3, 0, 0, 0); v.setXYZ(4, t, ala, -t * 0.3); v.setXYZ(5, 0, 0, -t * 0.25);
+        v.needsUpdate = true;
+    });
+}
 
 // =====================================================================
 // 14. LUCIÉRNAGAS
@@ -1354,7 +1511,7 @@ botonCaminar.addEventListener("click", () => {
 });
 
 const miradaCamara = new THREE.Vector3();
-const objetivoVista = new THREE.Vector3(castillo.x, baseCastillo + 16, castillo.z);
+const objetivoVista = new THREE.Vector3(castillo.x, 112, castillo.z);
 
 function colocarCamara(paralaje) {
     const t = avance * finCaminable;
@@ -1369,7 +1526,8 @@ function colocarCamara(paralaje) {
     );
 
     miradaCamara.set(delante.x, alturaTerreno(delante.x, delante.z) + 1.3, delante.z);
-    miradaCamara.lerp(objetivoVista, 0.55);
+    objetivoVista.y = 112 + avance * 45;
+    miradaCamara.lerp(objetivoVista, 0.85);
     miradaCamara.x += paralaje.x * 6;
     miradaCamara.y += paralaje.y * 3;
     camara.lookAt(miradaCamara);
@@ -1447,7 +1605,7 @@ function actualizarRaton(delta) {
 
 const botonesMomento = document.querySelectorAll("#momentos button");
 const momentoPedido = parametros.get("momento");
-const momentoInicial = momentos[momentoPedido] ? momentoPedido : "atardecer";
+const momentoInicial = momentos[momentoPedido] ? momentoPedido : "manana";
 const momentoDesde = prepararMomento(datosVacios);
 let momentoHasta = momentos[momentoInicial];
 let progreso = 1;
@@ -1601,6 +1759,7 @@ function animar() {
     actualizarTrozos();
 
     banderas.forEach((b, i) => (b.rotation.y = Math.sin(tiempo * 3 + i) * 0.35));
+    moverPajaros(tiempo, actual.noche < 0.6);
     if (actual.noche > 0.02) moverLuciernagas(tiempo, actual.noche);
     else materialLuciernagas.opacity = 0;
 
