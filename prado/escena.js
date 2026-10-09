@@ -4,28 +4,34 @@ import { TexturePass } from "three/addons/postprocessing/TexturePass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 // =====================================================================
 // 1. AJUSTES GENERALES
+// Opciones en la dirección:
+//   ?calidad=baja  -> mucha menos hierba
+//   ?fps=si        -> contador de fotogramas por segundo
+//   ?tocar=no      -> la hierba no reacciona al ratón
+//   ?momento=noche -> empezar de noche (o manana)
+//   ?dof=si        -> empezar con el desenfoque activado
 // =====================================================================
 
 const parametros = new URLSearchParams(location.search);
 const movil = window.innerWidth < 760 || window.matchMedia("(pointer: coarse)").matches;
 const movimientoReducido = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const pantallaEstrecha = window.innerWidth < window.innerHeight;
+const tocarHierba = parametros.get("tocar") !== "no";
 
-// Con ?calidad=baja en la dirección se dibuja mucha menos hierba
-const factorCalidad = (parametros.get("calidad") === "baja" ? 0.25 : 1) * (movil ? 0.35 : 1);
+const factorCalidad = (parametros.get("calidad") === "baja" ? 0.25 : 1) * (movil ? 0.4 : 1);
 
 const ajustes = {
-    hierbaCamino: Math.floor(150000 * factorCalidad),
-    hierbaPrado: Math.floor(170000 * factorCalidad),
-    rodalesFlores: Math.max(12, Math.floor(45 * Math.max(factorCalidad, 0.5))),
-    luciernagas: movil ? 50 : 120,
+    hierbaCamino: Math.floor(110000 * factorCalidad),
+    hierbaPrado: Math.floor(110000 * factorCalidad),
+    rodalesFlores: Math.max(12, Math.floor(40 * Math.max(factorCalidad, 0.5))),
+    luciernagas: movil ? 50 : 110,
     estrellas: 1800,
-    arboles: movil ? 110 : 190,
-    pixeles: Math.min(window.devicePixelRatio, movil ? 1.5 : 2)
+    pixeles: Math.min(window.devicePixelRatio, movil ? 1.25 : 1.5),
+    tamanoTrozo: 14,
+    distanciaHierba: 120
 };
 
 // Números aleatorios con semilla: el prado sale siempre igual al recargar
@@ -41,28 +47,31 @@ function entre(a, b) {
     return a + azar() * (b - a);
 }
 
-// =====================================================================
-// 2. EL TERRENO Y EL CAMINO
-// alturaTerreno() da la altura de cualquier punto. La usan el suelo,
-// la hierba, las piedras, los árboles, el castillo y la cámara.
-// =====================================================================
-
-const castillo = { x: 0, z: -126 };
-
 function suave(a, b, x) {
     const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
     return t * t * (3 - 2 * t);
 }
 
+// =====================================================================
+// 2. EL TERRENO Y EL CAMINO
+// alturaTerreno() da la altura de cualquier punto del mundo.
+// El castillo está sobre una colina con la cima plana, y el camino
+// llega hasta su puerta. Tú solo recorres el primer tramo.
+// =====================================================================
+
+const castillo = { x: 0, z: -215 };
+
 function alturaTerreno(x, z) {
     const ondas = 0.55 * Math.sin(x * 0.07 + 1.3) * Math.cos(z * 0.05 + 0.4)
                 + 0.3 * Math.sin(x * 0.15 + z * 0.09);
-    const laderas = 7 * suave(16, 48, Math.abs(x)) * (0.65 + 0.35 * Math.sin(z * 0.035 + x * 0.01));
-    const rampa = 3.5 * suave(-25, -105, z);
+    const laderas = 8 * suave(18, 55, Math.abs(x)) * (0.65 + 0.35 * Math.sin(z * 0.035 + x * 0.01));
+    const rampa = 3 * suave(-30, -120, z);
     const dx = x - castillo.x;
     const dz = z - castillo.z;
-    const pena = 17 * Math.exp(-(dx * dx + dz * dz) / (2 * 10.5 * 10.5));
-    return ondas + laderas + rampa + pena;
+    const radio = Math.sqrt(dx * dx + dz * dz);
+    const colina = 26 * suave(40, 11, radio);
+    const rocas = 1.6 * Math.sin(dx * 0.4) * Math.cos(dz * 0.35) * suave(40, 18, radio) * suave(8, 16, radio);
+    return ondas + laderas + rampa + colina + rocas;
 }
 
 const camino = new THREE.CatmullRomCurve3([
@@ -72,13 +81,29 @@ const camino = new THREE.CatmullRomCurve3([
     new THREE.Vector3(1.4, 0, -30),
     new THREE.Vector3(4.2, 0, -46),
     new THREE.Vector3(0.5, 0, -62),
-    new THREE.Vector3(-3.8, 0, -76),
-    new THREE.Vector3(-1.2, 0, -84),
-    new THREE.Vector3(0.3, 0, -90)
+    new THREE.Vector3(-3.8, 0, -78),
+    new THREE.Vector3(-1, 0, -96),
+    new THREE.Vector3(5, 0, -116),
+    new THREE.Vector3(1, 0, -136),
+    new THREE.Vector3(-7, 0, -152),
+    new THREE.Vector3(-3, 0, -168),
+    new THREE.Vector3(6, 0, -180),
+    new THREE.Vector3(3, 0, -193),
+    new THREE.Vector3(0, 0, -202)
 ], false, "catmullrom", 0.5);
 
 const largoCamino = camino.getLength();
-const puntosCamino = camino.getSpacedPoints(400);
+const puntosCamino = camino.getSpacedPoints(600);
+
+// Hasta dónde se puede caminar (en fracción del camino)
+function fraccionHastaZ(zLimite) {
+    for (let i = 0; i < puntosCamino.length; i++) {
+        if (puntosCamino[i].z < zLimite) return i / (puntosCamino.length - 1);
+    }
+    return 1;
+}
+const finCaminable = fraccionHastaZ(-72);
+const finHierba = fraccionHastaZ(-150);
 
 function distanciaAlCamino(x, z) {
     let mejor = Infinity;
@@ -103,7 +128,7 @@ renderizador.toneMappingExposure = 1.05;
 document.body.prepend(renderizador.domElement);
 
 const escena = new THREE.Scene();
-escena.fog = new THREE.Fog("#f3cfaa", 70, 520);
+escena.fog = new THREE.Fog("#f3cfaa", 70, 560);
 
 const camara = new THREE.PerspectiveCamera(pantallaEstrecha ? 64 : 50, window.innerWidth / window.innerHeight, 0.1, 1400);
 
@@ -139,7 +164,7 @@ const momentos = {
         verdeBase: "#081a12", verdePunta: "#3f6e5c", amarillo: "#4c5c48",
         montana: "#16233f", luna: "#eef2fc",
         dirSol: [-0.38, 0.32, -0.87], dirDisco: [0.42, -0.3, -0.9], alturaLuna: 0.32,
-        intensidad: 0.45, translucidez: 0.12, noche: 1, solVisible: 0, brillo: 0.7
+        intensidad: 0.45, translucidez: 0.12, noche: 1, solVisible: 0, brillo: 0.75
     }
 };
 
@@ -163,9 +188,11 @@ function prepararMomento(datos) {
     return preparado;
 }
 
+const momentosCrudos = momentos;
+const datosVacios = { ...momentosCrudos.atardecer };
 Object.keys(momentos).forEach((clave) => (momentos[clave] = prepararMomento(momentos[clave])));
 
-const actual = prepararMomento({ ...momentos.atardecer, ...Object.fromEntries(nombresColor.map((n) => [n, "#000000"])), dirSol: [0, 1, 0], dirDisco: [0, 1, 0] });
+const actual = prepararMomento(datosVacios);
 
 function copiarMomento(destino, origen) {
     nombresColor.forEach((n) => destino[n].copy(origen[n]));
@@ -198,7 +225,7 @@ const comunes = {
     uFuerzaViento: { value: movimientoReducido ? 0.25 : 1 }
 };
 
-// Luces normales para los objetos con material estándar (castillo, piedras, árboles)
+// Luces normales para el castillo y las piedras
 const luzSol = new THREE.DirectionalLight("#ffffff", 2);
 const luzCielo = new THREE.HemisphereLight("#ffffff", "#3a4a2a", 0.8);
 escena.add(luzSol, luzSol.target, luzCielo);
@@ -231,6 +258,10 @@ const ruidoGLSL = `
         return total;
     }
 
+    float fbm2(vec2 p) {
+        return ruido(p) * 0.65 + ruido(p * 2.03) * 0.35;
+    }
+
     float manchas(vec2 xz) {
         return smoothstep(0.42, 0.64, fbm(xz * 0.05 + vec2(3.1, 7.2)));
     }
@@ -238,7 +269,7 @@ const ruidoGLSL = `
 
 const nieblaGLSL = `
     vec3 aplicarNiebla(vec3 color, float distancia) {
-        float n = smoothstep(55.0, 420.0, distancia);
+        float n = smoothstep(55.0, 460.0, distancia);
         return mix(color, uNiebla, n * 0.8);
     }
 `;
@@ -250,7 +281,6 @@ const nieblaGLSL = `
 const materialCielo = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
-    fog: false,
     uniforms: {
         ...comunes,
         uCenit: { value: actual.cenit },
@@ -344,18 +374,15 @@ geometriaEstrellas.setAttribute("position", new THREE.Float32BufferAttribute(pos
 const materialEstrellas = new THREE.PointsMaterial({
     color: "#ffffff", size: 1.5, sizeAttenuation: false, transparent: true, opacity: 0, depthWrite: false, fog: false
 });
-const estrellas = new THREE.Points(geometriaEstrellas, materialEstrellas);
-escena.add(estrellas);
+escena.add(new THREE.Points(geometriaEstrellas, materialEstrellas));
 
 // =====================================================================
 // 8. MONTAÑAS DEL FONDO (con picos y difuminadas con la distancia)
 // =====================================================================
 
-const montanas = [];
-
 function crearCordillera(distancia, alturaBase, alturaPicos, fase, bruma) {
     const forma = new THREE.Shape();
-    const ancho = 1600;
+    const ancho = 1800;
     forma.moveTo(-ancho / 2, -20);
     for (let x = -ancho / 2; x <= ancho / 2; x += 3) {
         const pico1 = 1 - Math.abs(Math.sin(x * 0.009 + fase));
@@ -368,7 +395,6 @@ function crearCordillera(distancia, alturaBase, alturaPicos, fase, bruma) {
     forma.closePath();
 
     const material = new THREE.ShaderMaterial({
-        fog: false,
         uniforms: {
             uColor: { value: actual.montana },
             uNiebla: comunes.uNiebla,
@@ -403,30 +429,30 @@ function crearCordillera(distancia, alturaBase, alturaPicos, fase, bruma) {
     const malla = new THREE.Mesh(new THREE.ShapeGeometry(forma), material);
     malla.position.z = -distancia;
     escena.add(malla);
-    montanas.push(malla);
 }
 
-crearCordillera(560, 30, 95, 1.2, 0.42);
-crearCordillera(420, 14, 70, 3.9, 0.28);
-crearCordillera(300, 4, 38, 7.4, 0.14);
+crearCordillera(640, 30, 110, 1.2, 0.42);
+crearCordillera(500, 14, 80, 3.9, 0.28);
+crearCordillera(380, 4, 45, 7.4, 0.14);
 
 // =====================================================================
 // 9. SUELO
-// Cada vértice guarda cuánto está "dentro del camino" para pintar
-// la tierra del sendero bajo las piedras.
+// Cada vértice guarda cuánto está "dentro del camino" para pintar la
+// tierra del sendero. Las laderas muy inclinadas se pintan de roca.
 // =====================================================================
 
-const geometriaSuelo = new THREE.PlaneGeometry(520, 520, 360, 360);
+const geometriaSuelo = new THREE.PlaneGeometry(600, 600, 380, 380);
 geometriaSuelo.rotateX(-Math.PI / 2);
-geometriaSuelo.translate(0, 0, -100);
+geometriaSuelo.translate(0, 0, -140);
 const verticesSuelo = geometriaSuelo.attributes.position;
 const tierraCamino = new Float32Array(verticesSuelo.count);
 for (let i = 0; i < verticesSuelo.count; i++) {
     const x = verticesSuelo.getX(i);
     const z = verticesSuelo.getZ(i);
     verticesSuelo.setY(i, alturaTerreno(x, z));
-    if (Math.abs(x) < 12 && z < 20 && z > -110) {
-        tierraCamino[i] = 1 - suave(1.1, 2.0, distanciaAlCamino(x, z));
+    if (Math.abs(x) < 16 && z < 20 && z > -210) {
+        const ancho = 1.6 + 1.6 * suave(-95, -150, z);
+        tierraCamino[i] = 1 - suave(ancho * 0.7, ancho, distanciaAlCamino(x, z));
     }
 }
 geometriaSuelo.setAttribute("aCamino", new THREE.BufferAttribute(tierraCamino, 1));
@@ -461,12 +487,19 @@ const materialSuelo = new THREE.ShaderMaterial({
         ${ruidoGLSL}
         ${nieblaGLSL}
         void main() {
-            float m = manchas(vMundo.xz);
+            vec3 normal = normalize(vNormal);
+            float m = smoothstep(0.42, 0.64, fbm2(vMundo.xz * 0.05 + vec2(3.1, 7.2)));
             vec3 color = mix(mix(uVerdeBase, uVerdePunta, 0.35), mix(uVerdeBase, uAmarillo, 0.45), m * 0.7);
             color *= 0.6 + ruido(vMundo.xz * 0.7) * 0.2;
-            vec3 tierra = vec3(0.32, 0.24, 0.16) * (0.8 + ruido(vMundo.xz * 2.0) * 0.3);
+
+            float roca = smoothstep(0.62, 0.42, normal.y) * (0.6 + 0.4 * ruido(vMundo.xz * 0.3));
+            vec3 colorRoca = vec3(0.24, 0.22, 0.23) * (0.75 + ruido(vMundo.xz * 1.3 + vMundo.y) * 0.4);
+            color = mix(color, colorRoca, roca);
+
+            vec3 tierra = vec3(0.42, 0.33, 0.24) * (0.8 + ruido(vMundo.xz * 2.0) * 0.3);
             color = mix(color, tierra, vCamino);
-            float difusa = max(dot(normalize(vNormal), uDirSol), 0.0);
+
+            float difusa = max(dot(normal, uDirSol), 0.0);
             color *= uAmbiente + uLuz * (0.35 + difusa * 0.65);
             color = aplicarNiebla(color, length(vMundo - cameraPosition));
             gl_FragColor = vec4(color, 1.0);
@@ -476,12 +509,10 @@ const materialSuelo = new THREE.ShaderMaterial({
     `
 });
 
-const suelo = new THREE.Mesh(geometriaSuelo, materialSuelo);
-escena.add(suelo);
+escena.add(new THREE.Mesh(geometriaSuelo, materialSuelo));
 
 // =====================================================================
-// 10. PIEDRAS DEL CAMINO
-// Losas planas e irregulares colocadas a lo largo del sendero.
+// 10. PIEDRAS DEL CAMINO (solo en el tramo cercano; lejos basta la tierra)
 // =====================================================================
 
 function crearPiedrasCamino() {
@@ -489,8 +520,9 @@ function crearPiedrasCamino() {
     const material = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.95, flatShading: true });
     const posiciones = [];
     const paso = 0.62;
+    const hasta = largoCamino * Math.min(1, finCaminable + 0.12);
 
-    for (let s = 0; s < largoCamino; s += paso) {
+    for (let s = 0; s < hasta; s += paso) {
         const t = s / largoCamino;
         const punto = camino.getPointAt(t);
         const tangente = camino.getTangentAt(t);
@@ -522,9 +554,10 @@ crearPiedrasCamino();
 
 // =====================================================================
 // 11. HIERBA
-// Cada brizna es un plano estrecho que se dibuja miles de veces con
-// "instancing". Cada copia tiene su posición, giro, altura y anchura.
-// El viento, el ratón y la luz se calculan en el shader.
+// Cada brizna es un plano estrecho repetido miles de veces con
+// "instancing". Para ir rápido, la hierba se divide en trozos
+// cuadrados: solo se dibujan los que están delante de la cámara y
+// cerca. Lo que queda detrás o muy lejos no se calcula.
 // =====================================================================
 
 const vertexHierba = `
@@ -564,22 +597,23 @@ const vertexHierba = `
 
         float curva = y * y;
 
-        float rafaga = fbm(aPosicion.xz * 0.05 - uViento * uTiempo * 0.75);
+        float rafaga = fbm2(aPosicion.xz * 0.05 - uViento * uTiempo * 0.75);
         float ola = sin(dot(aPosicion.xz, uViento) * 0.32 - uTiempo * 2.0 + aAzar * 1.3);
         float viento = (0.12 + rafaga * rafaga * 1.3) * (0.6 + 0.4 * ola) * uFuerzaViento;
         mundo.xz += uViento * viento * curva * aAlto;
         mundo.y -= viento * viento * 0.22 * curva * aAlto;
-        mundo.x += sin(uTiempo * 5.0 + aAzar * 25.0) * 0.008 * curva * uFuerzaViento;
 
-        vec2 alejar = aPosicion.xz - uRaton;
-        float distancia = length(alejar);
-        float empuje = (1.0 - smoothstep(0.0, 1.6, distancia)) * uFuerzaRaton;
-        mundo.xz += normalize(alejar + 0.0001) * empuje * curva * aAlto * 1.8;
-        mundo.y -= empuje * curva * aAlto * 0.75;
+        if (uFuerzaRaton > 0.001) {
+            vec2 alejar = aPosicion.xz - uRaton;
+            float distancia = length(alejar);
+            float empuje = (1.0 - smoothstep(0.0, 1.6, distancia)) * uFuerzaRaton;
+            mundo.xz += normalize(alejar + 0.0001) * empuje * curva * aAlto * 1.8;
+            mundo.y -= empuje * curva * aAlto * 0.75;
+        }
 
         vAlturaBrizna = y;
         vAzar = aAzar;
-        vMancha = manchas(aPosicion.xz);
+        vMancha = smoothstep(0.42, 0.64, fbm2(aPosicion.xz * 0.05 + vec2(3.1, 7.2)));
         vRafaga = rafaga;
         vMata = ruido(aPosicion.xz * 0.9) * 0.6 + ruido(aPosicion.xz * 0.23 + 5.0) * 0.4;
         vMundo = mundo;
@@ -622,9 +656,6 @@ const fragmentHierba = `
         color *= uAmbiente * 1.3 + uLuz * (0.25 + 0.75 * difusa) * (0.45 + 0.55 * vAlturaBrizna);
 
         vec3 vista = normalize(vMundo - cameraPosition);
-        float brilloLuz = pow(max(dot(reflect(-uDirSol, normal), -vista), 0.0), 14.0);
-        color += uLuz * brilloLuz * 0.12 * vAlturaBrizna;
-
         float contraluz = pow(max(dot(vista, uDirSol), 0.0), 6.0);
         color += uLuz * punta * contraluz * uTranslucidez * vAlturaBrizna * vAlturaBrizna * 0.45;
         color *= 1.0 + vRafaga * 0.08;
@@ -643,57 +674,91 @@ const materialHierba = new THREE.ShaderMaterial({
     fragmentShader: fragmentHierba
 });
 
-// La hierba se reparte alrededor del camino: más densa cerca y más
-// clara lejos. En el propio camino no crece.
-function crearHierba(cantidad, segmentos, distanciaMin, distanciaMax, potencia, alto, ancho) {
+const trozosHierba = [];
+
+function crearHierba(cantidad, segmentos, tMax, distanciaMin, distanciaMax, potencia, alto, ancho) {
     const brizna = new THREE.PlaneGeometry(1, 1, 1, segmentos);
     brizna.translate(0, 0.5, 0);
 
-    const geometria = new THREE.InstancedBufferGeometry();
-    geometria.index = brizna.index;
-    geometria.setAttribute("position", brizna.attributes.position);
-    geometria.setAttribute("uv", brizna.attributes.uv);
-
-    const posiciones = new Float32Array(cantidad * 3);
-    const angulos = new Float32Array(cantidad);
-    const altos = new Float32Array(cantidad);
-    const anchos = new Float32Array(cantidad);
-    const azares = new Float32Array(cantidad);
-
+    // Primero se calculan todas las briznas y se reparten por trozos
+    const cajones = new Map();
     for (let i = 0; i < cantidad; i++) {
-        const t = Math.min(1, entre(-0.02, 1.06));
+        const t = entre(-0.01, tMax);
         const punto = camino.getPointAt(Math.max(0, t));
         const tangente = camino.getTangentAt(Math.max(0, t));
         const lado = azar() < 0.5 ? -1 : 1;
         const distancia = distanciaMin + Math.pow(azar(), potencia) * (distanciaMax - distanciaMin);
-        let x = punto.x - tangente.z * distancia * lado;
-        let z = punto.z + tangente.x * distancia * lado;
-        if (t > 1) z -= (t - 1) * 120;
+        const x = punto.x - tangente.z * distancia * lado;
+        const z = punto.z + tangente.x * distancia * lado;
 
-        posiciones[i * 3] = x;
-        posiciones[i * 3 + 1] = alturaTerreno(x, z) - 0.02;
-        posiciones[i * 3 + 2] = z;
-        angulos[i] = azar() * Math.PI * 2;
-        altos[i] = entre(alto[0], alto[1]);
-        anchos[i] = entre(ancho[0], ancho[1]);
-        azares[i] = azar();
+        const clave = Math.floor(x / ajustes.tamanoTrozo) + "," + Math.floor(z / ajustes.tamanoTrozo);
+        if (!cajones.has(clave)) cajones.set(clave, []);
+        cajones.get(clave).push([x, alturaTerreno(x, z) - 0.02, z, azar() * Math.PI * 2, entre(alto[0], alto[1]), entre(ancho[0], ancho[1]), azar()]);
     }
 
-    geometria.setAttribute("aPosicion", new THREE.InstancedBufferAttribute(posiciones, 3));
-    geometria.setAttribute("aAngulo", new THREE.InstancedBufferAttribute(angulos, 1));
-    geometria.setAttribute("aAlto", new THREE.InstancedBufferAttribute(altos, 1));
-    geometria.setAttribute("aAncho", new THREE.InstancedBufferAttribute(anchos, 1));
-    geometria.setAttribute("aAzar", new THREE.InstancedBufferAttribute(azares, 1));
-    geometria.instanceCount = cantidad;
+    // Después se crea una malla por trozo, con su esfera para descartarla si no se ve
+    cajones.forEach((briznas) => {
+        const n = briznas.length;
+        const posiciones = new Float32Array(n * 3);
+        const angulos = new Float32Array(n);
+        const altos = new Float32Array(n);
+        const anchos = new Float32Array(n);
+        const azares = new Float32Array(n);
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
 
-    const malla = new THREE.Mesh(geometria, materialHierba);
-    malla.frustumCulled = false;
-    escena.add(malla);
-    return geometria;
+        briznas.forEach(([x, y, z, angulo, a, w, r], i) => {
+            posiciones[i * 3] = x;
+            posiciones[i * 3 + 1] = y;
+            posiciones[i * 3 + 2] = z;
+            angulos[i] = angulo;
+            altos[i] = a;
+            anchos[i] = w;
+            azares[i] = r;
+            minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+            minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+            minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+        });
+
+        const geometria = new THREE.InstancedBufferGeometry();
+        geometria.index = brizna.index;
+        geometria.setAttribute("position", brizna.attributes.position);
+        geometria.setAttribute("uv", brizna.attributes.uv);
+        geometria.setAttribute("aPosicion", new THREE.InstancedBufferAttribute(posiciones, 3));
+        geometria.setAttribute("aAngulo", new THREE.InstancedBufferAttribute(angulos, 1));
+        geometria.setAttribute("aAlto", new THREE.InstancedBufferAttribute(altos, 1));
+        geometria.setAttribute("aAncho", new THREE.InstancedBufferAttribute(anchos, 1));
+        geometria.setAttribute("aAzar", new THREE.InstancedBufferAttribute(azares, 1));
+        geometria.instanceCount = n;
+
+        const centro = new THREE.Vector3((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
+        const radio = new THREE.Vector3(maxX - minX, maxY - minY + 2, maxZ - minZ).length() / 2 + 2.5;
+        geometria.boundingSphere = new THREE.Sphere(centro, radio);
+        geometria.boundingBox = new THREE.Box3(new THREE.Vector3(minX - 2.5, minY - 1, minZ - 2.5), new THREE.Vector3(maxX + 2.5, maxY + 2, maxZ + 2.5));
+
+        const malla = new THREE.Mesh(geometria, materialHierba);
+        malla.frustumCulled = true;
+        escena.add(malla);
+        trozosHierba.push({ malla, geometria, total: n, centro });
+    });
 }
 
-const hierbaCamino = crearHierba(ajustes.hierbaCamino, 4, 1.25, 7, 1.4, [0.22, 0.48], [0.026, 0.045]);
-const hierbaPrado = crearHierba(ajustes.hierbaPrado, 2, 7, 42, 1.6, [0.3, 0.6], [0.05, 0.08]);
+crearHierba(ajustes.hierbaCamino, 4, finCaminable + 0.06, 1.25, 7, 1.4, [0.22, 0.48], [0.026, 0.045]);
+crearHierba(ajustes.hierbaPrado, 2, finCaminable + 0.12, 7, 40, 1.6, [0.3, 0.6], [0.05, 0.08]);
+crearHierba(Math.floor(ajustes.hierbaPrado * 0.35), 1, finHierba, 1.6, 30, 1.3, [0.35, 0.65], [0.07, 0.1]);
+
+let calidadHierba = 1;
+
+function actualizarTrozos() {
+    const lejos = ajustes.distanciaHierba;
+    trozosHierba.forEach((trozo) => {
+        const distancia = trozo.centro.distanceTo(camara.position);
+        trozo.malla.visible = distancia < lejos;
+        if (trozo.malla.visible) {
+            const cercania = distancia < 40 ? 1 : 0.55;
+            trozo.geometria.instanceCount = Math.floor(trozo.total * calidadHierba * cercania);
+        }
+    });
+}
 
 // =====================================================================
 // 12. FLORES
@@ -706,7 +771,7 @@ const coloresFlor = ["#e0473f", "#4a6fd8", "#f2c84b", "#f6f1e4", "#e6779e"].map(
 function crearFlores() {
     const datos = [];
     for (let r = 0; r < ajustes.rodalesFlores; r++) {
-        const t = entre(0.0, 0.95);
+        const t = entre(0.0, finCaminable + 0.1);
         const punto = camino.getPointAt(t);
         const tangente = camino.getTangentAt(t);
         const lado = azar() < 0.5 ? -1 : 1;
@@ -780,7 +845,7 @@ function crearFlores() {
             void main() {
                 vec3 centro = aPosicion + vec3(0.0, aAlto, 0.0);
 
-                float rafaga = fbm(aPosicion.xz * 0.05 - uViento * uTiempo * 0.75);
+                float rafaga = fbm2(aPosicion.xz * 0.05 - uViento * uTiempo * 0.75);
                 float ola = sin(dot(aPosicion.xz, uViento) * 0.32 - uTiempo * 2.0 + aAzar * 1.3);
                 float viento = (0.12 + rafaga * rafaga * 1.3) * (0.6 + 0.4 * ola) * uFuerzaViento;
                 centro.xz += uViento * viento * aAlto * 0.8;
@@ -839,173 +904,102 @@ function crearFlores() {
 crearFlores();
 
 // =====================================================================
-// 13. PINOS
-// Tres conos apilados y un tronco, repetidos con "instancing".
-// =====================================================================
-
-function crearArboles() {
-    const copa = mergeGeometries([
-        new THREE.ConeGeometry(1.0, 1.6, 7).translate(0, 1.6, 0),
-        new THREE.ConeGeometry(0.8, 1.4, 7).translate(0, 2.4, 0),
-        new THREE.ConeGeometry(0.55, 1.2, 7).translate(0, 3.15, 0)
-    ]);
-    const tronco = new THREE.CylinderGeometry(0.12, 0.16, 1.2, 6).translate(0, 0.6, 0);
-
-    const lugares = [];
-    let intentos = 0;
-    while (lugares.length < ajustes.arboles && intentos < 20000) {
-        intentos++;
-        let x;
-        let z;
-        if (azar() < 0.45) {
-            const angulo = entre(0, Math.PI * 2);
-            const radio = entre(9, 26);
-            x = castillo.x + Math.cos(angulo) * radio;
-            z = castillo.z + Math.sin(angulo) * radio;
-        } else {
-            x = entre(-70, 70);
-            z = entre(-150, -15);
-        }
-        if (distanciaAlCamino(x, z) < 10) continue;
-        if (z > -28) continue;
-        if (Math.abs(x) < 14 && z > -55) continue;
-        const dx = x - castillo.x;
-        const dz = z - castillo.z;
-        if (dx * dx + dz * dz < 64) continue;
-        if (dz > 0 && Math.abs(dx) < 7) continue;
-        lugares.push({ x, z, escala: entre(1.2, 2.6) });
-    }
-
-    const materialCopa = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.9, flatShading: true });
-    const materialTronco = new THREE.MeshStandardMaterial({ color: "#4a3626", roughness: 1 });
-    const copas = new THREE.InstancedMesh(copa, materialCopa, lugares.length);
-    const troncos = new THREE.InstancedMesh(tronco, materialTronco, lugares.length);
-    const ayudante = new THREE.Object3D();
-    const color = new THREE.Color();
-
-    lugares.forEach(({ x, z, escala }, i) => {
-        ayudante.position.set(x, alturaTerreno(x, z) - 0.1, z);
-        ayudante.rotation.set(0, entre(0, Math.PI * 2), 0);
-        ayudante.scale.set(escala * entre(0.85, 1.1), escala, escala * entre(0.85, 1.1));
-        ayudante.updateMatrix();
-        copas.setMatrixAt(i, ayudante.matrix);
-        troncos.setMatrixAt(i, ayudante.matrix);
-        copas.setColorAt(i, color.setHSL(entre(0.3, 0.38), entre(0.35, 0.5), entre(0.17, 0.26)));
-    });
-
-    escena.add(copas, troncos);
-}
-
-crearArboles();
-
-// =====================================================================
-// 14. EL CASTILLO
-// Hecho con piezas sencillas: cajas, cilindros y conos. Las ventanas
-// son planos que de noche brillan (y el "bloom" les da el resplandor).
+// 13. EL CASTILLO
+// Castillo gótico de cuento: torres altas y finas con tejados muy
+// puntiagudos. Está lejos, así que se ve como una silueta en la bruma.
+// De noche las ventanas y la puerta se encienden.
 // =====================================================================
 
 const castilloGrupo = new THREE.Group();
-const materialVentanas = new THREE.MeshBasicMaterial({ color: "#1c1a22", fog: true, toneMapped: true });
-const luzCastillo = new THREE.PointLight("#ffb766", 0, 60, 1.6);
-
-const baseCastillo = alturaTerreno(castillo.x, castillo.z) - 0.6;
+const materialVentanas = new THREE.MeshBasicMaterial({ color: "#1c1a22" });
+const materialPuertaLuz = new THREE.MeshBasicMaterial({ color: "#1c1a22" });
+const luzPuerta = new THREE.PointLight("#ffb766", 0, 40, 1.5);
+const banderas = [];
+const baseCastillo = alturaTerreno(castillo.x, castillo.z);
 
 function crearCastillo() {
-    const piedra = new THREE.MeshStandardMaterial({ color: "#7d706c", roughness: 0.95, flatShading: true });
-    const piedraOscura = new THREE.MeshStandardMaterial({ color: "#5f5452", roughness: 0.95, flatShading: true });
-    const tejado = new THREE.MeshStandardMaterial({ color: "#363c5a", roughness: 0.8, flatShading: true });
-    const puerta = new THREE.MeshStandardMaterial({ color: "#1d1512", roughness: 1 });
-    const bandera = new THREE.MeshStandardMaterial({ color: "#b53a2e", side: THREE.DoubleSide, roughness: 0.9 });
-
+    const piedra = new THREE.MeshStandardMaterial({ color: "#6a6572", roughness: 0.95, flatShading: true });
+    const piedraOscura = new THREE.MeshStandardMaterial({ color: "#4c4855", roughness: 0.95, flatShading: true });
+    const tejado = new THREE.MeshStandardMaterial({ color: "#2b2f4a", roughness: 0.85, flatShading: true });
+    const bandera = new THREE.MeshStandardMaterial({ color: "#a8332a", side: THREE.DoubleSide });
     const ventanas = [];
-    const almenas = [];
 
-    function torre(x, z, radio, alto, altoTejado, base = 0) {
-        const cimiento = base === 0 ? 7 : 0;
-        const cuerpo = new THREE.Mesh(new THREE.CylinderGeometry(radio, radio * 1.08, alto + cimiento, 10), piedra);
-        cuerpo.position.set(x, base + (alto - cimiento) / 2, z);
-        const borde = new THREE.Mesh(new THREE.CylinderGeometry(radio * 1.18, radio * 1.18, 0.35, 10), piedraOscura);
-        borde.position.set(x, base + alto, z);
-        const techo = new THREE.Mesh(new THREE.ConeGeometry(radio * 1.3, altoTejado, 10), tejado);
-        techo.position.set(x, base + alto + altoTejado / 2 + 0.15, z);
-        castilloGrupo.add(cuerpo, borde, techo);
-
-        const mastil = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.4, 4), piedraOscura);
-        mastil.position.set(x, base + alto + altoTejado + 0.7, z);
-        const tela = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.5), bandera);
-        tela.position.set(x + 0.45, base + alto + altoTejado + 1.15, z);
-        castilloGrupo.add(mastil, tela);
-        banderas.push(tela);
-
-        const pisos = Math.max(1, Math.floor(alto / 2.6));
-        for (let p = 0; p < pisos; p++) {
-            const y = base + 1.6 + p * 2.6;
-            if (y > base + alto - 0.8) break;
-            for (let a = -1; a <= 1; a++) {
-                const angulo = a * 0.7 + entre(-0.1, 0.1);
-                ventanas.push({
-                    x: x + Math.sin(angulo) * (radio + 0.02),
-                    y,
-                    z: z + Math.cos(angulo) * (radio + 0.02),
-                    giro: angulo,
-                    ancho: 0.32,
-                    alto: 0.6
-                });
+    function anadirVentanas(x, z, radio, desde, hasta, columnas, separacion, ancho = 0.55, alto = 1.1) {
+        for (let y = desde; y <= hasta; y += separacion) {
+            for (let c = 0; c < columnas; c++) {
+                const angulo = columnas === 1 ? 0 : (c / (columnas - 1) - 0.5) * 1.3;
+                if (azar() < 0.18) continue;
+                ventanas.push({ x: x + Math.sin(angulo) * (radio + 0.03), y, z: z + Math.cos(angulo) * (radio + 0.03), giro: angulo, ancho, alto });
             }
         }
     }
 
-    function muro(x1, z1, x2, z2, alto) {
-        const largo = Math.hypot(x2 - x1, z2 - z1);
-        const angulo = Math.atan2(x2 - x1, z2 - z1);
-        const pared = new THREE.Mesh(new THREE.BoxGeometry(0.9, alto + 7, largo), piedraOscura);
-        pared.position.set((x1 + x2) / 2, (alto - 7) / 2, (z1 + z2) / 2);
-        pared.rotation.y = angulo;
-        castilloGrupo.add(pared);
-        const cuantas = Math.floor(largo / 0.9);
-        for (let i = 0; i < cuantas; i += 2) {
-            const t = (i + 0.5) / cuantas;
-            almenas.push({ x: x1 + (x2 - x1) * t, y: alto + 0.25, z: z1 + (z2 - z1) * t, giro: angulo });
+    function torre(x, z, radio, alto, altoTejado, base = 0, conBandera = false) {
+        const cuerpo = new THREE.Mesh(new THREE.CylinderGeometry(radio, radio * 1.06, alto + 14, 10), piedra);
+        cuerpo.position.set(x, base + (alto - 14) / 2, z);
+        const voladizo = new THREE.Mesh(new THREE.CylinderGeometry(radio * 1.2, radio * 0.98, 1.1, 10), piedraOscura);
+        voladizo.position.set(x, base + alto + 0.3, z);
+        const techo = new THREE.Mesh(new THREE.ConeGeometry(radio * 1.32, altoTejado, 10), tejado);
+        techo.position.set(x, base + alto + 0.85 + altoTejado / 2, z);
+        castilloGrupo.add(cuerpo, voladizo, techo);
+
+        if (conBandera) {
+            const mastil = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.4, 4), piedraOscura);
+            mastil.position.set(x, base + alto + altoTejado + 2, z);
+            const tela = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.8), bandera);
+            tela.position.set(x + 0.8, base + alto + altoTejado + 2.7, z);
+            castilloGrupo.add(mastil, tela);
+            banderas.push(tela);
+        }
+
+        anadirVentanas(x, z, radio, base + 2.5, base + alto - 2, radio > 1.8 ? 3 : 2, 3.2);
+    }
+
+    function cuerpoCaja(x, z, ancho, alto, fondo, base = 0) {
+        const caja = new THREE.Mesh(new THREE.BoxGeometry(ancho, alto + 14, fondo), piedra);
+        caja.position.set(x, base + (alto - 14) / 2, z);
+        castilloGrupo.add(caja);
+        for (let y = base + 2.5; y < base + alto - 1.5; y += 3.2) {
+            for (let c = -1; c <= 1; c++) {
+                if (azar() < 0.15) continue;
+                ventanas.push({ x: x + c * ancho * 0.28, y, z: z + fondo / 2 + 0.03, giro: 0, ancho: 0.7, alto: 1.3 });
+            }
         }
     }
 
-    const esquinas = [[-7, 6], [7, 6], [8, -5], [0, -9], [-8, -5]];
-    for (let i = 0; i < esquinas.length; i++) {
-        const [x1, z1] = esquinas[i];
-        const [x2, z2] = esquinas[(i + 1) % esquinas.length];
-        muro(x1, z1, x2, z2, 4.2);
-        torre(x1, z1, 1.15, 6.5, 3.2);
-    }
+    // Cuerpo principal y torre del homenaje
+    cuerpoCaja(0, -2, 13, 20, 10);
+    cuerpoCaja(0, -3, 8.5, 12, 7, 20);
+    torre(0, -3, 2.6, 22, 13, 32, true);
 
-    const homenaje = new THREE.Mesh(new THREE.BoxGeometry(6, 10, 5.5), piedra);
-    homenaje.position.set(0, 5, -1.5);
-    const homenajeAlto = new THREE.Mesh(new THREE.BoxGeometry(4, 5, 3.8), piedra);
-    homenajeAlto.position.set(0, 12.5, -1.5);
-    const tejadoHomenaje = new THREE.Mesh(new THREE.ConeGeometry(3.4, 4.5, 4), tejado);
-    tejadoHomenaje.position.set(0, 17.2, -1.5);
-    tejadoHomenaje.rotation.y = Math.PI / 4;
-    castilloGrupo.add(homenaje, homenajeAlto, tejadoHomenaje);
+    // Torres altas a los lados
+    torre(-8, -1, 2.2, 30, 11, 0, true);
+    torre(8, -1, 2.2, 27, 10, 0, true);
+    torre(-5, -8, 1.8, 36, 12, 0, true);
+    torre(5.5, -8.5, 1.8, 33, 11);
+    torre(-11.5, 4, 1.6, 16, 8);
+    torre(11.5, 4, 1.6, 15, 8);
 
-    for (let piso = 0; piso < 3; piso++) {
-        for (let c = -1; c <= 1; c++) {
-            ventanas.push({ x: c * 1.6, y: 2.2 + piso * 2.8, z: 1.27, giro: 0, ancho: 0.5, alto: 0.9 });
-        }
-    }
-    ventanas.push({ x: -0.9, y: 12.8, z: 0.42, giro: 0, ancho: 0.45, alto: 0.8 });
-    ventanas.push({ x: 0.9, y: 12.8, z: 0.42, giro: 0, ancho: 0.45, alto: 0.8 });
+    // Torrecillas en las esquinas del cuerpo alto
+    torre(-4.6, 0.6, 0.9, 6, 5, 26);
+    torre(4.6, 0.6, 0.9, 6, 5, 26);
+    torre(-4.6, -6.6, 0.9, 7, 5, 26);
+    torre(4.6, -6.6, 0.9, 7, 5, 26);
 
-    torre(-2.6, -3.6, 0.8, 8, 3.4, 10);
-    torre(2.6, -3.6, 0.8, 8, 3.4, 10);
-    torre(0, -2.2, 1.1, 10, 5.5, 13);
-    torre(3.4, 1.2, 0.6, 3, 2.4, 10);
-    torre(-3.4, 1.2, 0.6, 3, 2.4, 10);
+    // Muralla delantera y torres de la puerta
+    const muro = new THREE.Mesh(new THREE.BoxGeometry(22, 8 + 14, 1.2), piedraOscura);
+    muro.position.set(0, (8 - 14) / 2, 5.5);
+    castilloGrupo.add(muro);
+    torre(-3.2, 6, 1.7, 11, 6);
+    torre(3.2, 6, 1.7, 11, 6);
 
-    const arco = new THREE.Mesh(new THREE.BoxGeometry(1.8, 2.6, 0.3), puerta);
-    arco.position.set(0, 1.3, 6.2);
+    const arco = new THREE.Mesh(new THREE.PlaneGeometry(3, 4.6), materialPuertaLuz);
+    arco.position.set(0, 2.3, 6.15);
     castilloGrupo.add(arco);
+    luzPuerta.position.set(0, 3, 10);
+    castilloGrupo.add(luzPuerta);
 
-    const geometriaVentana = new THREE.PlaneGeometry(1, 1);
-    const mallaVentanas = new THREE.InstancedMesh(geometriaVentana, materialVentanas, ventanas.length);
+    const mallaVentanas = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), materialVentanas, ventanas.length);
     const ayudante = new THREE.Object3D();
     ventanas.forEach((v, i) => {
         ayudante.position.set(v.x, v.y, v.z);
@@ -1016,46 +1010,14 @@ function crearCastillo() {
     });
     castilloGrupo.add(mallaVentanas);
 
-    const mallaAlmenas = new THREE.InstancedMesh(new THREE.BoxGeometry(0.95, 0.5, 0.55), piedraOscura, almenas.length);
-    almenas.forEach((a, i) => {
-        ayudante.position.set(a.x, a.y, a.z);
-        ayudante.rotation.set(0, a.giro, 0);
-        ayudante.scale.set(1, 1, 1);
-        ayudante.updateMatrix();
-        mallaAlmenas.setMatrixAt(i, ayudante.matrix);
-    });
-    castilloGrupo.add(mallaAlmenas);
-
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(9.5, 13, 9, 9), new THREE.MeshStandardMaterial({ color: "#5d5650", roughness: 1, flatShading: true }));
-    base.position.y = -4.9;
-    castilloGrupo.add(base);
-
-    const rocas = new THREE.DodecahedronGeometry(1, 0);
-    for (let i = 0; i < 14; i++) {
-        const angulo = (i / 14) * Math.PI * 2;
-        const roca = new THREE.Mesh(rocas, piedraOscura);
-        const rx = Math.cos(angulo) * 8.5;
-        const rz = Math.sin(angulo) * 7.5;
-        const sueloRoca = (alturaTerreno(castillo.x + rx * 1.15, castillo.z + rz * 1.15) - baseCastillo) / 1.15;
-        roca.position.set(rx, sueloRoca - 0.4, rz);
-        roca.scale.set(entre(1.2, 2), entre(0.9, 1.5), entre(1.2, 2));
-        roca.rotation.set(entre(0, 3), entre(0, 3), 0);
-        castilloGrupo.add(roca);
-    }
-
-    luzCastillo.position.set(0, 8, 9);
-    castilloGrupo.add(luzCastillo);
-
-    castilloGrupo.position.set(castillo.x, baseCastillo, castillo.z);
-    castilloGrupo.scale.setScalar(1.15);
+    castilloGrupo.position.set(castillo.x, baseCastillo, castillo.z + 2);
     escena.add(castilloGrupo);
 }
 
-const banderas = [];
 crearCastillo();
 
 // =====================================================================
-// 15. LUCIÉRNAGAS
+// 14. LUCIÉRNAGAS
 // =====================================================================
 
 function texturaBrillo() {
@@ -1074,7 +1036,7 @@ function texturaBrillo() {
 
 const luciernagas = [];
 for (let i = 0; i < ajustes.luciernagas; i++) {
-    const t = entre(0, 1);
+    const t = entre(0, finCaminable + 0.05);
     const punto = camino.getPointAt(t);
     const x = punto.x + entre(-9, 9);
     const z = punto.z + entre(-3, 3);
@@ -1106,27 +1068,43 @@ function moverLuciernagas(tiempo, brillo) {
 }
 
 // =====================================================================
-// 16. POSTPROCESADO
-// 1) la escena se dibuja en una textura que también guarda la
-//    profundidad; 2) el pase DOF desenfoca según la distancia;
-// 3) el "bloom" hace brillar lo más luminoso; 4) se pasa a pantalla.
+// 15. POSTPROCESADO
+// 1) la escena se dibuja en una textura que guarda también la
+//    profundidad; 2) el DOF desenfoca según la distancia; 3) el
+//    "bloom" hace brillar lo más luminoso; 4) se pasa a pantalla.
+// Cuando cambia el tamaño, la textura se crea de nuevo (si solo se
+// redimensiona, la profundidad se rompe y la pantalla sale negra).
 // =====================================================================
 
 function tamanoReal() {
-    return new THREE.Vector2(window.innerWidth * renderizador.getPixelRatio(), window.innerHeight * renderizador.getPixelRatio());
+    return new THREE.Vector2(
+        Math.floor(window.innerWidth * renderizador.getPixelRatio()),
+        Math.floor(window.innerHeight * renderizador.getPixelRatio())
+    );
 }
 
 let tamano = tamanoReal();
-const destinoEscena = new THREE.WebGLRenderTarget(tamano.x, tamano.y, {
-    type: THREE.HalfFloatType,
-    samples: 4,
-    depthTexture: new THREE.DepthTexture(tamano.x, tamano.y)
-});
+let destinoEscena = null;
+
+function crearDestino() {
+    if (destinoEscena) {
+        destinoEscena.depthTexture.dispose();
+        destinoEscena.dispose();
+    }
+    destinoEscena = new THREE.WebGLRenderTarget(tamano.x, tamano.y, {
+        type: THREE.HalfFloatType,
+        samples: movil ? 0 : 4,
+        depthTexture: new THREE.DepthTexture(tamano.x, tamano.y)
+    });
+}
+
+crearDestino();
 
 const compositor = new EffectComposer(renderizador);
 compositor.setPixelRatio(renderizador.getPixelRatio());
 compositor.setSize(window.innerWidth, window.innerHeight);
-compositor.addPass(new TexturePass(destinoEscena.texture));
+const paseEscena = new TexturePass(destinoEscena.texture);
+compositor.addPass(paseEscena);
 
 const paseDesenfoque = new ShaderPass({
     uniforms: {
@@ -1136,7 +1114,7 @@ const paseDesenfoque = new ShaderPass({
         uCerca: { value: camara.near },
         uLejos: { value: camara.far },
         uFoco: { value: 7 },
-        uRadio: { value: movil ? 6 : 11 }
+        uRadio: { value: movil ? 6 : 10 }
     },
     vertexShader: `
         varying vec2 vUv;
@@ -1170,15 +1148,17 @@ const paseDesenfoque = new ShaderPass({
             vec4 suma = texture2D(tDiffuse, vUv);
             float pesos = 1.0;
             float radio = centro * uRadio;
-            for (int i = 0; i < 28; i++) {
+            if (radio < 0.5) {
+                gl_FragColor = suma;
+                return;
+            }
+            for (int i = 0; i < 20; i++) {
                 float f = float(i);
-                float r = sqrt((f + 0.5) / 28.0) * radio;
+                float r = sqrt((f + 0.5) / 20.0) * radio;
                 float a = f * 2.39996;
-                vec2 desvio = vec2(cos(a), sin(a)) * r / uResolucion;
-                vec2 uv = vUv + desvio;
+                vec2 uv = vUv + vec2(cos(a), sin(a)) * r / uResolucion;
                 float suyo = desenfoqueEn(distanciaEn(uv));
-                float peso = smoothstep(0.0, 1.0, suyo * uRadio - r + 1.0);
-                peso = max(peso, 0.15 * step(r, radio));
+                float peso = max(smoothstep(0.0, 1.0, suyo * uRadio - r + 1.0), 0.15);
                 suma += texture2D(tDiffuse, uv) * peso;
                 pesos += peso;
             }
@@ -1189,20 +1169,20 @@ const paseDesenfoque = new ShaderPass({
 paseDesenfoque.enabled = false;
 compositor.addPass(paseDesenfoque);
 
-const paseBrillo = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.35, 0.55, 0.9);
+const paseBrillo = new UnrealBloomPass(new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2), 0.35, 0.55, 0.9);
 compositor.addPass(paseBrillo);
 compositor.addPass(new OutputPass());
 
 // =====================================================================
-// 17. CAMINAR POR EL CAMINO
-// La posición en el camino va de 0 (inicio) a 1 (pie del castillo).
-// La rueda, el dedo, el teclado o el botón "Caminar" la cambian.
+// 16. CAMINAR POR EL CAMINO
+// "avance" va de 0 (inicio) a 1 (fin del tramo que se puede andar).
+// El camino sigue hasta la puerta del castillo, pero nunca se llega.
 // =====================================================================
 
 let avance = 0;
 let avanceObjetivo = 0;
 let caminandoSolo = false;
-const velocidadSola = 0.011;
+const velocidadSola = 0.014;
 const botonCaminar = document.getElementById("boton-caminar");
 const relleno = document.getElementById("relleno");
 const pista = document.getElementById("pista");
@@ -1218,12 +1198,12 @@ window.addEventListener("wheel", (evento) => {
     evento.preventDefault();
     caminandoSolo = false;
     botonCaminar.classList.remove("activo");
-    moverAvance(evento.deltaY * 0.00022);
+    moverAvance(evento.deltaY * 0.0004);
 }, { passive: false });
 
 window.addEventListener("keydown", (evento) => {
-    if (["ArrowUp", "w", "W"].includes(evento.key)) moverAvance(0.02);
-    if (["ArrowDown", "s", "S"].includes(evento.key)) moverAvance(-0.02);
+    if (["ArrowUp", "w", "W"].includes(evento.key)) moverAvance(0.03);
+    if (["ArrowDown", "s", "S"].includes(evento.key)) moverAvance(-0.03);
 });
 
 botonCaminar.addEventListener("click", () => {
@@ -1233,45 +1213,44 @@ botonCaminar.addEventListener("click", () => {
     pista.classList.add("oculta");
 });
 
-const posicionCamara = new THREE.Vector3();
 const miradaCamara = new THREE.Vector3();
-const cimaCastillo = new THREE.Vector3(castillo.x, alturaTerreno(castillo.x, castillo.z) + 12, castillo.z);
+const objetivoVista = new THREE.Vector3(castillo.x, baseCastillo + 16, castillo.z);
 
 function colocarCamara(paralaje) {
-    const t = Math.min(avance, 1);
+    const t = avance * finCaminable;
     const punto = camino.getPointAt(t);
-    const delante = camino.getPointAt(Math.min(1, t + 0.05));
+    const delante = camino.getPointAt(Math.min(1, t + 0.03));
     const balanceo = Math.sin(t * largoCamino * 2.2) * 0.025 * Math.min(1, Math.abs(avanceObjetivo - avance) * 60);
 
-    posicionCamara.set(punto.x + paralaje.x * 0.6, alturaTerreno(punto.x, punto.z) + 1.55 + balanceo + paralaje.y * 0.15, punto.z);
+    camara.position.set(
+        punto.x + paralaje.x * 0.6,
+        alturaTerreno(punto.x, punto.z) + 1.55 + balanceo + paralaje.y * 0.15,
+        punto.z
+    );
 
     miradaCamara.set(delante.x, alturaTerreno(delante.x, delante.z) + 1.3, delante.z);
-    const haciaCastillo = 0.5 + 0.15 * t;
-    miradaCamara.lerp(cimaCastillo, haciaCastillo);
+    miradaCamara.lerp(objetivoVista, 0.55);
     miradaCamara.x += paralaje.x * 6;
     miradaCamara.y += paralaje.y * 3;
-
-    camara.position.copy(posicionCamara);
     camara.lookAt(miradaCamara);
-
-    paseDesenfoque.uniforms.uFoco.value = 6 + t * 30;
 }
 
 // =====================================================================
-// 18. RATÓN Y DEDO
+// 17. RATÓN Y DEDO
 // =====================================================================
 
 const rayo = new THREE.Raycaster();
 const puntero = new THREE.Vector2();
 const objetivoRaton = new THREE.Vector2(999, 999);
 const paralaje = new THREE.Vector2();
+const paralajeCero = new THREE.Vector2();
 let punteroDentro = false;
 let punteroMovido = false;
 let dedoY = null;
 
 function cortarTerreno(origen, direccion) {
     const punto = new THREE.Vector3();
-    for (let distancia = 0.3; distancia < 60; distancia += distancia < 12 ? 0.08 : 0.4) {
+    for (let distancia = 0.3; distancia < 40; distancia += distancia < 12 ? 0.1 : 0.5) {
         punto.copy(direccion).multiplyScalar(distancia).add(origen);
         if (punto.y <= alturaTerreno(punto.x, punto.z) + 0.25) return punto;
     }
@@ -1285,7 +1264,7 @@ function moverPuntero(evento) {
     punteroMovido = true;
 
     if (evento.pointerType === "touch" && dedoY !== null) {
-        moverAvance((dedoY - evento.clientY) * 0.0006);
+        moverAvance((dedoY - evento.clientY) * 0.0009);
         dedoY = evento.clientY;
     }
 }
@@ -1304,7 +1283,7 @@ renderizador.domElement.addEventListener("pointerup", (evento) => {
 });
 
 function actualizarRaton(delta) {
-    if (punteroMovido) {
+    if (tocarHierba && punteroMovido) {
         rayo.setFromCamera(puntero, camara);
         const punto = cortarTerreno(rayo.ray.origin, rayo.ray.direction);
         if (punto) objetivoRaton.set(punto.x, punto.z);
@@ -1315,21 +1294,21 @@ function actualizarRaton(delta) {
     if (actualRaton.x > 900) actualRaton.copy(objetivoRaton);
     else actualRaton.lerp(objetivoRaton, Math.min(1, delta * 12));
 
-    const fuerzaObjetivo = punteroDentro && objetivoRaton.x < 900 ? 1 : 0;
+    const fuerzaObjetivo = tocarHierba && punteroDentro && objetivoRaton.x < 900 ? 1 : 0;
     comunes.uFuerzaRaton.value += (fuerzaObjetivo - comunes.uFuerzaRaton.value) * Math.min(1, delta * 4);
+    if (comunes.uFuerzaRaton.value < 0.002) comunes.uFuerzaRaton.value = 0;
 
-    const paralajeObjetivo = punteroDentro && !movil ? puntero : new THREE.Vector2();
-    paralaje.lerp(paralajeObjetivo, Math.min(1, delta * 2.5));
+    paralaje.lerp(punteroDentro && !movil ? puntero : paralajeCero, Math.min(1, delta * 2.5));
 }
 
 // =====================================================================
-// 19. BOTONES: MOMENTO DEL DÍA Y DOF
+// 18. BOTONES: MOMENTO DEL DÍA Y DOF
 // =====================================================================
 
 const botonesMomento = document.querySelectorAll("#momentos button");
 const momentoPedido = parametros.get("momento");
 const momentoInicial = momentos[momentoPedido] ? momentoPedido : "atardecer";
-const momentoDesde = prepararMomento({ ...momentos.atardecer, ...Object.fromEntries(nombresColor.map((n) => [n, "#000000"])), dirSol: [0, 1, 0], dirDisco: [0, 1, 0] });
+const momentoDesde = prepararMomento(datosVacios);
 let momentoHasta = momentos[momentoInicial];
 let progreso = 1;
 
@@ -1359,8 +1338,8 @@ function suavizar(t) {
 }
 
 const direccionLuz = new THREE.Vector3();
-const colorVentanaApagada = new THREE.Color("#1c1a22");
-const colorVentanaEncendida = new THREE.Color("#ffb45c").multiplyScalar(5);
+const colorApagado = new THREE.Color("#1c1a22");
+const colorEncendido = new THREE.Color("#ffb45c").multiplyScalar(6);
 
 function aplicarMomento() {
     comunes.uLuz.value.copy(actual.luz).multiplyScalar(actual.intensidad);
@@ -1375,50 +1354,58 @@ function aplicarMomento() {
     materialEstrellas.opacity = Math.max(0, actual.noche * 1.25 - 0.25);
     escena.fog.color.copy(actual.niebla);
 
+    direccionLuz.set(actual.dirSol.x, Math.max(actual.dirSol.y, 0.35), 0.45).normalize();
     luzSol.color.copy(actual.luz);
     luzSol.intensity = 2.2 * actual.intensidad;
-    direccionLuz.set(actual.dirSol.x, Math.max(actual.dirSol.y, 0.35), 0.45).normalize();
     luzSol.position.copy(direccionLuz).multiplyScalar(100).add(camara.position);
     luzSol.target.position.copy(camara.position);
     luzCielo.color.copy(actual.horizonte);
     luzCielo.groundColor.copy(actual.verdeBase);
     luzCielo.intensity = 0.6 + actual.intensidad * 0.9;
 
-    materialVentanas.color.lerpColors(colorVentanaApagada, colorVentanaEncendida, Math.pow(actual.noche, 1.5));
-    luzCastillo.intensity = actual.noche * 35;
+    const encendido = Math.pow(actual.noche, 1.5);
+    materialVentanas.color.lerpColors(colorApagado, colorEncendido, encendido);
+    materialPuertaLuz.color.lerpColors(colorApagado, colorEncendido, encendido);
+    luzPuerta.intensity = actual.noche * 30;
 
     paseBrillo.strength = actual.brillo;
     renderizador.toneMappingExposure = 1.05 + actual.noche * 0.25;
 }
 
 // =====================================================================
-// 20. RENDIMIENTO
-// Si los primeros segundos van lentos, se quita hierba y se baja la
-// resolución.
+// 19. RENDIMIENTO
+// Se miden los FPS todo el rato. Si bajan de 50, se quita hierba
+// poco a poco; si sobran, se vuelve a poner.
 // =====================================================================
 
-let fotogramas = 0;
-let tiempoMedido = 0;
-let calidadRevisada = false;
+const marcadorFps = document.createElement("p");
+marcadorFps.className = "fps";
+if (parametros.get("fps") === "si") document.body.appendChild(marcadorFps);
 
-function revisarCalidad(delta) {
-    if (calidadRevisada) return;
+let fotogramas = 0;
+let inicioMedida = performance.now();
+const inicioPagina = performance.now();
+
+function revisarRendimiento() {
     fotogramas++;
-    tiempoMedido += delta;
-    if (fotogramas < 90) return;
+    const ahora = performance.now();
+    const tiempoMedido = (ahora - inicioMedida) / 1000;
+    if (tiempoMedido < 1) return;
 
     const fps = fotogramas / tiempoMedido;
-    if (fps < 40) {
-        hierbaCamino.instanceCount = Math.floor(hierbaCamino.instanceCount * 0.6);
-        hierbaPrado.instanceCount = Math.floor(hierbaPrado.instanceCount * 0.5);
-        renderizador.setPixelRatio(1);
-        ajustarTamano();
+    const arranque = (ahora - inicioPagina) / 1000;
+    marcadorFps.textContent = Math.round(fps) + " FPS · hierba " + Math.round(calidadHierba * 100) + "%";
+
+    if (arranque > 2) {
+        if (fps < 50) calidadHierba = Math.max(0.25, calidadHierba - 0.12);
+        else if (fps > 58) calidadHierba = Math.min(1, calidadHierba + 0.04);
     }
-    calidadRevisada = true;
+    fotogramas = 0;
+    inicioMedida = ahora;
 }
 
 // =====================================================================
-// 21. TAMAÑO DE LA VENTANA
+// 20. TAMAÑO DE LA VENTANA
 // =====================================================================
 
 function ajustarTamano() {
@@ -1426,16 +1413,19 @@ function ajustarTamano() {
     camara.updateProjectionMatrix();
     renderizador.setSize(window.innerWidth, window.innerHeight);
     tamano = tamanoReal();
-    destinoEscena.setSize(tamano.x, tamano.y);
+    crearDestino();
+    paseEscena.map = destinoEscena.texture;
+    paseDesenfoque.uniforms.tProfundidad.value = destinoEscena.depthTexture;
+    paseDesenfoque.uniforms.uResolucion.value.copy(tamano);
     compositor.setPixelRatio(renderizador.getPixelRatio());
     compositor.setSize(window.innerWidth, window.innerHeight);
-    paseDesenfoque.uniforms.uResolucion.value.copy(tamano);
+    paseBrillo.setSize(window.innerWidth / 2, window.innerHeight / 2);
 }
 
 window.addEventListener("resize", ajustarTamano);
 
 // =====================================================================
-// 22. BUCLE PRINCIPAL
+// 21. BUCLE PRINCIPAL
 // =====================================================================
 
 const reloj = new THREE.Clock();
@@ -1467,6 +1457,7 @@ function animar() {
     actualizarRaton(delta);
     colocarCamara(paralaje);
     aplicarMomento();
+    actualizarTrozos();
 
     banderas.forEach((b, i) => (b.rotation.y = Math.sin(tiempo * 3 + i) * 0.35));
     if (actual.noche > 0.02) moverLuciernagas(tiempo, actual.noche);
@@ -1477,7 +1468,7 @@ function animar() {
     renderizador.setRenderTarget(null);
     compositor.render(delta);
 
-    revisarCalidad(delta);
+    revisarRendimiento();
 
     if (primerFotograma) {
         primerFotograma = false;
