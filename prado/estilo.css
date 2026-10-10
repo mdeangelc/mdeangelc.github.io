@@ -1,9 +1,9 @@
 :root {
-    --cristal: rgba(255, 255, 255, 0.2);
-    --cristal-borde: rgba(255, 255, 255, 0.32);
-    --blanco: #ffffff;
-    --texto-activo: #3a2a1c;
-    --fuente: "Inter", Arial, sans-serif;
+    --panel: rgba(16, 12, 34, 0.72);
+    --borde: rgba(255, 255, 255, 0.28);
+    --blanco: #f4ecff;
+    --oro: #ffc861;
+    --fuente: "VT323", monospace;
 }
 
 * {
@@ -16,8 +16,9 @@ html,
 body {
     height: 100%;
     overflow: hidden;
-    background: #f4d2b0;
+    background: #2a1f4f;
     font-family: var(--fuente);
+    color: var(--blanco);
 }
 
 canvas {
@@ -27,133 +28,93 @@ canvas {
     height: 100%;
     display: block;
     touch-action: none;
+    image-rendering: pixelated;
 }
 
-.vineta {
+.marcador {
     position: fixed;
-    inset: 0;
-    z-index: 1;
-    pointer-events: none;
-    background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.28) 100%);
-}
-
-.volver {
-    position: fixed;
-    top: 18px;
-    left: 18px;
+    top: 14px;
+    left: 14px;
     z-index: 2;
-    color: var(--blanco);
-    text-decoration: none;
-    font-size: 13px;
-    font-weight: 500;
-    padding: 8px 14px;
-    border-radius: 20px;
-    background: var(--cristal);
-    border: 1px solid var(--cristal-borde);
-    backdrop-filter: blur(10px);
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-    transition: background 0.2s;
+    padding: 8px 12px;
+    background: var(--panel);
+    border: 2px solid var(--borde);
+    font-size: 22px;
+    line-height: 1.1;
+    min-width: 190px;
 }
 
-.volver:hover {
-    background: rgba(255, 255, 255, 0.35);
+.marcador p {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.marcador strong {
+    font-weight: normal;
+    color: var(--oro);
+}
+
+.destino {
+    position: fixed;
+    top: 14px;
+    right: 16px;
+    z-index: 2;
+    font-size: 24px;
+    text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6);
 }
 
 .controles {
     position: fixed;
-    top: 16px;
-    left: 50%;
-    transform: translateX(-50%);
+    bottom: 14px;
+    right: 14px;
     z-index: 2;
     display: flex;
-    gap: 8px;
+    gap: 6px;
 }
 
-.grupo {
-    display: flex;
-    gap: 4px;
-    padding: 5px;
-    border-radius: 30px;
-    background: var(--cristal);
-    border: 1px solid var(--cristal-borde);
-    backdrop-filter: blur(12px);
-}
-
-.grupo button {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    border: none;
-    background: none;
-    color: var(--blanco);
+.controles button,
+.volver {
     font-family: var(--fuente);
-    font-size: 14px;
-    font-weight: 500;
-    padding: 8px 15px;
-    border-radius: 22px;
+    font-size: 21px;
+    color: var(--blanco);
+    background: var(--panel);
+    border: 2px solid var(--borde);
+    padding: 3px 12px;
     cursor: pointer;
-    white-space: nowrap;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-    transition: background 0.3s, color 0.3s;
+    text-decoration: none;
 }
 
-.grupo button:hover {
-    background: rgba(255, 255, 255, 0.18);
+.controles button:hover,
+.volver:hover {
+    border-color: var(--oro);
 }
 
-.grupo button.activo {
-    background: rgba(255, 255, 255, 0.92);
-    color: var(--texto-activo);
-    text-shadow: none;
+.controles button.activo {
+    background: var(--oro);
+    color: #1a1230;
+    border-color: var(--oro);
 }
 
-.grupo svg {
-    width: 16px;
-    height: 16px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-}
-
-.progreso {
+.volver {
     position: fixed;
-    left: 50%;
-    bottom: 22px;
-    transform: translateX(-50%);
+    bottom: 14px;
+    left: 14px;
     z-index: 2;
-    width: 180px;
-    height: 4px;
-    border-radius: 2px;
-    background: rgba(255, 255, 255, 0.25);
-    overflow: hidden;
-}
-
-.relleno {
-    height: 100%;
-    width: 0;
-    background: rgba(255, 255, 255, 0.9);
-    border-radius: 2px;
 }
 
 .pista {
     position: fixed;
-    bottom: 40px;
     left: 50%;
+    bottom: 64px;
     transform: translateX(-50%);
     z-index: 2;
-    color: var(--blanco);
-    font-size: 14px;
-    font-weight: 500;
-    padding: 9px 18px;
-    border-radius: 20px;
-    background: var(--cristal);
-    border: 1px solid var(--cristal-borde);
-    backdrop-filter: blur(10px);
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    font-size: 24px;
+    padding: 4px 14px;
+    background: var(--panel);
+    border: 2px solid var(--borde);
     white-space: nowrap;
-    transition: opacity 1.2s;
+    transition: opacity 1s;
 }
 
 .pista.oculta {
@@ -168,10 +129,8 @@ canvas {
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #6b4a33;
-    font-size: 16px;
-    font-weight: 500;
-    background: #f4d2b0;
+    font-size: 32px;
+    background: #2a1f4f;
     transition: opacity 0.8s;
 }
 
@@ -180,40 +139,50 @@ canvas {
     pointer-events: none;
 }
 
-@media (max-width: 760px) {
-    .controles {
-        flex-direction: column;
-        align-items: center;
-        gap: 6px;
+.fps {
+    position: fixed;
+    top: 84px;
+    left: 14px;
+    z-index: 2;
+    font-size: 20px;
+    padding: 2px 8px;
+    background: var(--panel);
+}
+
+@media (max-width: 700px) {
+    .marcador {
+        font-size: 18px;
+        min-width: 150px;
     }
 
-    .grupo button {
-        padding: 7px 11px;
-        font-size: 13px;
-        gap: 5px;
+    .destino {
+        top: 70px;
+        left: 14px;
+        right: auto;
+        font-size: 19px;
     }
 
     .volver {
-        top: auto;
-        bottom: 56px;
+        bottom: 52px;
         left: 50%;
         transform: translateX(-50%);
+        font-size: 18px;
+        padding: 2px 8px;
+        white-space: nowrap;
+    }
+
+    .controles {
+        right: 50%;
+        transform: translateX(50%);
+    }
+
+    .controles button {
+        font-size: 18px;
+        padding: 2px 8px;
     }
 
     .pista {
-        bottom: 104px;
+        bottom: 92px;
+        font-size: 19px;
     }
-}
-
-.fps {
-    position: fixed;
-    top: 70px;
-    left: 18px;
-    z-index: 2;
-    color: var(--blanco);
-    font-size: 12px;
-    font-weight: 600;
-    padding: 5px 10px;
-    border-radius: 8px;
-    background: rgba(0, 0, 0, 0.45);
 }
