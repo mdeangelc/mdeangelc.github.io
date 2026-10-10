@@ -1242,7 +1242,8 @@ function crearObra(aleatorio) {
 
 // =====================================================================
 // 9b. ÁRBOLES PINTADOS PÍXEL A PÍXEL
-// Los árboles y arbustos no son polígonos: se pintan al cargar en un
+// Los árboles, arbustos y objetos sueltos (carreta, pozo, leña...) no son
+// polígonos: se pintan al cargar en un
 // canvas (un "atlas" con casillas de 128x128 píxeles) y se dibujan como
 // carteles que siempre miran a la cámara. Así tienen el mismo estilo
 // pixel art que el fondo y cuestan muy poco.
@@ -1250,7 +1251,7 @@ function crearObra(aleatorio) {
 
 const CASILLA = 128;
 const COLUMNAS_ATLAS = 8;
-const FILAS_ATLAS = 2;
+const FILAS_ATLAS = 4;
 
 const paletasArbol = {
     pino: ["#0a1d1b", "#143a30", "#21543e", "#357449", "#58985a"],
@@ -1462,6 +1463,256 @@ function crearAtlasArboles() {
         return { columna, fila };
     }
 
+
+    // ---- Objetos del camino ----
+    const pal = (lista) => lista.map(rgb);
+    const madera = pal(["#1e120a", "#4a2e1a", "#6e4a2c", "#93683e", "#b88a58"]);
+    const piedra = pal(["#1c1a22", "#4a4652", "#6a6672", "#8a8692", "#aeaab4"]);
+    const teja = pal(["#2a0e0c", "#6a2420", "#8e3428", "#b04a36", "#d0704c"]);
+    const paja = pal(["#3a2a0c", "#7a5a1c", "#a8822c", "#d0aa48", "#ecd078"]);
+    const musgo = pal(["#0d1f12", "#1f4224", "#2f5e30", "#4a7e3c", "#6c9e4c"]);
+
+    function rect(x, y, w, h, tono) {
+        for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) poner(x + xx, y + yy, tono);
+    }
+
+    // Caja con luz arriba a la derecha: borde izquierdo y de abajo más oscuros
+    function bloque(x, y, w, h, p, azar) {
+        for (let yy = 0; yy < h; yy++) {
+            for (let xx = 0; xx < w; xx++) {
+                let t = 2;
+                if (xx === 0 || yy === h - 1) t = 1;
+                else if (yy === 0 || xx === w - 1) t = 3;
+                if (azar && azar() < 0.08) t = Math.max(1, t - 1);
+                poner(x + xx, y + yy, p[t]);
+            }
+        }
+    }
+
+    function elipse(cx, cy, rx, ry, p, azar, irregular = 0) {
+        for (let y = -ry - 2; y <= ry + 2; y++) {
+            for (let x = -rx - 2; x <= rx + 2; x++) {
+                const ang = Math.atan2(y, x);
+                const borde = 1 + irregular * Math.sin(ang * 5 + cx) * 0.12;
+                const d = Math.hypot(x / rx, y / ry);
+                if (d > borde) continue;
+                let l = (x / rx) * 0.55 - (y / ry) * 0.7 - d * 0.2 + (azar ? (azar() - 0.5) * 0.3 : 0);
+                poner(cx + x, cy + y, l > 0.5 ? p[4] : l > 0.1 ? p[3] : l > -0.35 ? p[2] : p[1]);
+            }
+        }
+    }
+
+    function linea(x0, y0, x1, y1, tono, grosor = 1) {
+        const pasos = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+        for (let i = 0; i <= pasos; i++) {
+            const x = x0 + ((x1 - x0) * i) / pasos;
+            const y = y0 + ((y1 - y0) * i) / pasos;
+            for (let g = 0; g < grosor; g++) poner(x + g, y, tono);
+        }
+    }
+
+    function rueda(cx, cy, r, oscura) {
+        const p = oscura ? [madera[0], madera[0], madera[1], madera[2], madera[2]] : madera;
+        for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) {
+            const d = Math.hypot(x, y);
+            if (d <= r && d > r - 3.2) poner(cx + x, cy + y, d > r - 1 ? p[1] : (x - y > 0 ? p[3] : p[2]));
+        }
+        for (let k = 0; k < 6; k++) {
+            const a = (k / 6) * Math.PI * 2 + 0.3;
+            linea(cx, cy, cx + Math.cos(a) * (r - 2), cy + Math.sin(a) * (r - 2), p[2]);
+        }
+        elipse(cx, cy, 3, 3, p);
+    }
+
+    function casilla(columna, fila) {
+        return { x0: columna * CASILLA, y0: fila * CASILLA, cx: columna * CASILLA + CASILLA / 2, base: fila * CASILLA + CASILLA - 2 };
+    }
+
+    function carreta(columna, fila) {
+        const azar = crearAzar(201);
+        const { x0, y0, cx, base } = casilla(columna, fila);
+        rueda(cx + 18, base - 18, 16, true);
+        linea(cx - 46, base - 34, cx - 62, base - 4, madera[2], 2);
+        linea(cx - 40, base - 32, cx - 56, base - 2, madera[1], 2);
+        elipse(cx - 6, base - 52, 30, 9, paja, azar, 1);
+        for (let y = 0; y < 16; y++) {
+            for (let x = 0; x < 78; x++) {
+                let t = (Math.floor(y / 4) % 2) ? 2 : 3;
+                if (x % 13 === 0) t = 1;
+                if (y === 0) t = 4;
+                if (y === 15) t = 1;
+                poner(cx - 46 + x, base - 46 + y, madera[t]);
+            }
+        }
+        rect(cx - 46, base - 50, 78, 3, madera[3]);
+        rect(cx - 46, base - 50, 3, 6, madera[2]);
+        rect(cx + 29, base - 50, 3, 6, madera[2]);
+        rueda(cx - 18, base - 19, 19, false);
+        contorno(x0, y0, madera[0], false);
+        return { columna, fila };
+    }
+
+    function pozo(columna, fila) {
+        const azar = crearAzar(202);
+        const { x0, y0, cx, base } = casilla(columna, fila);
+        rect(cx - 24, base - 78, 5, 50, madera[2]);
+        rect(cx - 24, base - 78, 1, 50, madera[1]);
+        rect(cx + 19, base - 78, 5, 50, madera[3]);
+        rect(cx - 24, base - 71, 48, 4, madera[3]);
+        linea(cx, base - 67, cx, base - 47, madera[0]);
+        bloque(cx - 5, base - 47, 10, 9, madera, null);
+        for (let fila2 = 0; fila2 < 5; fila2++) {
+            const desfase = fila2 % 2 ? 5 : 0;
+            for (let k = -3; k < 4; k++) {
+                const x = cx - 26 + desfase + (k + 3) * 8;
+                if (x + 7 > cx + 27) continue;
+                bloque(x, base - 28 + fila2 * 6, 7, 5, piedra, azar);
+            }
+        }
+        elipse(cx, base - 30, 27, 4, piedra, azar);
+        elipse(cx, base - 30, 20, 2, pal(["#06080e", "#0e1626", "#16223a", "#1e2e4a", "#2a3e5e"]));
+        for (let y = 0; y < 30; y++) {
+            const medio = 6 + y * 1.25;
+            for (let x = -medio; x <= medio; x++) {
+                const t = (Math.floor(y / 4) % 2 ? 2 : 3) + (x > 0 ? 0 : -1);
+                poner(cx + x, base - 106 + y, teja[Math.max(1, t)]);
+            }
+        }
+        contorno(x0, y0, madera[0], false);
+        return { columna, fila };
+    }
+
+    function lenas(columna, fila) {
+        const { x0, y0, cx, base } = casilla(columna, fila);
+        const anillo = (x, y) => {
+            for (let yy = -9; yy <= 9; yy++) for (let xx = -9; xx <= 9; xx++) {
+                const d = Math.hypot(xx, yy);
+                if (d > 9) continue;
+                poner(x + xx, y + yy, d > 7.5 ? madera[1] : (Math.floor(d / 2) % 2 ? madera[4] : madera[3]));
+            }
+            poner(x, y, madera[2]);
+        };
+        [[-38, 0], [-19, 0], [0, 0], [19, 0], [-28, -17], [-9, -17], [10, -17], [-19, -34], [0, -34]].forEach(([x, y]) => anillo(cx - 8 + x, base - 10 + y));
+        bloque(cx + 30, base - 20, 22, 20, madera, null);
+        elipse(cx + 41, base - 20, 11, 3, pal(["#4a2e1a", "#93683e", "#b88a58", "#d0a878", "#e0c090"]));
+        linea(cx + 36, base - 22, cx + 24, base - 44, madera[3], 2);
+        rect(cx + 20, base - 48, 8, 5, piedra[3]);
+        contorno(x0, y0, madera[0], false);
+        return { columna, fila };
+    }
+
+    function tronco(columna, fila) {
+        const azar = crearAzar(204);
+        const { x0, y0, base } = casilla(columna, fila);
+        const desde = x0 + 6;
+        const hasta = x0 + 112;
+        for (let x = desde; x < hasta; x++) {
+            const roto = x < desde + 6 ? Math.floor(azar() * 6) : 0;
+            for (let y = roto; y < 20; y++) {
+                let t = y < 3 ? 3 : y > 16 ? 1 : 2;
+                if (azar() < 0.18) t = Math.max(1, t - 1);
+                if ((x * 7 + y * 3) % 11 === 0) t = 1;
+                poner(x, base - 21 + y, madera[t]);
+            }
+        }
+        elipse(hasta, base - 11, 5, 10, pal(["#4a2e1a", "#93683e", "#b88a58", "#d0a878", "#e0c090"]));
+        for (let i = 0; i < 9; i++) {
+            const x = desde + 10 + Math.floor(azar() * 90);
+            elipse(x, base - 21, 4 + Math.floor(azar() * 5), 2, musgo, azar);
+        }
+        [[30, 14], [62, 10], [88, 12]].forEach(([dx, largo]) => linea(desde + dx, base - 21, desde + dx - 4, base - 21 - largo, madera[2], 2));
+        rect(desde + 44, base - 25, 5, 3, pal(["#3a0808", "#8a1a14", "#c8302a", "#e85a40", "#f08a70"])[2]);
+        rect(desde + 46, base - 23, 1, 2, piedra[4]);
+        contorno(x0, y0, madera[0], false);
+        return { columna, fila };
+    }
+
+    function hito(columna, fila) {
+        const azar = crearAzar(205);
+        const { x0, y0, cx, base } = casilla(columna, fila);
+        elipse(cx - 28, base - 22, 10, 9, piedra, azar);
+        bloque(cx - 38, base - 22, 21, 22, piedra, azar);
+        rect(cx - 33, base - 16, 11, 1, piedra[1]);
+        rect(cx - 2, base - 104, 5, 104, madera[2]);
+        rect(cx - 2, base - 104, 1, 104, madera[1]);
+        const tabla = (x, y, w, derecha) => {
+            bloque(x, y, w, 9, madera.map((c) => c.map((v) => Math.min(255, v + 25))), null);
+            for (let k = 0; k < 5; k++) {
+                const px = derecha ? x + w + k : x - 1 - k;
+                for (let yy = k; yy < 9 - k; yy++) poner(px, y + yy, madera[3]);
+            }
+            for (let k = 4; k < w - 4; k += 3) if (azar() < 0.7) poner(x + k, y + 4, madera[0]);
+        };
+        tabla(cx + 3, base - 96, 38, true);
+        tabla(cx - 40, base - 82, 38, false);
+        tabla(cx + 3, base - 68, 30, true);
+        contorno(x0, y0, madera[0], false);
+        return { columna, fila };
+    }
+
+    function banco(columna, fila) {
+        const { x0, y0, cx, base } = casilla(columna, fila);
+        [cx - 38, cx + 33].forEach((x) => rect(x, base - 54, 5, 54, madera[2]));
+        [cx - 30, cx + 25].forEach((x) => rect(x, base - 24, 4, 24, madera[1]));
+        bloque(cx - 42, base - 52, 84, 6, madera, null);
+        bloque(cx - 42, base - 42, 84, 5, madera, null);
+        bloque(cx - 44, base - 28, 88, 6, madera, null);
+        contorno(x0, y0, madera[0], false);
+        return { columna, fila };
+    }
+
+    function hornacina(columna, fila) {
+        const azar = crearAzar(206);
+        const { x0, y0, cx, base } = casilla(columna, fila);
+        bloque(cx - 18, base - 10, 36, 10, piedra, azar);
+        for (let y = 0; y < 52; y += 6) bloque(cx - 10 + ((y / 6) % 2 ? 2 : 0), base - 62 + y, 18, 6, piedra, azar);
+        bloque(cx - 19, base - 94, 38, 32, piedra.map((c) => c.map((v) => Math.min(255, v + 18))), azar);
+        for (let y = 0; y < 18; y++) {
+            const medio = y < 4 ? Math.round(Math.sqrt(16 - (4 - y) ** 2) * 2.2) : 9;
+            for (let x = -medio; x <= medio; x++) poner(cx + x, base - 88 + y, rgb("#141018"));
+        }
+        elipse(cx, base - 76, 3, 5, pal(["#2a2430", "#4a4250", "#6a6070", "#8a8090", "#a8a0b0"]));
+        for (let y = 0; y < 22; y++) {
+            const medio = 4 + y * 1.1;
+            for (let x = -medio; x <= medio; x++) poner(cx + x, base - 116 + y, teja[(Math.floor(y / 4) % 2 ? 2 : 3) - (x < 0 ? 1 : 0)]);
+        }
+        rect(cx, base - 124, 1, 8, paja[3]);
+        rect(cx - 3, base - 121, 7, 1, paja[3]);
+        for (let i = 0; i < 10; i++) poner(cx - 22 + Math.floor(azar() * 44), base - 1 - Math.floor(azar() * 3), rgb(elegirColor(azar)));
+        contorno(x0, y0, piedra[0], false);
+        return { columna, fila };
+    }
+
+    function elegirColor(azar) {
+        const lista = ["#ff9ccf", "#ffe28a", "#c8b8ff", "#ffffff"];
+        return lista[Math.floor(azar() * lista.length)];
+    }
+
+    function roca(columna, fila, semilla, rx, ry, conMusgo) {
+        const azar = crearAzar(semilla);
+        const { x0, y0, cx, base } = casilla(columna, fila);
+        elipse(cx, base - ry, rx, ry, piedra, azar, 1.5);
+        if (semilla % 2) elipse(cx + rx * 0.7, base - ry * 0.5, rx * 0.45, ry * 0.5, piedra, azar, 1);
+        for (let y = base; y < base + 3; y++) for (let x = cx - rx - 3; x <= cx + rx + 3; x++) if (y >= base) datos[(y * lienzo.width + x) * 4 + 3] = 0;
+        if (conMusgo) for (let i = 0; i < 6; i++) elipse(cx - rx * 0.6 + azar() * rx * 1.2, base - ry * 2 + 3 + azar() * 4, 4 + azar() * 6, 2, musgo, azar);
+        contorno(x0, y0, piedra[0], false);
+        return { columna, fila };
+    }
+
+    function juncos(columna, fila, semilla) {
+        const azar = crearAzar(semilla);
+        const { x0, y0, cx, base } = casilla(columna, fila);
+        for (let i = 0; i < 14; i++) {
+            const x = cx - 26 + azar() * 52;
+            const alto = 40 + azar() * 46;
+            const inclina = (azar() - 0.5) * 18;
+            linea(x, base, x + inclina, base - alto, musgo[1 + Math.floor(azar() * 3)], azar() < 0.4 ? 2 : 1);
+            if (azar() < 0.4) rect(Math.round(x + inclina * 0.85) - 1, Math.round(base - alto * 0.85) - 6, 3, 9, madera[2]);
+        }
+        contorno(x0, y0, musgo[0], true);
+        return { columna, fila };
+    }
+
     const lista = [
         ["pino", () => pino(0, 0, "pino", 11)],
         ["pino", () => pino(1, 0, "pino", 23)],
@@ -1477,7 +1728,19 @@ function crearAtlasArboles() {
         ["arbusto", () => copa(3, 1, "verde", 131, false, 54, 100, "#ff9ccf")],
         ["arbusto", () => copa(4, 1, "verdeClaro", 149, false, 52, 100, "#c8b8ff")],
         ["arbusto", () => copa(5, 1, "naranja", 151, false, 50, 96)],
-        ["arbusto", () => copa(6, 1, "verde", 163, false, 56, 104, "#ffe28a")]
+        ["arbusto", () => copa(6, 1, "verde", 163, false, 56, 104, "#ffe28a")],
+        ["carreta", () => carreta(7, 1)],
+        ["pozo", () => pozo(0, 2)],
+        ["lenas", () => lenas(1, 2)],
+        ["tronco", () => tronco(2, 2)],
+        ["hito", () => hito(3, 2)],
+        ["banco", () => banco(4, 2)],
+        ["hornacina", () => hornacina(5, 2)],
+        ["roca", () => roca(6, 2, 301, 40, 22, false)],
+        ["roca", () => roca(7, 2, 302, 30, 18, true)],
+        ["roca", () => roca(0, 3, 303, 44, 16, true)],
+        ["juncos", () => juncos(1, 3, 401)],
+        ["juncos", () => juncos(2, 3, 402)]
     ];
 
     lista.forEach(([tipo, pintar]) => {
@@ -1503,8 +1766,9 @@ texturaArboles.minFilter = THREE.NearestMipmapLinearFilter;
 const variantesPorTipo = { pino: [], frondosoVerde: [], frondosoOtono: [], arbusto: [], arbustoFlores: [] };
 atlasArboles.variantes.forEach((v, i) => {
     if (v.tipo === "pino") variantesPorTipo.pino.push(i);
-    if (v.tipo === "frondoso") variantesPorTipo[i <= 5 ? "frondosoVerde" : "frondosoOtono"].push(i);
-    if (v.tipo === "arbusto") variantesPorTipo[[11, 12, 14].includes(i) ? "arbustoFlores" : "arbusto"].push(i);
+    else if (v.tipo === "frondoso") variantesPorTipo[i <= 5 ? "frondosoVerde" : "frondosoOtono"].push(i);
+    else if (v.tipo === "arbusto") variantesPorTipo[[11, 12, 14].includes(i) ? "arbustoFlores" : "arbusto"].push(i);
+    else (variantesPorTipo[v.tipo] = variantesPorTipo[v.tipo] || []).push(i);
 });
 
 // Cada árbol es un rectángulo que gira solo en vertical para mirar a la
@@ -1524,9 +1788,11 @@ const materialArboles = new THREE.ShaderMaterial({
         varying float vAltura;
         void main() {
             vec3 derecha = normalize(vec3(viewMatrix[0][0], 0.0, viewMatrix[2][0]));
-            vec3 p = position + derecha * aEsquina.x * aTam + vec3(0.0, aEsquina.y * aTam, 0.0);
-            float vaiven = sin(uTiempo * 1.3 + position.x * 0.4 + position.z * 0.3) * 0.03 * uViento;
-            p += derecha * vaiven * aEsquina.y * aEsquina.y * aTam;
+            // aTam negativo = objeto rígido (carreta, pozo...): no se mece
+            float tam = abs(aTam);
+            vec3 p = position + derecha * aEsquina.x * tam + vec3(0.0, aEsquina.y * tam, 0.0);
+            float vaiven = sin(uTiempo * 1.3 + position.x * 0.4 + position.z * 0.3) * 0.03 * uViento * step(0.0, aTam);
+            p += derecha * vaiven * aEsquina.y * aEsquina.y * tam;
             vUv = uv;
             vMundo = p;
             vAltura = aEsquina.y;
@@ -1576,32 +1842,11 @@ function arbusto(o, x, z, tam, conFlores) {
 }
 
 function roca(o, x, z, tam) {
-    const a = o.aleatorio;
-    const y = alturaTerreno(x, z);
-    o.en(x, y + tam * 0.15, z, a() * 6);
-    const g = new THREE.DodecahedronGeometry(tam, 0);
-    g.scale(1.3, 0.7, 1.1);
-    const pieza = o.poner(g, o.elegir([colores.piedra, colores.piedraOscura]), 0.15);
-    if (a() < 0.5) {
-        const pos = pieza.attributes.position;
-        const col = pieza.attributes.color;
-        const musgo = new THREE.Color(colores.musgo);
-        for (let i = 0; i < pos.count; i++) {
-            if (pos.getY(i) > y + tam * 0.4) col.setXYZ(i, musgo.r, musgo.g, musgo.b);
-        }
-    }
+    o.arbol(o.elegir(variantesPorTipo.roca), x, alturaTerreno(x, z) - 0.05, z, tam * 3.6);
 }
 
 function juncos(o, x, z) {
-    const a = o.aleatorio;
-    o.en(x, alturaTerreno(x, z), z);
-    for (let i = 0; i < 6; i++) {
-        const dx = entre(-0.35, 0.35, a);
-        const dz = entre(-0.35, 0.35, a);
-        const alto = entre(0.7, 1.3, a);
-        o.poner(cono(0.035, alto, 3, dx, alto / 2, dz).rotateZ(entre(-0.15, 0.15, a)), "#3a5a2a", 0.2);
-        if (a() < 0.5) o.poner(cilindro(0.04, 0.04, 0.16, 4, dx, alto * 0.85, dz), "#5a3a24", 0.1);
-    }
+    o.arbol(o.elegir(variantesPorTipo.juncos), x, alturaTerreno(x, z) - 0.05, z, entre(1.5, 2.1, o.aleatorio));
 }
 
 function rodalFlores(o, xc, zc, color) {
@@ -1663,102 +1908,35 @@ function farola(o, z, lado) {
     o.luz(caja(0.22, 0.28, 0.22, -lado * BRAZO_FAROLA, 2.2, 0), 2.4);
 }
 
-function carreta(o, x, z, angulo) {
-    const a = o.aleatorio;
-    o.en(x, alturaTerreno(x, z), z, angulo);
-    o.poner(caja(1.0, 0.1, 1.7, 0, 0.62, 0), colores.madera, 0.1);
-    [-1, 1].forEach((s) => o.poner(caja(0.07, 0.3, 1.7, s * 0.5, 0.8, 0), colores.maderaOscura, 0.1));
-    o.poner(caja(1.0, 0.3, 0.07, 0, 0.8, 0.83), colores.maderaOscura, 0.1);
-    const rota = a() < 0.4;
-    [-1, 1].forEach((s) => {
-        if (rota && s === 1) o.poner(cilindro(0.42, 0.42, 0.08, 10, 0.9, 0.05, 0.9, 0, 0, 0), colores.maderaOscura, 0.05);
-        else o.poner(cilindro(0.42, 0.42, 0.08, 10, s * 0.58, 0.42, 0.25, 0, 0, Math.PI / 2), colores.maderaOscura, 0.05);
-    });
-    o.poner(cilindro(0.04, 0.04, 1.2, 5, 0, 0.42, 0.25, 0, 0, Math.PI / 2), colores.hierro, 0);
-    [-1, 1].forEach((s) => o.poner(caja(0.06, 0.06, 1.6, s * 0.3, 0.36, -1.45, -0.36), colores.madera, 0.1));
-    o.poner(caja(0.8, 0.28, 1.0, 0, 0.84, 0.1), colores.heno, 0.1);
-    o.poner(bola(0.25, 0.2, 1.05, -0.4, 0.8), "#8a7a5a", 0.1);
+function carreta(o, x, z) {
+    o.arbol(variantesPorTipo.carreta[0], x, alturaTerreno(x, z) - 0.05, z, 3.3);
 }
 
 function pozo(o, x, z) {
-    const a = o.aleatorio;
-    o.en(x, alturaTerreno(x, z), z, a() * 6);
-    for (let fila = 0; fila < 2; fila++) {
-        for (let i = 0; i < 10; i++) {
-            const t = ((i + fila * 0.5) / 10) * Math.PI * 2;
-            o.poner(caja(0.46, 0.3, 0.26, Math.cos(t) * 0.72, 0.15 + fila * 0.3, Math.sin(t) * 0.72, 0, -t + Math.PI / 2), colores.piedra, 0.18);
-        }
-    }
-    o.poner(cilindro(0.62, 0.62, 0.05, 10, 0, 0.5, 0), colores.agua, 0);
-    [-1, 1].forEach((s) => o.poner(caja(0.12, 1.75, 0.12, s * 0.82, 0.87, 0), colores.madera, 0.1));
-    o.poner(cilindro(0.05, 0.05, 1.8, 5, 0, 1.45, 0, 0, 0, Math.PI / 2), colores.madera, 0.1);
-    o.poner(cono(1.3, 0.75, 4, 0, 2.05, 0, Math.PI / 4), colores.tejado, 0.1);
-    o.poner(caja(0.02, 0.55, 0.02, 0.2, 1.15, 0), colores.hierro, 0);
-    o.poner(cilindro(0.13, 0.1, 0.22, 6, 0.2, 0.8, 0), colores.maderaOscura, 0.1);
+    o.arbol(variantesPorTipo.pozo[0], x, alturaTerreno(x, z) - 0.05, z, 3.1);
 }
 
-function lenas(o, x, z, angulo) {
-    const a = o.aleatorio;
-    o.en(x, alturaTerreno(x, z), z, angulo);
-    for (let fila = 0; fila < 3; fila++) {
-        const n = 4 - fila;
-        for (let j = 0; j < n; j++) {
-            o.poner(cilindro(0.13, 0.13, 1.3, 6, (j - (n - 1) / 2) * 0.27, 0.13 + fila * 0.23, entre(-0.08, 0.08, a), Math.PI / 2), colores.madera, 0.2);
-        }
-    }
-    o.poner(cilindro(0.3, 0.34, 0.45, 7, 1.3, 0.22, 0.3), colores.maderaClara, 0.1);
-    o.poner(caja(0.04, 0.55, 0.04, 1.3, 0.62, 0.3, 0, 0, 0.35), colores.maderaClara, 0.05);
-    o.poner(caja(0.2, 0.12, 0.03, 1.39, 0.84, 0.3, 0, 0, 0.35), colores.hierro, 0);
+function lenas(o, x, z) {
+    o.arbol(variantesPorTipo.lenas[0], x, alturaTerreno(x, z) - 0.05, z, 2.2);
 }
 
-function arbolCaido(o, x, z, angulo) {
-    const a = o.aleatorio;
-    o.en(x, alturaTerreno(x, z), z, angulo);
-    o.poner(cilindro(0.28, 0.36, 6, 7, 0, 0.32, 0, 0, 0, Math.PI / 2), colores.maderaOscura, 0.08);
-    o.poner(cilindro(0.95, 0.95, 0.3, 7, 3.1, 0.65, 0, 0, 0, Math.PI / 2), colores.tronco, 0.05);
-    for (let i = 0; i < 4; i++) {
-        o.poner(caja(0.08, 0.7, 0.08, entre(-2.3, 2, a), 0.75, entre(-0.15, 0.15, a), entre(-0.5, 0.5, a), 0, entre(-0.6, 0.6, a)), colores.maderaOscura, 0.1);
-    }
-    o.poner(caja(2.6, 0.08, 0.45, entre(-1, 0.5, a), 0.64, 0), colores.musgo, 0.15);
-    o.poner(bola(0.3, -2.7, 0.2, 0.5, 0.6), colores.musgo, 0.1);
+function arbolCaido(o, x, z) {
+    o.arbol(variantesPorTipo.tronco[0], x, alturaTerreno(x, z) - 0.1, z, 5.2);
 }
 
-function hito(o, x, z, lado) {
+function hito(o, x, z) {
+    o.arbol(variantesPorTipo.hito[0], x, alturaTerreno(x, z) - 0.05, z, 2.7);
+}
+
+function banco(o, x, z) {
+    o.arbol(variantesPorTipo.banco[0], x, alturaTerreno(x, z) - 0.05, z, 1.9);
+}
+
+function hornacina(o, x, z) {
+    o.arbol(variantesPorTipo.hornacina[0], x, alturaTerreno(x, z) - 0.05, z, 3.0);
+    // La vela de dentro sigue siendo una luz de verdad
     o.en(x, alturaTerreno(x, z), z);
-    o.poner(cilindro(0.18, 0.25, 0.8, 4, 0, 0.4, 0, 0, Math.PI / 4), colores.piedra, 0.08);
-    o.poner(bola(0.18, 0, 0.82, 0, 0.6), colores.piedra, 0.08);
-    o.poner(caja(0.1, 2.1, 0.1, lado * 0.55, 1.05, 0.2), colores.madera, 0.1);
-    o.poner(caja(0.9, 0.2, 0.05, lado * 0.55 - lado * 0.35, 1.85, 0.2, 0, -0.9 * lado), colores.maderaClara, 0.05);
-    o.poner(caja(0.75, 0.18, 0.05, lado * 0.55 + lado * 0.3, 1.55, 0.2, 0, 0.5), colores.maderaClara, 0.05);
-    o.poner(caja(0.6, 0.16, 0.05, lado * 0.55, 1.28, 0.25, 0, 1.4), colores.maderaClara, 0.05);
-}
-
-function banco(o, x, z, lado) {
-    o.en(x, alturaTerreno(x, z), z, -lado * Math.PI / 2);
-    o.poner(caja(1.4, 0.07, 0.42, 0, 0.45, 0), colores.madera, 0.08);
-    [-0.6, 0.6].forEach((dx) => {
-        o.poner(caja(0.08, 0.45, 0.08, dx, 0.22, 0.15), colores.maderaOscura, 0.05);
-        o.poner(caja(0.08, 0.85, 0.08, dx, 0.42, -0.18), colores.maderaOscura, 0.05);
-    });
-    o.poner(caja(1.4, 0.22, 0.05, 0, 0.75, -0.2, -0.12), colores.madera, 0.08);
-}
-
-function hornacina(o, x, z, lado) {
-    o.en(x, alturaTerreno(x, z), z, -lado * Math.PI / 2);
-    o.poner(caja(0.55, 0.25, 0.55, 0, 0.12, 0), colores.piedraOscura, 0.08);
-    o.poner(caja(0.38, 1.25, 0.38, 0, 0.85, 0), colores.piedra, 0.08);
-    o.poner(caja(0.66, 0.6, 0.5, 0, 1.75, 0), colores.piedra, 0.08);
-    o.poner(caja(0.38, 0.38, 0.05, 0, 1.72, 0.24), "#141018", 0);
-    o.poner(cono(0.6, 0.42, 4, 0, 2.25, 0, Math.PI / 4), colores.tejado, 0.08);
-    o.poner(caja(0.05, 0.3, 0.05, 0, 2.6, 0), colores.hierro, 0);
-    o.poner(caja(0.2, 0.05, 0.05, 0, 2.66, 0), colores.hierro, 0);
-    o.luz(caja(0.06, 0.12, 0.06, 0, 1.6, 0.18), 0.9);
-    const flor = o.elegir(coloresFlor);
-    const m = new THREE.Vector3();
-    for (let i = 0; i < 8; i++) {
-        m.set(entre(-0.45, 0.45, o.aleatorio), 0.3, entre(0.3, 0.6, o.aleatorio)).applyAxisAngle(new THREE.Vector3(0, 1, 0), -lado * Math.PI / 2);
-        o.flor(x + m.x, alturaTerreno(x, z) + 0.3, z + m.z, flor);
-    }
+    o.luz(caja(0.06, 0.12, 0.06, 0, 1.55, 0.05), 0.9);
 }
 
 function ruina(o, x, z, angulo) {
@@ -2026,7 +2204,7 @@ function mallaArboles(lista) {
             const j = i * 4 + k;
             posiciones.set([a.x, a.y, a.z], j * 3);
             esquinas.set(e, j * 2);
-            tamanos[j] = a.tam;
+            tamanos[j] = ["pino", "frondoso", "arbusto", "juncos"].includes(v.tipo) ? a.tam : -a.tam;
             uvs.set(coordenadas[k], j * 2);
         });
         const b = i * 4;
@@ -2373,6 +2551,116 @@ function aplicarMomento() {
 }
 
 // =====================================================================
+// 16b. SONIDO (apagado hasta que se pulsa el botón)
+// Todo se genera con Web Audio, sin archivos: viento (ruido filtrado),
+// el arroyo cuando estás cerca, pájaros de día y grillos de noche.
+// =====================================================================
+
+let audio = null;
+
+function crearSonido() {
+    const ctx = new AudioContext();
+    const largo = ctx.sampleRate * 2;
+    const buffer = ctx.createBuffer(1, largo, ctx.sampleRate);
+    const datos = buffer.getChannelData(0);
+    let ultimo = 0;
+    for (let i = 0; i < largo; i++) {
+        const blanco = Math.random() * 2 - 1;
+        ultimo = (ultimo + 0.02 * blanco) / 1.02;
+        datos[i] = ultimo * 2.1 + blanco * 0.4;
+    }
+    const general = ctx.createGain();
+    general.gain.value = 0.9;
+    general.connect(ctx.destination);
+    const canal = (tipo, frecuencia, q) => {
+        const fuente = ctx.createBufferSource();
+        fuente.buffer = buffer;
+        fuente.loop = true;
+        const filtro = ctx.createBiquadFilter();
+        filtro.type = tipo;
+        filtro.frequency.value = frecuencia;
+        filtro.Q.value = q;
+        const volumen = ctx.createGain();
+        volumen.gain.value = 0;
+        fuente.connect(filtro).connect(volumen).connect(general);
+        fuente.start(0, Math.random() * 2);
+        return { volumen, filtro };
+    };
+    return { ctx, general, viento: canal("lowpass", 420, 0.5), agua: canal("bandpass", 1100, 0.7), proximo: 0 };
+}
+
+// Un pájaro: dos o tres silbidos cortos que suben o bajan de tono
+function pajaro(a) {
+    const t = a.ctx.currentTime;
+    const base = 2200 + Math.random() * 1800;
+    const notas = 2 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < notas; i++) {
+        const osc = a.ctx.createOscillator();
+        const vol = a.ctx.createGain();
+        const inicio = t + i * 0.13;
+        osc.frequency.setValueAtTime(base * (1 + i * 0.08), inicio);
+        osc.frequency.exponentialRampToValueAtTime(base * (Math.random() < 0.5 ? 1.35 : 0.75), inicio + 0.09);
+        vol.gain.setValueAtTime(0, inicio);
+        vol.gain.linearRampToValueAtTime(0.035, inicio + 0.015);
+        vol.gain.exponentialRampToValueAtTime(0.0005, inicio + 0.11);
+        osc.connect(vol).connect(a.general);
+        osc.start(inicio);
+        osc.stop(inicio + 0.12);
+    }
+}
+
+// Un grillo: un tono agudo que se corta muy rápido varias veces
+function grillo(a) {
+    const t = a.ctx.currentTime;
+    const osc = a.ctx.createOscillator();
+    const vol = a.ctx.createGain();
+    osc.frequency.value = 4300 + Math.random() * 500;
+    vol.gain.value = 0;
+    for (let i = 0; i < 4; i++) {
+        vol.gain.setValueAtTime(0.012, t + i * 0.05);
+        vol.gain.setValueAtTime(0, t + i * 0.05 + 0.025);
+    }
+    osc.connect(vol).connect(a.general);
+    osc.start(t);
+    osc.stop(t + 0.22);
+}
+
+function actualizarSonido() {
+    if (!audio || audio.ctx.state !== "running") return;
+    const ahora = audio.ctx.currentTime;
+    const rafaga = 0.5 + 0.5 * Math.sin(ahora * 0.3) * Math.sin(ahora * 0.11);
+    audio.viento.volumen.gain.value = (0.05 + rafaga * 0.07) * comunes.uViento.value;
+    audio.viento.filtro.frequency.value = 300 + rafaga * 300;
+    const z = camara.position.z;
+    const cercaAgua = Math.max(0, 1 - Math.abs(arroyo(caminoX(z), z)) / 30);
+    audio.agua.volumen.gain.value = cercaAgua * cercaAgua * 0.22;
+    if (ahora > audio.proximo) {
+        if (actual.noche > 0.5) {
+            grillo(audio);
+            audio.proximo = ahora + 0.4 + Math.random() * 1.2;
+        } else {
+            pajaro(audio);
+            audio.proximo = ahora + 2 + Math.random() * 5;
+        }
+    }
+}
+
+const botonSonido = document.getElementById("boton-sonido");
+botonSonido.addEventListener("click", async () => {
+    if (!audio) {
+        audio = crearSonido();
+        await audio.ctx.resume();
+    } else if (audio.ctx.state === "running") {
+        await audio.ctx.suspend();
+    } else {
+        await audio.ctx.resume();
+    }
+    const sonando = audio.ctx.state === "running";
+    botonSonido.classList.toggle("activo", sonando);
+    botonSonido.setAttribute("aria-pressed", String(sonando));
+});
+
+// =====================================================================
 // 17. RENDIMIENTO
 // Si los FPS bajan se quita hierba; si sobran, se vuelve a poner.
 // Las pantallas limitadas a 30 FPS (modo ahorro) no cuentan como lentas.
@@ -2455,6 +2743,7 @@ function animar() {
     petalos.visible = actual.noche < 0.98;
     if (petalos.visible) moverPetalos(delta, tiempo);
     moverPajaros(tiempo);
+    actualizarSonido();
 
     renderizador.clear();
     renderizador.render(escenaFondo, camaraFondo);
