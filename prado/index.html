@@ -20,11 +20,11 @@
 </head>
 <body>
     <div class="controles">
-        <button id="boton-caminar">Caminar</button>
-        <button data-momento="dia">Día</button>
-        <button data-momento="atardecer" class="activo">Atardecer</button>
-        <button data-momento="noche">Noche</button>
-        <button id="boton-pixel" class="activo">Píxel</button>
+        <button id="boton-caminar" aria-pressed="false">Caminar</button>
+        <button data-momento="dia" aria-pressed="false">Día</button>
+        <button data-momento="atardecer" class="activo" aria-pressed="true">Atardecer</button>
+        <button data-momento="noche" aria-pressed="false">Noche</button>
+        <button id="boton-pixel" class="activo" aria-pressed="true">Píxel</button>
     </div>
 
     <a class="volver" href="../">Volver al portfolio</a>
@@ -32,6 +32,6 @@
     <p class="pista" id="pista">Rueda del ratón o flechas para caminar</p>
     <p class="cargando" id="cargando">Cargando...</p>
 
-    <script type="module" src="escena.js?v=9"></script>
+    <script type="module" src="escena.js?v=10"></script>
 </body>
 </html>

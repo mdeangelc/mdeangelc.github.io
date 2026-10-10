@@ -242,7 +242,7 @@ for (let k = 1; k < muestrasCamino.length; k++) {
 
 let renderizador;
 try {
-    renderizador = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance", preserveDrawingBuffer: false });
+    renderizador = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
     if (!renderizador.capabilities.isWebGL2) throw new Error("WebGL2");
 } catch (error) {
     cargando.textContent = "Tu navegador no puede mostrar esta escena 3D (hace falta WebGL 2).";
@@ -254,12 +254,21 @@ renderizador.toneMapping = THREE.ACESFilmicToneMapping;
 renderizador.toneMappingExposure = 1.0;
 renderizador.shadowMap.enabled = true;
 renderizador.shadowMap.type = THREE.PCFSoftShadowMap;
+// La escena no se mueve: las sombras solo se recalculan cuando cambia la luz
+renderizador.shadowMap.autoUpdate = false;
+renderizador.shadowMap.needsUpdate = true;
 document.body.prepend(renderizador.domElement);
+renderizador.domElement.setAttribute("role", "img");
+renderizador.domElement.setAttribute("aria-label", "Valle de cubos con un castillo en lo alto de una colina, un río con un puente de piedra y una aldea");
 
 const escena = new THREE.Scene();
 escena.fog = new THREE.FogExp2("#c9908a", 0.0045);
 
 const camara = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.3, 2400);
+// Capa 1: cosas que no hace falta que salgan en el reflejo del río
+// (bosque lejano, lluvia, pájaros), para que el reflejo cueste menos
+const CAPA_SIN_REFLEJO = 1;
+camara.layers.enable(CAPA_SIN_REFLEJO);
 
 const sol = new THREE.DirectionalLight("#ffb070", 2.2);
 sol.castShadow = true;
@@ -300,6 +309,7 @@ function aplicarCalidad() {
         }
     }
     brillo.enabled = true;
+    renderizador.shadowMap.needsUpdate = true;
 }
 
 // =====================================================================
@@ -1063,7 +1073,11 @@ function casa(tipo, semilla) {
     // Tejado
     tejadoDosAguas(c, -ax, ax, -az, az, alto, tejas, azar);
     // Chimenea
-    if (tipo !== "capilla" && tipo !== "granero") c.caja(ax - 2, alto, -az + 1, ax - 1, alto + az + 3, -az + 2, () => piedra());
+    if (tipo !== "capilla" && tipo !== "granero") {
+        c.caja(ax - 2, alto, -az + 1, ax - 1, alto + az + 3, -az + 2, () => piedra());
+        // Boca de la chimenea (para el humo), en metros respecto al centro de la casa
+        c.chimenea = new THREE.Vector3((ax - 1) * VOXEL, (alto + az + 4) * VOXEL, (2 - az) * VOXEL);
+    }
 
     if (tipo === "taberna") {
         // Cartel colgado
@@ -1109,7 +1123,7 @@ function crearRueda() {
     const { solida } = c.geometrias();
     solida.translate(-0.25, -0.25, -0.75);
     ruedaMolino = new THREE.Mesh(solida, materialCubos);
-    ruedaMolino.castShadow = true;
+    ruedaMolino.castShadow = false;
     ruedaMolino.receiveShadow = true;
     escena.add(ruedaMolino);
 }
@@ -1310,6 +1324,7 @@ function plantarBosqueLejano() {
         malla.setMatrixAt(k, matriz);
     });
     malla.receiveShadow = true;
+    malla.layers.set(CAPA_SIN_REFLEJO);
     escena.add(malla);
 }
 
@@ -1429,11 +1444,7 @@ function ponerCasa(tipo, semilla, z, lado, separacion) {
     const y = Math.min(altura(x, zz), altura(x + 2, zz), altura(x - 2, zz), altura(x, zz + 2), altura(x, zz - 2)) - 0.5;
     colocar(c, x, y, zz, giro);
     ocupados.push({ x, z: zz, r: 9 });
-    const alto = { casita: 7, taberna: 13, molino: 9, granero: 8, capilla: 12 }[tipo];
-    if (tipo !== "capilla" && tipo !== "granero") {
-        const chimenea = new THREE.Vector3(2.5, 0, -1.5).applyAxisAngle(new THREE.Vector3(0, 1, 0), giro);
-        chimeneas.push(new THREE.Vector3(x + chimenea.x, y + (alto + 6) * VOXEL, zz + chimenea.z));
-    }
+    if (c.chimenea) chimeneas.push(c.chimenea.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), giro).add(new THREE.Vector3(x, y, zz)));
     if (tipo === "taberna" || tipo === "capilla") lucesCalidas.push(new THREE.Vector3(x, y + 3, zz).add(new THREE.Vector3(0, 0, 4).applyAxisAngle(new THREE.Vector3(0, 1, 0), giro)));
 }
 
@@ -1450,18 +1461,19 @@ function crearAldea() {
     const xm = -26;
     const zr = rioZ(xm);
     const c = casa("molino", 18);
-    colocar(c, xm, 0.4, zr - 8.5, 0);
-    ocupados.push({ x: xm, z: zr - 8.5, r: 9 });
-    chimeneas.push(new THREE.Vector3(xm + 2.5, 0.4 + 15 * VOXEL, zr - 8.5 - 1.5));
+    colocar(c, xm, 0.4, zr - 8, 0);
+    ocupados.push({ x: xm, z: zr - 8, r: 9 });
+    chimeneas.push(c.chimenea.clone().add(new THREE.Vector3(xm, 0.4, zr - 8)));
     crearRueda();
-    ruedaMolino.position.set(xm + 0.5, 1.4, zr - 4.2);
+    ruedaMolino.position.set(xm + 0.5, 1.2, zr - 3.6);
 
     // Faroles a lo largo del camino
     let lado = 1;
     for (let z = 52; z > -92; z -= 15) {
         const p = puntoCamino(z);
         const x = p.x + lado * 2.8;
-        if (distanciaRio(x, p.z) > ANCHO_RIO + 3) {
+        const cercaPuente = puente && Math.hypot(x - puente.x, p.z - puente.z) < 18;
+        if (distanciaRio(x, p.z) > ANCHO_RIO + 3 && !cercaPuente) {
             farol(x, p.z);
             if (Math.abs(z - 52) < 1) lucesCalidas.push(new THREE.Vector3(x, altura(x, p.z) + 5, p.z));
         }
@@ -1572,6 +1584,7 @@ function aplicarAmbiente() {
     sol.color.copy(a.luzSol);
     sol.intensity = a.fuerzaSol;
     sol.position.copy(sol.target.position).addScaledVector(a.dirSol, 320);
+    renderizador.shadowMap.needsUpdate = true;
     cielo.color.copy(a.cieloArriba);
     cielo.groundColor.copy(a.cieloAbajo);
     cielo.intensity = a.fuerzaCielo;
@@ -1621,7 +1634,9 @@ function crearParticulas() {
     const posH = new Float32Array(nHojas * 3);
     const colH = new Float32Array(nHojas * 3);
     for (let i = 0; i < nHojas; i++) {
-        hojas.datos.push({ x: -16 + (Math.random() - 0.5) * 18, y: Math.random() * 14 + 2, z: 6 + (Math.random() - 0.5) * 14, v: 0.4 + Math.random() * 0.6, fase: Math.random() * 6 });
+        const dato = { x: -16 + (Math.random() - 0.5) * 18, y: Math.random() * 14 + 2, z: 6 + (Math.random() - 0.5) * 14, v: 0.4 + Math.random() * 0.6, fase: Math.random() * 6 };
+        dato.suelo = altura(dato.x, dato.z);
+        hojas.datos.push(dato);
         colores.otono[i % 4].toArray(colH, i * 3);
     }
     hojas.geometria.setAttribute("position", new THREE.BufferAttribute(posH, 3));
@@ -1658,6 +1673,7 @@ function crearParticulas() {
     lluvia.material = new THREE.LineBasicMaterial({ color: "#c8d0dc", transparent: true, opacity: 0 });
     lluvia.lineas = new THREE.LineSegments(lluvia.geometria, lluvia.material);
     lluvia.lineas.frustumCulled = false;
+    lluvia.lineas.layers.set(CAPA_SIN_REFLEJO);
     escena.add(lluvia.lineas);
     particulas.lluvia = lluvia;
 
@@ -1714,6 +1730,7 @@ function crearParticulas() {
     pajaros.material = new THREE.LineBasicMaterial({ color: "#1e1a24", transparent: true, opacity: 1 });
     const lineasPajaros = new THREE.LineSegments(pajaros.geometria, pajaros.material);
     lineasPajaros.frustumCulled = false;
+    lineasPajaros.layers.set(CAPA_SIN_REFLEJO);
     escena.add(lineasPajaros);
     particulas.pajaros = pajaros;
 }
@@ -1733,9 +1750,9 @@ function moverParticulas(delta, tiempo) {
             d.y = 10 + Math.random() * 8;
             d.x = -16 + (Math.random() - 0.5) * 16;
             d.z = 6 + (Math.random() - 0.5) * 12;
+            d.suelo = altura(d.x, d.z);
         }
-        const suelo = altura(d.x, d.z);
-        pos.setXYZ(i, d.x + Math.sin(tiempo * 2 + d.fase) * 0.4, suelo + d.y, d.z + Math.cos(tiempo * 1.5 + d.fase) * 0.4);
+        pos.setXYZ(i, d.x + Math.sin(tiempo * 2 + d.fase) * 0.4, d.suelo + d.y, d.z + Math.cos(tiempo * 1.5 + d.fase) * 0.4);
     });
     pos.needsUpdate = true;
 
@@ -1763,7 +1780,13 @@ function moverParticulas(delta, tiempo) {
             const x = camara.position.x + ll.datos[i * 3];
             const z = camara.position.z + ll.datos[i * 3 + 2];
             const yy = camara.position.y - 12 + y;
-            p.set([x, yy, z, x - 0.05, yy - 0.7, z], i * 6);
+            const k = i * 6;
+            p[k] = x;
+            p[k + 1] = yy;
+            p[k + 2] = z;
+            p[k + 3] = x - 0.05;
+            p[k + 4] = yy - 0.7;
+            p[k + 5] = z;
         }
         ll.geometria.attributes.position.needsUpdate = true;
     }
@@ -1792,7 +1815,12 @@ function moverParticulas(delta, tiempo) {
         const cz = Math.sin(t * Math.PI * 2) * 40 - 100;
         const cy = 42 + d.alto + Math.sin(t * 20) * 1.5;
         const ala = Math.sin(tiempo * 9 + i) * 0.5;
-        pp.set([cx - 0.9, cy + ala, cz + d.lado, cx, cy, cz + d.lado, cx, cy, cz + d.lado, cx + 0.9, cy + ala, cz + d.lado], i * 12);
+        const k = i * 12;
+        const zp = cz + d.lado;
+        pp[k] = cx - 0.9; pp[k + 1] = cy + ala; pp[k + 2] = zp;
+        pp[k + 3] = cx; pp[k + 4] = cy; pp[k + 5] = zp;
+        pp[k + 6] = cx; pp[k + 7] = cy; pp[k + 8] = zp;
+        pp[k + 9] = cx + 0.9; pp[k + 10] = cy + ala; pp[k + 11] = zp;
     });
     pj.geometria.attributes.position.needsUpdate = true;
 }
@@ -1807,18 +1835,19 @@ controles.enableDamping = true;
 controles.dampingFactor = 0.06;
 controles.minDistance = 4;
 controles.maxDistance = 260;
-controles.maxPolarAngle = Math.PI * 0.49;
+controles.maxPolarAngle = Math.PI * 0.62;
 controles.autoRotateSpeed = 0.25;
 
 let vistas = [];
 let viaje = null;
 
 function prepararVistas() {
-    const enAldea = puntoCamino(-62);
+    const enAldea = puntoCamino(-57);
+    const antesPuente = muestrasCamino[Math.max(0, cruces[0] - 46)];
     vistas = [
-        { nombre: "Valle", posicion: new THREE.Vector3(6, 11, 24), objetivo: new THREE.Vector3(-1, 16, -112) },
+        { nombre: "Valle", posicion: new THREE.Vector3(6, 20, 24), objetivo: new THREE.Vector3(-1, 14, -112) },
         { nombre: "Río", posicion: new THREE.Vector3(34, 1.7, rioZ(34) + 5.5), objetivo: new THREE.Vector3(puente.x - 8, 9, puente.z - 34) },
-        { nombre: "Camino", posicion: new THREE.Vector3(enAldea.x + 2, altura(enAldea.x, enAldea.z) + 2.2, enAldea.z + 10), objetivo: new THREE.Vector3(0, 24, -128) },
+        { nombre: "Camino", posicion: new THREE.Vector3(antesPuente.x, altura(antesPuente.x, antesPuente.z) + 2.8, antesPuente.z), objetivo: new THREE.Vector3(enAldea.x - 1, 13, -118) },
         { nombre: "Colina", posicion: new THREE.Vector3(-74, 50, -12), objetivo: new THREE.Vector3(2, 10, -92) }
     ];
 }
@@ -1911,7 +1940,10 @@ let vistaActual = 0;
 
 function marcarVista(i) {
     vistaActual = i;
-    botonesVista.forEach((b) => b.classList.toggle("activo", Number(b.dataset.vista) === i));
+    botonesVista.forEach((b) => {
+        b.classList.toggle("activo", Number(b.dataset.vista) === i);
+        b.setAttribute("aria-pressed", String(Number(b.dataset.vista) === i));
+    });
 }
 
 botonesVista.forEach((boton) => {
@@ -1928,19 +1960,29 @@ botonesAmbiente.forEach((boton) => {
         copiarAmbiente(ambienteDesde, ambienteActual);
         ambienteHasta = ambientes[boton.dataset.ambiente];
         progresoAmbiente = 0;
-        botonesAmbiente.forEach((b) => b.classList.toggle("activo", b === boton));
+        botonesAmbiente.forEach((b) => {
+            b.classList.toggle("activo", b === boton);
+            b.setAttribute("aria-pressed", String(b === boton));
+        });
     });
 });
 
 botonPaseo.addEventListener("click", () => {
     paseo = !paseo;
     botonPaseo.classList.toggle("activo", paseo);
+    botonPaseo.setAttribute("aria-pressed", String(paseo));
     tiempoPaseo = 0;
     controles.autoRotate = paseo && !movimientoReducido;
 });
 
 botonSonido.addEventListener("click", async () => {
-    if (!audio) audio = crearSonido();
+    if (!audio) {
+        audio = crearSonido();
+        await audio.ctx.resume();
+        botonSonido.classList.add("activo");
+        botonSonido.setAttribute("aria-pressed", "true");
+        return;
+    }
     if (audio.ctx.state === "running") {
         await audio.ctx.suspend();
         botonSonido.classList.remove("activo");
@@ -1948,16 +1990,22 @@ botonSonido.addEventListener("click", async () => {
         await audio.ctx.resume();
         botonSonido.classList.add("activo");
     }
+    botonSonido.setAttribute("aria-pressed", String(botonSonido.classList.contains("activo")));
 });
 
 function textoCalidad() {
     botonCalidad.textContent = calidad === "alta" ? "Calidad alta" : "Calidad ligera";
 }
 
+// Cambiar la calidad vuelve a construir el valle (cambia el número de
+// árboles, la lluvia y el reflejo), así que se recarga con la opción
 botonCalidad.addEventListener("click", () => {
-    calidad = calidad === "alta" ? "ligera" : "alta";
-    textoCalidad();
-    ajustarTamano();
+    const nuevos = new URLSearchParams(location.search);
+    nuevos.set("calidad", calidad === "alta" ? "ligera" : "alta");
+    nuevos.set("vista", String(vistaActual + 1));
+    const ambiente = Object.keys(ambientes).find((k) => ambientes[k] === ambienteHasta);
+    if (ambiente) nuevos.set("ambiente", ambiente);
+    location.search = nuevos.toString();
 });
 
 document.getElementById("boton-centrar").addEventListener("click", () => {
@@ -1967,7 +2015,11 @@ document.getElementById("boton-centrar").addEventListener("click", () => {
 
 document.getElementById("boton-ocultar").addEventListener("click", () => document.body.classList.add("sin-interfaz"));
 document.getElementById("boton-mostrar").addEventListener("click", () => document.body.classList.remove("sin-interfaz"));
-document.getElementById("boton-menu").addEventListener("click", () => document.body.classList.toggle("menu-abierto"));
+const botonMenu = document.getElementById("boton-menu");
+botonMenu.addEventListener("click", () => {
+    const abierto = document.body.classList.toggle("menu-abierto");
+    botonMenu.setAttribute("aria-expanded", String(abierto));
+});
 
 document.getElementById("boton-guardar").addEventListener("click", () => {
     compositor.render();
@@ -2037,6 +2089,8 @@ function animar() {
     }
     moverViaje(delta);
     controles.update();
+    const sueloCamara = altura(camara.position.x, camara.position.z) + 1.2;
+    if (camara.position.y < sueloCamara) camara.position.y = sueloCamara;
     moverParticulas(delta, tiempo);
     actualizarSonido();
     compositor.render();
@@ -2088,7 +2142,11 @@ async function construir() {
         irAVista(inicial, true);
         copiarAmbiente(ambienteActual, ambienteHasta);
         aplicarAmbiente();
-        botonesAmbiente.forEach((b) => b.classList.toggle("activo", ambientes[b.dataset.ambiente] === ambienteHasta));
+        botonesAmbiente.forEach((b) => {
+            const activo = ambientes[b.dataset.ambiente] === ambienteHasta;
+            b.classList.toggle("activo", activo);
+            b.setAttribute("aria-pressed", String(activo));
+        });
 
         cargando.classList.add("oculta");
         animar();

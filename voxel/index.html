@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="estilo.css?v=1">
+    <link rel="stylesheet" href="estilo.css?v=2">
     <script type="importmap">
         {
             "imports": {
@@ -26,30 +26,30 @@
 
     <a class="volver" href="../">Volver al portfolio</a>
 
-    <nav class="panel" aria-label="Controles de la escena">
+    <nav class="panel" id="panel" aria-label="Controles de la escena">
         <div class="grupo">
             <p class="etiqueta">Vista</p>
             <div class="botones">
-                <button data-vista="0" class="activo">Valle</button>
-                <button data-vista="1">Río</button>
-                <button data-vista="2">Camino</button>
-                <button data-vista="3">Colina</button>
+                <button data-vista="0" class="activo" aria-pressed="true">Valle</button>
+                <button data-vista="1" aria-pressed="false">Río</button>
+                <button data-vista="2" aria-pressed="false">Camino</button>
+                <button data-vista="3" aria-pressed="false">Colina</button>
             </div>
         </div>
         <div class="grupo">
             <p class="etiqueta">Ambiente</p>
             <div class="botones">
-                <button data-ambiente="manana">Mañana</button>
-                <button data-ambiente="atardecer" class="activo">Atardecer</button>
-                <button data-ambiente="noche">Noche</button>
-                <button data-ambiente="lluvia">Lluvia</button>
+                <button data-ambiente="manana" aria-pressed="false">Mañana</button>
+                <button data-ambiente="atardecer" class="activo" aria-pressed="true">Atardecer</button>
+                <button data-ambiente="noche" aria-pressed="false">Noche</button>
+                <button data-ambiente="lluvia" aria-pressed="false">Lluvia</button>
             </div>
         </div>
         <div class="grupo">
             <p class="etiqueta">Opciones</p>
             <div class="botones">
-                <button id="boton-paseo">Paseo</button>
-                <button id="boton-sonido">Sonido</button>
+                <button id="boton-paseo" aria-pressed="false">Paseo</button>
+                <button id="boton-sonido" aria-pressed="false">Sonido</button>
                 <button id="boton-calidad">Calidad alta</button>
                 <button id="boton-centrar">Centrar</button>
                 <button id="boton-guardar">Foto</button>
@@ -58,12 +58,12 @@
         </div>
     </nav>
 
-    <button class="menu" id="boton-menu">Controles</button>
+    <button class="menu" id="boton-menu" aria-expanded="false" aria-controls="panel">Controles</button>
     <button class="mostrar" id="boton-mostrar">Mostrar controles</button>
 
     <p class="pista" id="pista">Arrastra para girar · rueda o pellizco para acercarte</p>
     <p class="cargando" id="cargando">Construyendo el valle...</p>
 
-    <script type="module" src="escena.js?v=1"></script>
+    <script type="module" src="escena.js?v=3"></script>
 </body>
 </html>

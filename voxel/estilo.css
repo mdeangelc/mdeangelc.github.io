@@ -66,6 +66,7 @@ canvas {
     border-radius: 999px;
     background: var(--panel);
     border: 1px solid var(--borde);
+    -webkit-backdrop-filter: blur(10px);
     backdrop-filter: blur(10px);
     transition: border-color 0.2s;
 }
@@ -86,6 +87,7 @@ canvas {
     border-radius: 16px;
     background: var(--panel);
     border: 1px solid var(--borde);
+    -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
     max-width: calc(100% - 24px);
 }
@@ -124,6 +126,7 @@ canvas {
     padding: 6px 11px;
     cursor: pointer;
     white-space: nowrap;
+    touch-action: manipulation;
     transition: background 0.2s, border-color 0.2s, color 0.2s;
 }
 
@@ -146,6 +149,7 @@ canvas {
     display: none;
     background: var(--panel);
     border-color: var(--borde);
+    -webkit-backdrop-filter: blur(10px);
     backdrop-filter: blur(10px);
 }
 
@@ -262,5 +266,16 @@ canvas {
     .volver {
         font-size: 0.75rem;
         padding: 6px 11px;
+    }
+}
+
+@media (max-width: 360px) {
+    .titulo p {
+        display: none;
+    }
+
+    .titulo h1 {
+        font-size: 0.9rem;
+        max-width: 50%;
     }
 }

@@ -18,12 +18,15 @@ const movimientoReducido = window.matchMedia("(prefers-reduced-motion: reduce)")
 const tocarHierba = parametros.get("tocar") !== "no";
 const factorCalidad = (parametros.get("calidad") === "baja" ? 0.4 : 1) * (movil ? 0.4 : 1);
 
+// Largo de cada trozo del mundo (en metros)
+const LARGO_TROZO = 25;
+
 const ajustes = {
     hierba: Math.floor(100000 * factorCalidad),
     largoHierba: 58,
     anchoHierba: 22,
     tamanoPixel: movil ? 2.5 : 3,
-    largoTrozo: 25,
+    largoTrozo: LARGO_TROZO,
     trozosDelante: 5,
     alturaOjos: 1.7
 };
@@ -51,6 +54,8 @@ function entre(a, b, aleatorio = azar) {
 // =====================================================================
 
 const ANCHO_CAMINO = 1.35;
+const SEPARACION_FAROLA = 2.25;
+const BRAZO_FAROLA = 0.45;
 const PERIODO_ARROYO = 150;
 const LARGO_PUENTE = 7.6;
 
@@ -111,9 +116,9 @@ const terrenoGLSL = `
     }
 
     float arroyo(float x, float z) {
-        float k = floor((-z + 75.0) / 150.0);
+        float k = floor((-z + ${(PERIODO_ARROYO / 2).toFixed(1)}) / ${PERIODO_ARROYO.toFixed(1)});
         if (k < 1.0) return 99.0;
-        return z - (-k * 150.0 + 4.0 * sin(x * 0.12 + k * 1.7));
+        return z - (-k * ${PERIODO_ARROYO.toFixed(1)} + 4.0 * sin(x * 0.12 + k * 1.7));
     }
 
     float alturaTerreno(float x, float z) {
@@ -150,10 +155,10 @@ const terrenoGLSL = `
 
     // Charco de luz de la farola de cada trozo (una cada 25 m, alternando lado)
     float luzFarolas(vec3 p) {
-        float i = floor(-p.z / 25.0);
-        float zf = -(i + 0.5) * 25.0;
+        float i = floor(-p.z / ${LARGO_TROZO.toFixed(1)});
+        float zf = -(i + 0.5) * ${LARGO_TROZO.toFixed(1)};
         float lado = mod(i, 2.0) < 0.5 ? 1.0 : -1.0;
-        vec2 centro = vec2(caminoX(zf) + lado * 1.8, zf);
+        vec2 centro = vec2(caminoX(zf) + lado * ${(SEPARACION_FAROLA - BRAZO_FAROLA).toFixed(2)}, zf);
         vec2 d = p.xz - centro;
         return exp(-dot(d, d) * 0.09);
     }
@@ -177,6 +182,8 @@ let modoPixel = parametros.get("pixel") !== "no";
 renderizador.autoClear = false;
 renderizador.outputColorSpace = THREE.SRGBColorSpace;
 document.body.prepend(renderizador.domElement);
+renderizador.domElement.setAttribute("role", "img");
+renderizador.domElement.setAttribute("aria-label", "Camino empedrado que avanza hacia un castillo de fantasía entre prados, árboles y montañas");
 
 function aplicarResolucion() {
     renderizador.setPixelRatio(modoPixel ? 1 / ajustes.tamanoPixel : Math.min(window.devicePixelRatio, 1.5));
@@ -892,6 +899,7 @@ const materialSuelo = new THREE.ShaderMaterial({
 const materialPuente = new THREE.ShaderMaterial({
     uniforms: uniformesSuelo,
     defines: { PUENTE: "" },
+    extensions: { derivatives: true },
     vertexShader: `
         varying vec3 vMundo;
         void main() {
@@ -1642,17 +1650,17 @@ function valla(o, desde, hasta, lado) {
 }
 
 function farola(o, z, lado) {
-    const x = caminoX(z) + lado * 2.25;
+    const x = caminoX(z) + lado * SEPARACION_FAROLA;
     const y = alturaTerreno(x, z);
     o.en(x, y, z);
     o.poner(caja(0.14, 0.3, 0.14, 0, 0.15, 0), colores.piedraOscura, 0.1);
     o.poner(caja(0.1, 2.5, 0.1, 0, 1.4, 0), colores.maderaOscura, 0.1);
     o.poner(caja(0.6, 0.07, 0.07, -lado * 0.27, 2.6, 0), colores.maderaOscura, 0.1);
-    o.poner(caja(0.03, 0.18, 0.03, -lado * 0.45, 2.48, 0), colores.hierro, 0);
-    o.poner(cono(0.22, 0.14, 4, -lado * 0.45, 2.42, 0, Math.PI / 4), colores.hierro, 0);
-    o.poner(caja(0.3, 0.05, 0.3, -lado * 0.45, 2.04, 0), colores.hierro, 0);
-    [-1, 1].forEach((sx) => [-1, 1].forEach((sz) => o.poner(caja(0.035, 0.32, 0.035, -lado * 0.45 + sx * 0.12, 2.2, sz * 0.12), colores.hierro, 0)));
-    o.luz(caja(0.22, 0.28, 0.22, -lado * 0.45, 2.2, 0), 2.4);
+    o.poner(caja(0.03, 0.18, 0.03, -lado * BRAZO_FAROLA, 2.48, 0), colores.hierro, 0);
+    o.poner(cono(0.22, 0.14, 4, -lado * BRAZO_FAROLA, 2.42, 0, Math.PI / 4), colores.hierro, 0);
+    o.poner(caja(0.3, 0.05, 0.3, -lado * BRAZO_FAROLA, 2.04, 0), colores.hierro, 0);
+    [-1, 1].forEach((sx) => [-1, 1].forEach((sz) => o.poner(caja(0.035, 0.32, 0.035, -lado * BRAZO_FAROLA + sx * 0.12, 2.2, sz * 0.12), colores.hierro, 0)));
+    o.luz(caja(0.22, 0.28, 0.22, -lado * BRAZO_FAROLA, 2.2, 0), 2.4);
 }
 
 function carreta(o, x, z, angulo) {
@@ -2060,7 +2068,7 @@ function actualizarTrozos(todos = false) {
     trozos.forEach((grupo, i) => {
         if (i < desde || i > hasta) {
             grupo.traverse((objeto) => {
-                if (objeto.geometry) objeto.geometry.dispose();
+                if (objeto.geometry && !objeto.isSprite) objeto.geometry.dispose();
             });
             escena.remove(grupo);
             trozos.delete(i);
@@ -2167,7 +2175,11 @@ function moverPajaros(tiempo) {
         const z = cz + b.y * 1.5;
         const aleteo = Math.sin(tiempo * 8 + b.fase) * 0.6;
         const k = i * 12;
-        p.array.set([x - 1.0, y + aleteo, z, x, y, z, x, y, z, x + 1.0, y + aleteo, z], k);
+        const a = p.array;
+        a[k] = x - 1.0; a[k + 1] = y + aleteo; a[k + 2] = z;
+        a[k + 3] = x; a[k + 4] = y; a[k + 5] = z;
+        a[k + 6] = x; a[k + 7] = y; a[k + 8] = z;
+        a[k + 9] = x + 1.0; a[k + 10] = y + aleteo; a[k + 11] = z;
     });
     p.needsUpdate = true;
     materialPajaros.opacity = 1 - actual.noche;
@@ -2196,6 +2208,7 @@ window.addEventListener("wheel", (evento) => {
     evento.preventDefault();
     caminandoSolo = false;
     botonCaminar.classList.remove("activo");
+    botonCaminar.setAttribute("aria-pressed", "false");
     avanzar(evento.deltaY * 0.015);
 }, { passive: false });
 
@@ -2207,6 +2220,7 @@ window.addEventListener("keydown", (evento) => {
 botonCaminar.addEventListener("click", () => {
     caminandoSolo = !caminandoSolo;
     botonCaminar.classList.toggle("activo", caminandoSolo);
+    botonCaminar.setAttribute("aria-pressed", String(caminandoSolo));
     pista.classList.add("oculta");
 });
 
@@ -2227,8 +2241,11 @@ const rayo = new THREE.Raycaster();
 const puntoSuelo = new THREE.Vector3();
 let punteroDentro = false;
 let dedoY = null;
+let dedoId = null;
 
 function moverPuntero(evento) {
+    // Con dos dedos solo cuenta el primero
+    if (evento.pointerType === "touch" && dedoId !== null && evento.pointerId !== dedoId) return;
     puntero.set((evento.clientX / window.innerWidth) * 2 - 1, -(evento.clientY / window.innerHeight) * 2 + 1);
     punteroDentro = true;
     if (evento.pointerType === "touch" && dedoY !== null) {
@@ -2237,18 +2254,25 @@ function moverPuntero(evento) {
     }
 }
 
+function soltarDedo(evento) {
+    if (evento.pointerType !== "touch" || evento.pointerId !== dedoId) return;
+    punteroDentro = false;
+    dedoY = null;
+    dedoId = null;
+}
+
 renderizador.domElement.addEventListener("pointermove", moverPuntero);
 renderizador.domElement.addEventListener("pointerdown", (evento) => {
-    if (evento.pointerType === "touch") dedoY = evento.clientY;
+    if (evento.pointerType === "touch") {
+        if (dedoId !== null) return;
+        dedoId = evento.pointerId;
+        dedoY = evento.clientY;
+    }
     moverPuntero(evento);
 });
 renderizador.domElement.addEventListener("pointerleave", () => (punteroDentro = false));
-renderizador.domElement.addEventListener("pointerup", (evento) => {
-    if (evento.pointerType === "touch") {
-        punteroDentro = false;
-        dedoY = null;
-    }
-});
+renderizador.domElement.addEventListener("pointerup", soltarDedo);
+renderizador.domElement.addEventListener("pointercancel", soltarDedo);
 
 function actualizarRaton(delta) {
     punteroSuave.lerp(punteroDentro && !movil ? puntero : punteroCero, Math.min(1, delta * 2.5));
@@ -2294,22 +2318,30 @@ let momentoHasta = momentos[pedido] ? momentos[pedido] : momentos.atardecer;
 const momentoDesde = prepararMomento(momentoVacio);
 let progresoMomento = 1;
 mezclarMomentos(actual, momentoHasta, momentoHasta, 1);
-botonesMomento.forEach((b) => b.classList.toggle("activo", momentos[b.dataset.momento] === momentoHasta));
+botonesMomento.forEach((b) => {
+    b.classList.toggle("activo", momentos[b.dataset.momento] === momentoHasta);
+    b.setAttribute("aria-pressed", String(momentos[b.dataset.momento] === momentoHasta));
+});
 
 botonesMomento.forEach((boton) => {
     boton.addEventListener("click", () => {
         mezclarMomentos(momentoDesde, actual, actual, 1);
         momentoHasta = momentos[boton.dataset.momento];
         progresoMomento = 0;
-        botonesMomento.forEach((b) => b.classList.toggle("activo", b === boton));
+        botonesMomento.forEach((b) => {
+            b.classList.toggle("activo", b === boton);
+            b.setAttribute("aria-pressed", String(b === boton));
+        });
     });
 });
 
 const botonPixel = document.getElementById("boton-pixel");
 botonPixel.classList.toggle("activo", modoPixel);
+botonPixel.setAttribute("aria-pressed", String(modoPixel));
 botonPixel.addEventListener("click", () => {
     modoPixel = !modoPixel;
     botonPixel.classList.toggle("activo", modoPixel);
+    botonPixel.setAttribute("aria-pressed", String(modoPixel));
     aplicarResolucion();
 });
 
@@ -2342,7 +2374,8 @@ function aplicarMomento() {
 
 // =====================================================================
 // 17. RENDIMIENTO
-// Si los FPS bajan de 45 se quita hierba; si sobran, se vuelve a poner.
+// Si los FPS bajan se quita hierba; si sobran, se vuelve a poner.
+// Las pantallas limitadas a 30 FPS (modo ahorro) no cuentan como lentas.
 // =====================================================================
 
 const marcadorFps = document.createElement("p");
@@ -2353,6 +2386,12 @@ let fotogramas = 0;
 let inicioMedida = performance.now();
 const inicioPagina = performance.now();
 let calidadHierba = 1;
+const ultimosFps = [];
+
+document.addEventListener("visibilitychange", () => {
+    fotogramas = 0;
+    inicioMedida = performance.now();
+});
 
 function revisarRendimiento() {
     fotogramas++;
@@ -2360,14 +2399,18 @@ function revisarRendimiento() {
     const segundos = (ahora - inicioMedida) / 1000;
     if (segundos < 1) return;
     const fps = fotogramas / segundos;
+    fotogramas = 0;
+    inicioMedida = ahora;
+    if (segundos > 1.5) return;
     marcadorFps.textContent = Math.round(fps) + " FPS · hierba " + Math.round(calidadHierba * 100) + "%";
-    if ((ahora - inicioPagina) / 1000 > 2) {
+    ultimosFps.push(fps);
+    if (ultimosFps.length > 3) ultimosFps.shift();
+    const limitada = ultimosFps.length === 3 && ultimosFps.every((f) => f > 28.5 && f < 31.5);
+    if ((ahora - inicioPagina) / 1000 > 2 && !limitada) {
         if (fps < 45) calidadHierba = Math.max(0.3, calidadHierba - 0.1);
         else if (fps > 57) calidadHierba = Math.min(1, calidadHierba + 0.05);
         hierba.geometria.instanceCount = Math.floor(hierba.total * calidadHierba);
     }
-    fotogramas = 0;
-    inicioMedida = ahora;
 }
 
 // =====================================================================
