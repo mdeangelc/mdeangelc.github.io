@@ -785,6 +785,7 @@ function crearHierba() {
             ${clarosGLSL}
             varying float vAltura;
             varying float vAzar;
+            varying float vMancha;
             varying vec3 vMundo;
             ${terrenoGLSL}
 
@@ -826,6 +827,7 @@ function crearHierba() {
 
                 vAltura = y;
                 vAzar = aDatos.w;
+                vMancha = ruido(base.xz * 0.07 + 11.0);
                 vMundo = mundo;
                 gl_Position = projectionMatrix * viewMatrix * vec4(mundo, 1.0);
             }
@@ -839,6 +841,7 @@ function crearHierba() {
             uniform float uNoche;
             varying float vAltura;
             varying float vAzar;
+            varying float vMancha;
             varying vec3 vMundo;
             ${terrenoGLSL}
 
@@ -847,9 +850,11 @@ function crearHierba() {
                 if (smoothstep(32.0, 54.0, d) > tramado(gl_FragCoord.xy)) discard;
                 vec3 punta = uPunta * (0.7 + vAzar * 0.55);
                 if (vAzar > 0.93) punta *= vec3(1.35, 1.1, 0.6);
+                punta = mix(punta, punta * vec3(1.18, 1.08, 0.72), smoothstep(0.6, 0.85, vMancha));
+                punta = mix(punta, punta * vec3(0.78, 0.9, 1.0), 1.0 - smoothstep(0.15, 0.35, vMancha));
                 vec3 color = mix(uBase, punta, vAltura);
                 color *= uAmbiente * 1.3 + uLuz * (0.3 + 0.5 * vAltura);
-                color += vec3(1.0, 0.62, 0.3) * luzFarolas(vMundo) * uNoche * (0.04 + vAltura * 0.16);
+                color += vec3(1.0, 0.55, 0.22) * luzFarolas(vMundo) * uNoche * (0.03 + vAltura * 0.13);
                 color = mix(color, uNiebla, smoothstep(14.0, 95.0, d) * 0.88);
                 gl_FragColor = vec4(color, 1.0);
                 #include <colorspace_fragment>
@@ -879,7 +884,14 @@ function desvanecerLejos(material, cerca, lejos) {
             "#include <clipping_planes_fragment>",
             `#include <clipping_planes_fragment>
             vec2 pt = mod(floor(gl_FragCoord.xy), 4.0);
-            float umbral = fract((pt.x * 4.0 + pt.y * 11.0) * 0.4375 + pt.y * 0.53);
+            int ib = int(pt.x + pt.y * 4.0);
+            float umbral = 0.5;
+            float bayer[16];
+            bayer[0] = 0.0; bayer[1] = 8.0; bayer[2] = 2.0; bayer[3] = 10.0;
+            bayer[4] = 12.0; bayer[5] = 4.0; bayer[6] = 14.0; bayer[7] = 6.0;
+            bayer[8] = 3.0; bayer[9] = 11.0; bayer[10] = 1.0; bayer[11] = 9.0;
+            bayer[12] = 15.0; bayer[13] = 7.0; bayer[14] = 13.0; bayer[15] = 5.0;
+            for (int k = 0; k < 16; k++) if (k == ib) umbral = (bayer[k] + 0.5) / 16.0;
             if (smoothstep(${cerca.toFixed(1)}, ${lejos.toFixed(1)}, length(vViewPosition)) > umbral) discard;`
         );
     };
@@ -1629,7 +1641,7 @@ function moverPetalos(delta, tiempo) {
 const cuantosPajaros = 7;
 const geometriaPajaros = new THREE.BufferGeometry();
 geometriaPajaros.setAttribute("position", new THREE.BufferAttribute(new Float32Array(cuantosPajaros * 4 * 3), 3));
-const materialPajaros = new THREE.LineBasicMaterial({ color: "#1c1430", transparent: true, opacity: 1, fog: false });
+const materialPajaros = new THREE.LineBasicMaterial({ color: "#20142e", transparent: true, opacity: 1, fog: false });
 const pajaros = new THREE.LineSegments(geometriaPajaros, materialPajaros);
 pajaros.frustumCulled = false;
 escena.add(pajaros);
@@ -1647,11 +1659,11 @@ function moverPajaros(tiempo) {
     const cz = camara.position.z - 75;
     formacion.forEach((b, i) => {
         const x = cx + b.x;
-        const y = 19 + b.y + Math.sin(t * 9 + b.fase) * 0.6;
+        const y = 26 + b.y + Math.sin(t * 9 + b.fase) * 0.6;
         const z = cz + b.y * 1.5;
-        const aleteo = Math.sin(tiempo * 9 + b.fase) * 0.45;
+        const aleteo = Math.sin(tiempo * 8 + b.fase) * 0.6;
         const k = i * 12;
-        p.array.set([x - 0.7, y + aleteo, z, x, y, z, x, y, z, x + 0.7, y + aleteo, z], k);
+        p.array.set([x - 1.0, y + aleteo, z, x, y, z, x, y, z, x + 1.0, y + aleteo, z], k);
     });
     p.needsUpdate = true;
     materialPajaros.opacity = 1 - actual.noche;
@@ -1759,11 +1771,12 @@ function colocarCamara() {
     const z = -metros;
     const paso = Math.abs(metrosObjetivo - metros) > 0.05 ? 1 : 0;
     camara.position.set(
-        caminoX(z) * 0.85 + punteroSuave.x * 0.25,
+        caminoX(z) * 0.92 + punteroSuave.x * 0.25,
         ajustes.alturaOjos + alturaPuente(z) + Math.sin(metros * 2.4) * 0.035 * paso,
         z
     );
-    camara.rotation.set(inclinacion + punteroSuave.y * 0.02, -punteroSuave.x * 0.04 + (caminoX(z - 8) - caminoX(z)) * 0.03, 0);
+    const mirar = Math.atan2(caminoX(z - 10) - caminoX(z), 10) * (movil ? 0.5 : 0.3);
+    camara.rotation.set(inclinacion + punteroSuave.y * 0.02, -punteroSuave.x * 0.04 - mirar, 0);
     comunes.uCamara.value.copy(camara.position);
 }
 
