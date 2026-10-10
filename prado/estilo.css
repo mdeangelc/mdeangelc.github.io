@@ -118,26 +118,33 @@ canvas {
 
 @media (max-width: 700px) {
     .volver {
-        bottom: 52px;
-        left: 50%;
-        transform: translateX(-50%);
-        font-size: 18px;
+        top: 10px;
+        bottom: auto;
+        left: 10px;
+        font-size: 17px;
         padding: 2px 8px;
         white-space: nowrap;
     }
 
     .controles {
-        right: 50%;
-        transform: translateX(50%);
+        left: 8px;
+        right: 8px;
+        gap: 4px;
+        justify-content: center;
+        flex-wrap: wrap;
     }
 
     .controles button {
-        font-size: 18px;
-        padding: 2px 8px;
+        font-size: 16px;
+        padding: 2px 6px;
     }
 
     .pista {
-        bottom: 92px;
-        font-size: 19px;
+        bottom: 84px;
+        font-size: 18px;
+        white-space: normal;
+        text-align: center;
+        width: max-content;
+        max-width: calc(100% - 20px);
     }
 }

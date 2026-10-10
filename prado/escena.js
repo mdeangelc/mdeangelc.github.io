@@ -9,6 +9,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 //   ?calidad=baja    -> menos hierba
 //   ?fps=si          -> contador de fotogramas
 //   ?tocar=no        -> la hierba no reacciona al ratón
+//   ?fondo=solo      -> solo el fondo, sin la escena 3D (para ajustarlo)
 // =====================================================================
 
 const parametros = new URLSearchParams(location.search);
@@ -185,40 +186,81 @@ aplicarResolucion();
 
 // =====================================================================
 // 4. MOMENTOS DEL DÍA
+// Cada momento es una paleta de colores y unos números (dónde está el
+// sol, cuánta luz hay...). Al cambiar de momento se mezclan poco a poco,
+// así el sol se pone de verdad y las estrellas van saliendo.
 // =====================================================================
 
 const momentos = {
+    dia: {
+        noche: 0, dia: 1, solX: 1.22, solY: 0.9, luzX: 30, luzY: 80, fuerzaSol: 2.2, fuerzaCielo: 2.3,
+        niebla: "#a3b9dc", tierra: "#2c5230", tierraClara: "#4b7838",
+        hierbaBase: "#1b4020", hierbaPunta: "#86b84a", luz: "#fff1d6", ambiente: "#7f93c8",
+        piedra: "#a09a98", juntas: "#3a3640", barro: "#6b5848", musgo: "#4c7a34",
+        reflejoAlto: "#4f86d8", reflejoBajo: "#d4e8ff",
+        cieloAlto: "#2f6fd6", cieloMedio: "#6fa8ee", cieloBajo: "#d8ecff", colorSol: "#fff7dc",
+        nubeLuz: "#ffffff", nubeMedia: "#e3ebf8", nubeSombra: "#a6b6dc",
+        montanaLejos: "#93a9d8", montanaCerca: "#6181bb", nieve: "#f5f9ff",
+        bosqueLejos: "#3f6e5e", bosqueCerca: "#29503c"
+    },
     atardecer: {
-        noche: 0,
+        noche: 0, dia: 0, solX: 1.42, solY: 0.62, luzX: 60, luzY: 30, fuerzaSol: 1.6, fuerzaCielo: 2.0,
         niebla: "#4a4677", tierra: "#22392b", tierraClara: "#3c5a33",
         hierbaBase: "#14281a", hierbaPunta: "#5c8a3c", luz: "#ffc9a0", ambiente: "#6a5f99",
         piedra: "#8e8a8e", juntas: "#2b2436", barro: "#4a3a40", musgo: "#3f5a2e",
-        reflejoAlto: "#6c5aa8", reflejoBajo: "#f2a07c"
+        reflejoAlto: "#6c5aa8", reflejoBajo: "#f2a07c",
+        cieloAlto: "#23287a", cieloMedio: "#9a4fa0", cieloBajo: "#ff9f6e", colorSol: "#ffd47e",
+        nubeLuz: "#ffbf8f", nubeMedia: "#e0708c", nubeSombra: "#5c3d8e",
+        montanaLejos: "#7a68b4", montanaCerca: "#4a3c86", nieve: "#ffd2dc",
+        bosqueLejos: "#3b3c6e", bosqueCerca: "#252a50"
     },
     noche: {
-        noche: 1,
+        noche: 1, dia: 0, solX: 1.34, solY: 0.22, luzX: -60, luzY: 45, fuerzaSol: 0.22, fuerzaCielo: 0.6,
         niebla: "#141834", tierra: "#0d1520", tierraClara: "#18283a",
         hierbaBase: "#081018", hierbaPunta: "#2a4a66", luz: "#8aa0e0", ambiente: "#2e3668",
         piedra: "#46507a", juntas: "#0d0f1e", barro: "#151824", musgo: "#142636",
-        reflejoAlto: "#0c1230", reflejoBajo: "#3a4c96"
+        reflejoAlto: "#0c1230", reflejoBajo: "#3a4c96",
+        cieloAlto: "#04071a", cieloMedio: "#0e1840", cieloBajo: "#26346a", colorSol: "#ff9a5a",
+        nubeLuz: "#5a6aa8", nubeMedia: "#2c3770", nubeSombra: "#151b3e",
+        montanaLejos: "#2b3466", montanaCerca: "#1b2150", nieve: "#8f9fd6",
+        bosqueLejos: "#151d38", bosqueCerca: "#0d1328"
     }
 };
 
-const nombresColor = ["niebla", "tierra", "tierraClara", "hierbaBase", "hierbaPunta", "luz", "ambiente", "piedra", "juntas", "barro", "musgo", "reflejoAlto", "reflejoBajo"];
+const nombresNumero = ["noche", "dia", "solX", "solY", "luzX", "luzY", "fuerzaSol", "fuerzaCielo"];
+const nombresColor = Object.keys(momentos.dia).filter((n) => !nombresNumero.includes(n));
 
 function prepararMomento(datos) {
-    const m = { noche: datos.noche };
+    const m = {};
+    nombresNumero.forEach((n) => (m[n] = datos[n]));
     nombresColor.forEach((n) => (m[n] = new THREE.Color(datos[n])));
     return m;
 }
 
 Object.keys(momentos).forEach((k) => (momentos[k] = prepararMomento(momentos[k])));
-const momentoVacio = { noche: 0, ...Object.fromEntries(nombresColor.map((n) => [n, "#000000"])) };
+const momentoVacio = {
+    ...Object.fromEntries(nombresNumero.map((n) => [n, 0])),
+    ...Object.fromEntries(nombresColor.map((n) => [n, "#000000"]))
+};
 const actual = prepararMomento(momentoVacio);
 
+function suavizar(t) {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+// Al anochecer primero baja el sol y después salen las estrellas y se
+// encienden las luces; al amanecer, al revés.
 function mezclarMomentos(destino, a, b, t) {
-    destino.noche = a.noche + (b.noche - a.noche) * t;
-    nombresColor.forEach((n) => destino[n].lerpColors(a[n], b[n], t));
+    const pronto = suavizar(Math.min(1, t * 1.6));
+    const tarde = suavizar(Math.max(0, (t - 0.35) / 0.65));
+    const anocheciendo = b.noche > a.noche || (b.noche === a.noche && b.solY < a.solY);
+    nombresNumero.forEach((n) => {
+        let tt = suavizar(t);
+        if (n === "solX" || n === "solY") tt = anocheciendo ? pronto : tarde;
+        if (n === "noche") tt = anocheciendo ? tarde : pronto;
+        destino[n] = a[n] + (b[n] - a[n]) * tt;
+    });
+    nombresColor.forEach((n) => destino[n].lerpColors(a[n], b[n], suavizar(t)));
 }
 
 const comunes = {
@@ -228,6 +270,7 @@ const comunes = {
     uLuz: { value: actual.luz },
     uAmbiente: { value: actual.ambiente },
     uNoche: { value: 0 },
+    uDia: { value: 0 },
     uRaton: { value: new THREE.Vector2(999, 999) },
     uFuerzaRaton: { value: 0 },
     uViento: { value: movimientoReducido ? 0.25 : 1 },
@@ -249,190 +292,339 @@ const clarosGLSL = `
 `;
 
 // =====================================================================
-// 5. EL FONDO PINTADO POR CAPAS (2.5D)
-// Cada capa es una imagen que cubre la pantalla. Se mueven a distinta
-// velocidad con el ratón (paralaje) y crecen un poco al caminar, más
-// las cercanas que las lejanas. Así hay profundidad sin modelar nada.
+// 5. EL FONDO
+// Todo el fondo se pinta en un solo shader, de atrás hacia delante:
+// cielo por bandas, sol, luna y estrellas, nubes altas, dos cordilleras,
+// nubes bajas, el castillo (la única imagen) y dos colinas con bosque.
+// Por último, la bruma sobre el horizonte.
+// Las posiciones van en "coordenadas del marco": x de 0 a 1.78 y de 0
+// (abajo) a 1 (arriba); el horizonte del suelo 3D está en y = 0.4.
+// Cada capa se mueve distinto con el ratón (paralaje) y crece un poco
+// al caminar, más cuanto más cerca está.
 // =====================================================================
 
 const ANCHO_MARCO = 1672;
 const ALTO_MARCO = 941;
 const aspectoMarco = ANCHO_MARCO / ALTO_MARCO;
+const HORIZONTE_EN_MARCO = 0.6;
 
-// x, y: desplazamiento en píxeles del marco original; escala; paralaje; zoom máximo al caminar
-const capas = [
-    { nombre: "cielo", x: 0, y: -60, escala: 1.12, paralaje: 0.004, zoom: 0.0, esCielo: true },
-    { nombre: "montanas", x: 0, y: -70, escala: 1.0, paralaje: 0.008, zoom: 0.03 },
-    { nombre: "nubes", x: 0, y: 10, escala: 1.0, paralaje: 0.012, zoom: 0.05, deriva: true },
-    { nombre: "castillo", x: 0, y: -112, escala: 0.44, paralaje: 0.016, zoom: 0.1 },
-    { nombre: "valle", x: 30, y: -46, escala: 0.55, paralaje: 0.024, zoom: 0.18 }
-];
+// Castillo: centro en el marco (0-1), escala respecto al marco
+const castillo = { x: 0.5, y: 0.61, escala: 0.46 };
 
 const escenaFondo = new THREE.Scene();
 const camaraFondo = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 const visible = new THREE.Vector2(1, 1);
 const desplazamientoRaton = new THREE.Vector2();
 
-const vertexCapa = `
-    varying vec2 vUv;
-    void main() {
-        vUv = uv;
-        gl_Position = vec4(position.xy, 0.0, 1.0);
-    }
-`;
+const uniformesFondo = {
+    uCastillo: { value: null },
+    uVisible: { value: visible },
+    uRatonFondo: { value: desplazamientoRaton },
+    uProgreso: { value: 0 },
+    uTiempo: comunes.uTiempo,
+    uNoche: comunes.uNoche,
+    uDia: comunes.uDia,
+    uNiebla: comunes.uNiebla,
+    uSol: { value: new THREE.Vector2(1.28, 0.5) },
+    uCentroCastillo: { value: new THREE.Vector2(castillo.x, castillo.y) },
+    uEscalaCastillo: { value: castillo.escala },
+    uAspectoMarco: { value: aspectoMarco },
+    uLinea: { value: 1 - HORIZONTE_EN_MARCO }
+};
+["cieloAlto", "cieloMedio", "cieloBajo", "colorSol", "nubeLuz", "nubeMedia", "nubeSombra", "montanaLejos", "montanaCerca", "nieve", "bosqueLejos", "bosqueCerca"].forEach((n) => {
+    uniformesFondo["u" + n[0].toUpperCase() + n.slice(1)] = { value: actual[n] };
+});
 
-const fragmentCapa = `
-    uniform sampler2D uTextura;
+const fragmentFondo = `
+    uniform sampler2D uCastillo;
     uniform vec2 uVisible;
-    uniform vec2 uCentro;
-    uniform float uEscala;
-    uniform vec2 uRatonCapa;
-    uniform float uNoche;
+    uniform vec2 uRatonFondo;
+    uniform float uProgreso;
     uniform float uTiempo;
-    uniform float uAspecto;
-    uniform bool uEsCielo;
-    uniform bool uDeriva;
+    uniform float uNoche;
+    uniform float uDia;
+    uniform vec3 uNiebla;
+    uniform vec2 uSol;
+    uniform vec2 uCentroCastillo;
+    uniform float uEscalaCastillo;
+    uniform float uAspectoMarco;
+    uniform float uLinea;
+    uniform vec3 uCieloAlto;
+    uniform vec3 uCieloMedio;
+    uniform vec3 uCieloBajo;
+    uniform vec3 uColorSol;
+    uniform vec3 uNubeLuz;
+    uniform vec3 uNubeMedia;
+    uniform vec3 uNubeSombra;
+    uniform vec3 uMontanaLejos;
+    uniform vec3 uMontanaCerca;
+    uniform vec3 uNieve;
+    uniform vec3 uBosqueLejos;
+    uniform vec3 uBosqueCerca;
     varying vec2 vUv;
 
     float hash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
     }
 
-    void main() {
-        vec2 marco = (vUv - 0.5) * uVisible + 0.5 + uRatonCapa;
-        if (uDeriva) marco.x += sin(uTiempo * 0.05) * 0.006;
-        vec2 uvCapa = (marco - uCentro) / uEscala + 0.5;
+    float ruido(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+                   mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+    }
 
-        if (uEsCielo) uvCapa = clamp(uvCapa, 0.001, 0.999);
-        else if (uvCapa.x < 0.0 || uvCapa.x > 1.0 || uvCapa.y < 0.0 || uvCapa.y > 1.0) discard;
+    float fbm(vec2 p) {
+        float suma = 0.0;
+        float a = 0.5;
+        for (int i = 0; i < 5; i++) {
+            suma += ruido(p) * a;
+            p = p * 2.03 + vec2(1.7, 9.2);
+            a *= 0.5;
+        }
+        return suma;
+    }
 
-        vec4 color = texture2D(uTextura, uvCapa);
-        if (color.a < 0.5) discard;
+    // Tramado ordenado 4x4 (Bayer): reparte los píxeles entre dos tonos
+    float tramado() {
+        vec2 p = mod(floor(gl_FragCoord.xy), 4.0);
+        int i = int(p.x + p.y * 4.0);
+        float m[16];
+        m[0] = 0.0; m[1] = 8.0; m[2] = 2.0; m[3] = 10.0;
+        m[4] = 12.0; m[5] = 4.0; m[6] = 14.0; m[7] = 6.0;
+        m[8] = 3.0; m[9] = 11.0; m[10] = 1.0; m[11] = 9.0;
+        m[12] = 15.0; m[13] = 7.0; m[14] = 13.0; m[15] = 5.0;
+        for (int k = 0; k < 16; k++) if (k == i) return (m[k] + 0.5) / 16.0;
+        return 0.5;
+    }
 
+    // Reduce un valor de 0 a 1 a unos pocos escalones, con tramado en los bordes
+    float escalones(float v, float cuantos, float t) {
+        return clamp(floor(v * cuantos + t) / cuantos, 0.0, 1.0);
+    }
+
+    // Igual, pero con menos tramado (para que no salgan tableros de ajedrez)
+    float escalonesSuaves(float v, float cuantos, float t) {
+        return clamp(floor(v * cuantos + 0.5 + (t - 0.5) * 0.35) / cuantos, 0.0, 1.0);
+    }
+
+    // Coordenadas del marco para una capa con su paralaje y su zoom al caminar
+    vec2 enCapa(vec2 marco, float paralaje, float zoom) {
+        marco += uRatonFondo * vec2(paralaje, paralaje * 0.5);
+        vec2 centro = vec2(0.5, uLinea);
+        marco = (marco - centro) / (1.0 + zoom * uProgreso) + centro;
+        return vec2(marco.x * uAspectoMarco, marco.y);
+    }
+
+    vec3 cielo(vec2 f, float t) {
+        float alto = clamp((f.y - uLinea) / (1.0 - uLinea), 0.0, 1.0);
+        float b = escalones(alto, 16.0, t);
+        vec3 c = b < 0.3 ? mix(uCieloBajo, uCieloMedio, b / 0.3) : mix(uCieloMedio, uCieloAlto, (b - 0.3) / 0.7);
+
+        float visibleSol = 1.0 - uNoche;
+        vec2 aSol = (f - uSol) * vec2(1.0, 1.25);
+        float d = length(aSol);
+        float halo = escalones(exp(-d * 3.2), 7.0, t);
+        c = mix(c, uColorSol, halo * 0.5 * visibleSol);
+        if (d < 0.05) c = mix(c, mix(uColorSol, vec3(1.0), 0.55), visibleSol);
+        else if (d < 0.062) c = mix(c, uColorSol, visibleSol * 0.8);
+
+        // Estrellas
+        vec2 celda = floor(f * 260.0);
+        float estrella = step(0.995, hash(celda)) * (0.55 + 0.45 * sin(uTiempo * 2.0 + hash(celda + 3.0) * 30.0));
+        estrella *= smoothstep(0.15, 0.5, alto);
+        c += vec3(estrella) * uNoche;
+
+        // Luna con cráteres
+        vec2 aLuna = f - vec2(0.62, 0.84);
+        float dl = length(aLuna);
+        float brilloLuna = escalones(exp(-dl * 9.0), 6.0, t) * 0.35;
+        c += vec3(0.28, 0.32, 0.55) * brilloLuna * uNoche;
+        if (dl < 0.045) {
+            float crater = step(length(aLuna - vec2(0.012, 0.01)), 0.011) + step(length(aLuna - vec2(-0.015, -0.012)), 0.008) + step(length(aLuna - vec2(0.01, -0.02)), 0.006);
+            vec3 luna = mix(vec3(0.93, 0.94, 1.0), vec3(0.72, 0.75, 0.88), min(crater, 1.0));
+            c = mix(c, luna, uNoche);
+        }
+        return c;
+    }
+
+    // Nubes: ruido estirado en horizontal; la luz depende de hacia dónde está el sol
+    vec4 nubes(vec2 f, float t, float semilla, float desde, float hasta, float umbral, float estirar) {
+        vec2 p = vec2(f.x * estirar + uTiempo * 0.004 + semilla, f.y * estirar * 3.2 + semilla * 3.0);
+        float banda = smoothstep(desde, desde + 0.08, f.y) * (1.0 - smoothstep(hasta - 0.1, hasta, f.y));
+        float n = fbm(p) * banda;
+        if (n < umbral) return vec4(0.0);
+        vec2 haciaSol = normalize(mix(uSol, vec2(0.62, 0.84), uNoche) - f + 0.0001) * 0.02;
+        float n2 = fbm(p + vec2(haciaSol.x * estirar, haciaSol.y * estirar * 3.2)) * banda;
+        float abajo = fbm(p - vec2(0.0, 0.035 * estirar * 3.2)) * banda;
+        float luz = clamp((n - n2) * 14.0 + 0.62, 0.0, 1.0);
+        luz = max(luz, (1.0 - smoothstep(umbral - 0.02, umbral + 0.03, abajo)) * (0.95 - uDia * 0.4));
+        luz = mix(luz, 0.55, smoothstep(umbral + 0.08, umbral + 0.2, n) * 0.5);
+        float q = escalonesSuaves(luz, 3.0, t);
+        vec3 c = q < 0.34 ? uNubeSombra : (q < 0.67 ? uNubeMedia : uNubeLuz);
+        return vec4(c, 1.0);
+    }
+
+    // Crestas de montaña con ruido "afilado"
+    float cresta(float x, float semilla, float frecuencia) {
+        float h = 0.0;
+        float a = 0.5;
+        float fr = frecuencia;
+        for (int i = 0; i < 5; i++) {
+            float r = 1.0 - abs(ruido(vec2(x * fr, semilla + float(i) * 7.3)) * 2.0 - 1.0);
+            h += r * r * a;
+            a *= 0.5;
+            fr *= 2.1;
+        }
+        return h;
+    }
+
+    // Relieve de la ladera: crestas en diagonal para que la luz no haga rayas verticales
+    float relieve(vec2 p) {
+        float h = 0.0;
+        float a = 0.5;
+        for (int i = 0; i < 4; i++) {
+            h += (1.0 - abs(ruido(p) * 2.0 - 1.0)) * a;
+            p = p * 2.07 + vec2(3.1, 1.7);
+            a *= 0.5;
+        }
+        return h;
+    }
+
+    vec4 montana(vec2 f, float t, float semilla, float base, float altura, float frecuencia, vec3 color, float aire, float nieveDesde) {
+        float h = uLinea + base + altura * cresta(f.x, semilla, frecuencia);
+        if (f.y > h) return vec4(0.0);
+        float e = 0.004;
+        float pendiente = (cresta(f.x + e, semilla, frecuencia) - cresta(f.x - e, semilla, frecuencia)) * altura / (2.0 * e);
+        float ladoLuz = mix(sign(uSol.x - 0.89), -1.0, uNoche);
+        vec2 pr = vec2(f.x * frecuencia * 7.0 + f.y * 9.0, f.y * frecuencia * 4.0 + semilla);
+        float gx = relieve(pr + vec2(0.04, 0.0)) - relieve(pr - vec2(0.04, 0.0));
+        float porRelieve = clamp(-gx * ladoLuz * 5.0 + 0.5, 0.0, 1.0);
+        float porCresta = clamp(-pendiente * ladoLuz * 0.8 + 0.5, 0.0, 1.0);
+        float iluminada = mix(porCresta, porRelieve, smoothstep(0.0, 0.05, h - f.y));
+        float q = escalonesSuaves(iluminada, 2.0, t);
+        vec3 sombra = mix(color * 0.72, uCieloAlto, 0.2);
+        vec3 luz = mix(color * 1.12, uColorSol, 0.18 * (1.0 - uNoche));
+        vec3 c = mix(sombra, luz, q);
+        float nieve = smoothstep(0.0, 0.004, f.y - (uLinea + nieveDesde + (ruido(vec2(f.x * 40.0, semilla)) - 0.5) * 0.03));
+        vec3 colorNieve = mix(uNieve * 0.72, uNieve, q);
+        c = mix(c, colorNieve, nieve);
+        float bajo = 1.0 - smoothstep(uLinea, h, f.y);
+        c = mix(c, uCieloBajo, aire + bajo * 0.35);
+        return vec4(c, 1.0);
+    }
+
+    // Colina con una fila de pinos recortados contra el cielo
+    vec4 colina(vec2 f, float t, float semilla, float base, float altura, float anchoPino, vec3 color, float aire) {
+        float suelo = uLinea + base + altura * (ruido(vec2(f.x * 2.2, semilla)) * 0.7 + ruido(vec2(f.x * 6.0, semilla + 4.0)) * 0.3);
+        float id = floor(f.x / anchoPino);
+        float arriba = suelo;
+        float ladoPino = 0.0;
+        for (int k = -1; k <= 1; k++) {
+            float i = id + float(k);
+            float centro = (i + 0.5 + (hash(vec2(i, semilla)) - 0.5) * 0.6) * anchoPino;
+            float alto = anchoPino * (1.6 + hash(vec2(i, semilla + 1.0)) * 1.6);
+            float dx = (f.x - centro) / (anchoPino * 0.75);
+            float pico = suelo + alto * max(0.0, 1.0 - abs(dx)) * step(0.15, hash(vec2(i, semilla + 2.0)));
+            if (pico > arriba) { arriba = pico; ladoPino = dx; }
+        }
+        if (f.y > arriba) return vec4(0.0);
+        float ladoLuz = mix(sign(uSol.x - 0.89), -1.0, uNoche);
+        float luz = escalones(clamp(ladoPino * ladoLuz * 0.9 + 0.45, 0.0, 1.0), 2.0, t);
+        vec3 c = mix(color * 0.8, mix(color * 1.25, uColorSol, 0.12 * (1.0 - uNoche)), luz);
+        if (arriba - f.y < 0.003) c = mix(c, uColorSol, 0.25 * (1.0 - uNoche) * step(0.0, ladoPino * ladoLuz));
+        float casa = step(0.965, hash(vec2(floor(f.x * 140.0), semilla + 9.0))) * step(0.006, arriba - f.y) * step(f.y, suelo - 0.004) * step(suelo - 0.012, f.y);
+        c = mix(c, vec3(1.0, 0.72, 0.38), casa * uNoche);
+        c = mix(c, uCieloBajo, aire);
+        return vec4(c, 1.0);
+    }
+
+    vec4 castilloCapa(vec2 marco) {
+        vec2 uvCapa = (marco - uCentroCastillo) / uEscalaCastillo + 0.5;
+        if (uvCapa.x < 0.0 || uvCapa.x > 1.0 || uvCapa.y < 0.0 || uvCapa.y > 1.0) return vec4(0.0);
+        vec4 color = texture2D(uCastillo, uvCapa);
+        if (color.a < 0.5) return vec4(0.0);
         vec3 c = color.rgb;
         float brillo = max(c.r, c.g);
         float calido = smoothstep(0.06, 0.22, c.r - c.b) * smoothstep(0.45, 0.75, brillo);
+        vec3 deDia = mix(c * vec3(1.02, 1.06, 1.08) + vec3(0.03, 0.05, 0.06), vec3(dot(c, vec3(0.3, 0.5, 0.2))) * vec3(0.95, 1.0, 1.1), calido * 0.7);
         vec3 deNoche = c * vec3(0.2, 0.24, 0.52);
-
-        if (uEsCielo) {
-            deNoche = mix(vec3(0.015, 0.02, 0.07), vec3(0.06, 0.07, 0.2), vUv.y * 0.3 + c.b * 0.6) + c * 0.06;
-            vec2 celda = floor(vUv * vec2(uAspecto, 1.0) * 180.0);
-            float estrella = step(0.994, hash(celda)) * (0.6 + 0.4 * sin(uTiempo * 2.0 + hash(celda + 3.0) * 30.0));
-            deNoche += vec3(estrella) * smoothstep(0.35, 0.7, vUv.y);
-            vec2 luna = (vUv - vec2(0.2, 0.8)) * vec2(uAspecto, 1.0);
-            float disco = 1.0 - smoothstep(0.045, 0.05, length(luna));
-            deNoche = mix(deNoche, vec3(0.92, 0.93, 1.0), disco);
-            deNoche += vec3(0.25, 0.28, 0.45) * exp(-length(luna) * 9.0) * 0.6;
-            calido = 0.0;
-        }
-
+        c = mix(c, deDia, uDia);
         c = mix(c, deNoche, uNoche);
-        c += color.rgb * calido * uNoche * 1.15;
+        float enciende = step(hash(floor(uvCapa * vec2(180.0, 110.0))) * 0.85 + 0.1, uNoche);
+        c += color.rgb * calido * enciende * 1.2;
+        return vec4(c, 1.0);
+    }
+
+    void main() {
+        float t = tramado();
+        vec2 marco = (vUv - 0.5) * uVisible + 0.5;
+
+        vec3 c = cielo(enCapa(marco, 0.004, 0.0), t);
+
+        vec4 capa = nubes(enCapa(marco, 0.007, 0.02), t, 0.0, uLinea + 0.3, 1.0, 0.56, 1.3);
+        c = mix(c, capa.rgb, capa.a);
+
+        capa = montana(enCapa(marco, 0.01, 0.03), t, 3.0, 0.03, 0.62, 1.25, uMontanaLejos, 0.16, 0.24);
+        c = mix(c, capa.rgb, capa.a);
+
+        capa = nubes(enCapa(marco, 0.012, 0.04), t, 7.0, uLinea + 0.1, uLinea + 0.3, 0.52, 2.2);
+        c = mix(c, capa.rgb, capa.a);
+
+        capa = montana(enCapa(marco, 0.014, 0.05), t, 11.0, 0.0, 0.36, 2.0, uMontanaCerca, 0.05, 0.19);
+        c = mix(c, capa.rgb, capa.a);
+
+        vec2 fc = enCapa(marco, 0.018, 0.1);
+        capa = castilloCapa(vec2(fc.x / uAspectoMarco, fc.y));
+        c = mix(c, capa.rgb, capa.a);
+
+        capa = colina(enCapa(marco, 0.022, 0.15), t, 21.0, 0.0, 0.05, 0.012, uBosqueLejos, 0.18);
+        c = mix(c, capa.rgb, capa.a);
+
+        capa = colina(enCapa(marco, 0.03, 0.22), t, 33.0, -0.015, 0.045, 0.02, uBosqueCerca, 0.0);
+        c = mix(c, capa.rgb, capa.a);
+
+        float sobre = marco.y - uLinea;
+        float franjas = ruido(vec2(marco.x * 7.0 + uTiempo * 0.012, marco.y * 34.0)) * 0.7 + ruido(vec2(marco.x * 20.0 - uTiempo * 0.02, marco.y * 70.0)) * 0.3;
+        float bruma = escalones(1.0 - smoothstep(0.0, 0.07 + franjas * 0.08, sobre), 5.0, t) * 0.85;
+        c = mix(c, uNiebla, bruma);
+
         gl_FragColor = vec4(c, 1.0);
         #include <colorspace_fragment>
     }
 `;
 
-function crearCapas(texturas) {
-    capas.forEach((capa, i) => {
-        const textura = texturas[capa.nombre];
-        textura.colorSpace = THREE.SRGBColorSpace;
-        textura.magFilter = THREE.NearestFilter;
-        textura.minFilter = THREE.LinearFilter;
-        textura.generateMipmaps = false;
+let materialFondo = null;
 
-        capa.material = new THREE.ShaderMaterial({
-            depthTest: false,
-            depthWrite: false,
-            uniforms: {
-                uTextura: { value: textura },
-                uVisible: { value: visible },
-                uCentro: { value: new THREE.Vector2(0.5 + capa.x / ANCHO_MARCO, 0.5 - capa.y / ALTO_MARCO) },
-                uEscala: { value: capa.escala },
-                uRatonCapa: { value: new THREE.Vector2() },
-                uNoche: comunes.uNoche,
-                uTiempo: comunes.uTiempo,
-                uAspecto: { value: 1 },
-                uEsCielo: { value: !!capa.esCielo },
-                uDeriva: { value: !!capa.deriva }
-            },
-            vertexShader: vertexCapa,
-            fragmentShader: fragmentCapa
-        });
+function crearFondo(texturaCastillo) {
+    texturaCastillo.colorSpace = THREE.SRGBColorSpace;
+    texturaCastillo.magFilter = THREE.NearestFilter;
+    texturaCastillo.minFilter = THREE.LinearFilter;
+    texturaCastillo.generateMipmaps = false;
+    uniformesFondo.uCastillo.value = texturaCastillo;
 
-        const plano = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), capa.material);
-        plano.renderOrder = i;
-        plano.frustumCulled = false;
-        escenaFondo.add(plano);
-    });
-}
-
-// Bruma: una franja de niebla justo encima del horizonte que funde el
-// final del suelo 3D con el valle pintado. Va por escalones, como en
-// un dibujo de píxeles, y se mueve muy despacio.
-const uHorizonte = { value: 0.4 };
-
-function crearBruma() {
-    const material = new THREE.ShaderMaterial({
-        transparent: true,
+    materialFondo = new THREE.ShaderMaterial({
         depthTest: false,
         depthWrite: false,
-        uniforms: {
-            uHorizonte,
-            uNiebla: comunes.uNiebla,
-            uTiempo: comunes.uTiempo,
-            uAspecto: { value: 1 }
-        },
-        vertexShader: vertexCapa,
-        fragmentShader: `
-            uniform float uHorizonte;
-            uniform vec3 uNiebla;
-            uniform float uTiempo;
-            uniform float uAspecto;
+        uniforms: uniformesFondo,
+        vertexShader: `
             varying vec2 vUv;
-
-            float hash(vec2 p) {
-                return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-            }
-
-            float ruido(vec2 p) {
-                vec2 i = floor(p);
-                vec2 f = fract(p);
-                vec2 u = f * f * (3.0 - 2.0 * f);
-                return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
-                           mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
-            }
-
             void main() {
-                float alto = vUv.y - uHorizonte;
-                if (alto < -0.06) discard;
-                float x = vUv.x * uAspecto;
-                float franjas = ruido(vec2(x * 4.0 + uTiempo * 0.012, vUv.y * 34.0)) * 0.7 + ruido(vec2(x * 11.0 - uTiempo * 0.02, vUv.y * 70.0)) * 0.3;
-                float a = 1.0 - smoothstep(0.0, 0.1 + franjas * 0.09, alto);
-                a = floor(a * 5.0 + 0.5) / 5.0 * 0.85;
-                gl_FragColor = vec4(uNiebla, a);
-                #include <colorspace_fragment>
+                vUv = uv;
+                gl_Position = vec4(position.xy, 0.0, 1.0);
             }
-        `
+        `,
+        fragmentShader: fragmentFondo
     });
-    const plano = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    plano.renderOrder = 20;
+    const plano = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), materialFondo);
     plano.frustumCulled = false;
     escenaFondo.add(plano);
-    return material;
 }
-let materialBruma = null;
 
-function actualizarCapas(metros) {
-    if (materialBruma) materialBruma.uniforms.uAspecto.value = window.innerWidth / window.innerHeight;
-    const progreso = 1 - Math.exp(-metros / 700);
-    capas.forEach((capa) => {
-        if (!capa.material) return;
-        const u = capa.material.uniforms;
-        u.uEscala.value = capa.escala * (1 + capa.zoom * progreso);
-        u.uRatonCapa.value.set(desplazamientoRaton.x * capa.paralaje, desplazamientoRaton.y * capa.paralaje * 0.5);
-        u.uAspecto.value = window.innerWidth / window.innerHeight;
-    });
+function actualizarFondo(metros) {
+    uniformesFondo.uProgreso.value = 1 - Math.exp(-metros / 700);
+    uniformesFondo.uSol.value.set(actual.solX, actual.solY);
 }
 
 // =====================================================================
@@ -449,8 +641,6 @@ const camara = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerH
 camara.rotation.order = "YXZ";
 let inclinacion = 0;
 
-const HORIZONTE_EN_MARCO = 0.6;
-
 function ajustarEncuadre() {
     const aspecto = window.innerWidth / window.innerHeight;
     if (aspecto > aspectoMarco) visible.set(1, aspectoMarco / aspecto);
@@ -465,7 +655,6 @@ function ajustarEncuadre() {
     const pantallaY = (uvHorizonte - 0.5) / visible.y + 0.5;
     const ndcY = pantallaY * 2 - 1;
     inclinacion = -Math.atan(ndcY * Math.tan(THREE.MathUtils.degToRad(camara.fov / 2)));
-    uHorizonte.value = pantallaY;
 }
 
 const luzSol = new THREE.DirectionalLight("#ffc9a0", 1.6);
@@ -903,10 +1092,6 @@ const materialFarol = new THREE.MeshBasicMaterial({ color: "#2a2230" });
 const materialFlores = new THREE.PointsMaterial({ size: 0.13, vertexColors: true });
 
 const colores = {
-    pino: ["#2f5a44", "#28503f", "#36604a", "#2a4a40"],
-    hoja: ["#3a6a3a", "#4a7a3a", "#33603e"],
-    otono: ["#9a4a2a", "#c07a30", "#a83a3a"],
-    arbusto: "#2f5236",
     tronco: "#2b2019",
     madera: "#5a4030",
     maderaClara: "#8a6a48",
@@ -972,6 +1157,7 @@ function bola(radio, x, y, z, aplastar = 1) {
 function crearObra(aleatorio) {
     const piezas = [];
     const empedrado = [];
+    const arboles = [];
     const luces = [];
     const halos = [];
     const claros = [];
@@ -994,6 +1180,7 @@ function crearObra(aleatorio) {
     return {
         piezas,
         empedrado,
+        arboles,
         luces,
         halos,
         claros,
@@ -1009,6 +1196,9 @@ function crearObra(aleatorio) {
             g.applyMatrix4(matriz);
             piezas.push(g);
             return g;
+        },
+        arbol(variante, x, y, z, tam) {
+            arboles.push({ variante, x, y, z, tam });
         },
         losa(geometria) {
             const g = geometria.toNonIndexed();
@@ -1043,57 +1233,338 @@ function crearObra(aleatorio) {
 }
 
 // =====================================================================
+// 9b. ÁRBOLES PINTADOS PÍXEL A PÍXEL
+// Los árboles y arbustos no son polígonos: se pintan al cargar en un
+// canvas (un "atlas" con casillas de 128x128 píxeles) y se dibujan como
+// carteles que siempre miran a la cámara. Así tienen el mismo estilo
+// pixel art que el fondo y cuestan muy poco.
+// =====================================================================
+
+const CASILLA = 128;
+const COLUMNAS_ATLAS = 8;
+const FILAS_ATLAS = 2;
+
+const paletasArbol = {
+    pino: ["#0a1d1b", "#143a30", "#21543e", "#357449", "#58985a"],
+    pinoAzul: ["#0a1a1f", "#123540", "#1d4d54", "#2f6c66", "#4f8f80"],
+    verde: ["#0d2316", "#1b4226", "#2b5e31", "#437f3c", "#6aa34d"],
+    verdeClaro: ["#10261a", "#21502c", "#367238", "#57954a", "#86bb5e"],
+    naranja: ["#2a120a", "#682814", "#a6461d", "#d6722b", "#f3a84c"],
+    rojo: ["#250b10", "#5c1820", "#91272b", "#c2423a", "#e87158"],
+    dorado: ["#281d0b", "#674813", "#a6771e", "#d6a32c", "#f2d05b"],
+    tronco: ["#140c08", "#33211a", "#4f3427", "#6d4a35"]
+};
+
+function crearAtlasArboles() {
+    const lienzo = document.createElement("canvas");
+    lienzo.width = CASILLA * COLUMNAS_ATLAS;
+    lienzo.height = CASILLA * FILAS_ATLAS;
+    const ctx = lienzo.getContext("2d");
+    const imagen = ctx.createImageData(lienzo.width, lienzo.height);
+    const datos = imagen.data;
+    const variantes = [];
+
+    const rgb = (hex) => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
+    const paletas = Object.fromEntries(Object.entries(paletasArbol).map(([k, v]) => [k, v.map(rgb)]));
+
+    function poner(x, y, color) {
+        x = Math.round(x);
+        y = Math.round(y);
+        if (x < 0 || y < 0 || x >= lienzo.width || y >= lienzo.height) return;
+        const i = (y * lienzo.width + x) * 4;
+        datos[i] = color[0];
+        datos[i + 1] = color[1];
+        datos[i + 2] = color[2];
+        datos[i + 3] = 255;
+    }
+
+    function lleno(x, y) {
+        if (x < 0 || y < 0 || x >= lienzo.width || y >= lienzo.height) return false;
+        return datos[(y * lienzo.width + x) * 4 + 3] > 0;
+    }
+
+    // Contorno oscuro solo donde el píxel toca el vacío (como en el pixel art)
+    function contorno(x0, y0, color, soloAbajoIzquierda) {
+        const borde = [];
+        for (let y = y0; y < y0 + CASILLA; y++) {
+            for (let x = x0; x < x0 + CASILLA; x++) {
+                if (!lleno(x, y)) continue;
+                const fuera = !lleno(x - 1, y) || !lleno(x, y + 1) || (!soloAbajoIzquierda && (!lleno(x + 1, y) || !lleno(x, y - 1)));
+                if (fuera) borde.push([x, y]);
+            }
+        }
+        borde.forEach(([x, y]) => poner(x, y, color));
+    }
+
+    function tronco(cx, base, alto, ancho, azar, ramas) {
+        const p = paletas.tronco;
+        for (let y = 0; y < alto; y++) {
+            const w = ancho * (1 - (y / alto) * 0.35);
+            const doblez = Math.sin(y * 0.15 + azar() * 0.2) * 1.2;
+            for (let x = -w / 2; x < w / 2; x++) {
+                const lado = (x + w / 2) / w;
+                const tono = lado > 0.65 ? p[3] : lado < 0.3 ? p[1] : p[2];
+                poner(cx + x + doblez, base - y, tono);
+            }
+        }
+        // Raíces
+        for (let i = -1; i <= 1; i += 2) {
+            for (let k = 0; k < ancho * 0.6; k++) poner(cx + i * (ancho / 2 + k), base - Math.max(0, 1 - k * 0.5), p[1]);
+        }
+        // Ramas
+        for (let r = 0; r < ramas; r++) {
+            const lado = r % 2 === 0 ? 1 : -1;
+            const desde = alto * (0.55 + azar() * 0.35);
+            const largo = alto * (0.35 + azar() * 0.25);
+            for (let k = 0; k < largo; k++) {
+                poner(cx + lado * k * 0.9, base - desde - k * 0.75, p[2]);
+                poner(cx + lado * k * 0.9, base - desde - k * 0.75 - 1, p[1]);
+            }
+        }
+    }
+
+    function pino(columna, fila, paleta, semilla) {
+        const azar = crearAzar(semilla);
+        const x0 = columna * CASILLA;
+        const y0 = fila * CASILLA;
+        const cx = x0 + CASILLA / 2;
+        const base = y0 + CASILLA - 2;
+        const alto = CASILLA - 6;
+        const p = paletas[paleta];
+
+        tronco(cx, base, alto * 0.18, 6, azar, 0);
+
+        const pisos = 6 + Math.floor(azar() * 2);
+        const zonaCopa = alto * 0.88;
+        const abajo = base - alto * 0.1;
+        const finales = [];
+        for (let k = 0; k < pisos; k++) {
+            const t = k / pisos;
+            const yb = abajo - t * zonaCopa * 0.86;
+            const altoPiso = (zonaCopa / pisos) * 1.75;
+            const anchoBase = alto * 0.3 * (1 - t * 0.82) * (0.85 + azar() * 0.3) + 3;
+            const torcido = (azar() - 0.5) * 3;
+            const izquierda = 0.85 + azar() * 0.3;
+            const derecha = 0.85 + azar() * 0.3;
+            for (let y = yb - altoPiso; y <= yb; y++) {
+                const s = (y - (yb - altoPiso)) / altoPiso;
+                const medio = anchoBase * Math.pow(s, 0.8);
+                const desdeX = -medio * izquierda - azar() * 1.8;
+                const hastaX = medio * derecha + azar() * 1.8;
+                const centro = cx + torcido * s;
+                for (let x = desdeX; x <= hastaX; x++) {
+                    const lado = x / Math.max(medio, 1);
+                    let tono = lado > 0.3 + azar() * 0.2 ? p[3] : lado < -0.35 - azar() * 0.2 ? p[1] : p[2];
+                    if (lado > 0.55 && s < 0.85 && azar() < 0.45) tono = p[4];
+                    poner(centro + x, y, tono);
+                }
+            }
+            // Borde de abajo irregular y puntas que cuelgan
+            for (let x = -anchoBase; x <= anchoBase; x++) {
+                const caida = azar() < 0.35 ? 1 + Math.floor(azar() * 3) : 0;
+                for (let k = 1; k <= caida; k++) {
+                    if (lleno(Math.round(cx + torcido + x), Math.round(yb))) poner(cx + torcido + x, yb + k, p[x > 0 ? 2 : 1]);
+                }
+            }
+            finales.push({ yb, anchoBase });
+        }
+        // Sombra bajo cada piso sobre el de abajo
+        finales.slice(1).forEach(({ yb, anchoBase }) => {
+            for (let x = -anchoBase * 0.8; x <= anchoBase * 0.5; x++) {
+                if (azar() < 0.7 && lleno(Math.round(cx + x), Math.round(yb + 3))) poner(cx + x, yb + 3, p[1]);
+            }
+        });
+        // Punta
+        for (let y = 0; y < 5; y++) poner(cx, abajo - zonaCopa - y + 2, y < 2 ? p[2] : p[3]);
+        contorno(x0, y0, p[0], false);
+        return { columna, fila };
+    }
+
+    function copa(columna, fila, paleta, semilla, conTronco, alto, ancho, flores) {
+        const azar = crearAzar(semilla);
+        const x0 = columna * CASILLA;
+        const y0 = fila * CASILLA;
+        const cx = x0 + CASILLA / 2;
+        const base = y0 + CASILLA - 2;
+        const p = paletas[paleta];
+        const centroY = base - (conTronco ? alto * 0.62 : alto * 0.5);
+
+        if (conTronco) tronco(cx, base, alto * 0.55, 11, azar, 2);
+
+        const bolas = [];
+        const cuantas = conTronco ? 9 : 5;
+        for (let i = 0; i < cuantas; i++) {
+            const ang = (i / cuantas) * Math.PI * 2 + azar() * 0.6;
+            const dist = (conTronco ? 0.62 : 0.55) * Math.sqrt(azar());
+            bolas.push({
+                x: cx + Math.cos(ang) * ancho * 0.36 * dist * 1.6,
+                y: centroY + Math.sin(ang) * alto * 0.2 * dist * 1.4 - (conTronco ? 0 : -alto * 0.1),
+                r: (conTronco ? alto * 0.17 : alto * 0.3) * (0.75 + azar() * 0.45)
+            });
+        }
+        bolas.push({ x: cx, y: centroY - alto * 0.12, r: conTronco ? alto * 0.22 : alto * 0.33 });
+        // Las de abajo primero: las de arriba quedan delante
+        bolas.sort((a, b) => b.y - a.y + (a.r - b.r) * 0.2);
+
+        const luz = [0.55, -0.7];
+        bolas.forEach((b, indice) => {
+            const fase = azar() * 10;
+            for (let y = Math.floor(b.y - b.r - 2); y <= b.y + b.r + 2; y++) {
+                for (let x = Math.floor(b.x - b.r - 2); x <= b.x + b.r + 2; x++) {
+                    const dx = x - b.x;
+                    const dy = y - b.y;
+                    const ang = Math.atan2(dy, dx);
+                    const radio = b.r * (1 + 0.12 * Math.sin(ang * 5 + fase) + 0.07 * Math.sin(ang * 11 + fase * 2));
+                    const d = Math.hypot(dx, dy);
+                    if (d > radio) continue;
+                    const nx = dx / radio;
+                    const ny = dy / radio;
+                    let l = nx * luz[0] + ny * luz[1] + (azar() - 0.5) * 0.35 - (d / radio) * 0.15;
+                    l += indice / bolas.length * 0.25;
+                    const tono = l > 0.55 ? p[4] : l > 0.18 ? p[3] : l > -0.3 ? p[2] : p[1];
+                    poner(x, y, tono);
+                }
+            }
+        });
+        // Huecos y hojas sueltas en el borde
+        for (let i = 0; i < 40; i++) {
+            const b = bolas[Math.floor(azar() * bolas.length)];
+            const ang = azar() * Math.PI * 2;
+            const px = Math.round(b.x + Math.cos(ang) * (b.r + 1));
+            const py = Math.round(b.y + Math.sin(ang) * (b.r + 1));
+            poner(px, py, p[ang > Math.PI ? 3 : 2]);
+        }
+        if (flores) {
+            const color = rgb(flores);
+            const claro = color.map((v) => Math.min(255, v + 60));
+            for (let i = 0; i < 34; i++) {
+                const b = bolas[Math.floor(azar() * bolas.length)];
+                const ang = azar() * Math.PI * 2;
+                const d = Math.sqrt(azar()) * b.r * 0.85;
+                const fx = Math.round(b.x + Math.cos(ang) * d);
+                const fy = Math.round(b.y + Math.sin(ang) * d);
+                if (!lleno(fx, fy)) continue;
+                poner(fx, fy, color);
+                poner(fx + 1, fy, color);
+                poner(fx, fy + 1, color);
+                poner(fx + 1, fy + 1, claro);
+            }
+        }
+        contorno(x0, y0, p[0], false);
+        return { columna, fila };
+    }
+
+    const lista = [
+        ["pino", () => pino(0, 0, "pino", 11)],
+        ["pino", () => pino(1, 0, "pino", 23)],
+        ["pino", () => pino(2, 0, "pinoAzul", 37)],
+        ["pino", () => pino(3, 0, "pino", 51)],
+        ["frondoso", () => copa(4, 0, "verde", 61, true, 118, 120)],
+        ["frondoso", () => copa(5, 0, "verdeClaro", 73, true, 112, 116)],
+        ["frondoso", () => copa(6, 0, "naranja", 89, true, 116, 120)],
+        ["frondoso", () => copa(7, 0, "rojo", 97, true, 110, 112)],
+        ["frondoso", () => copa(0, 1, "dorado", 101, true, 114, 118)],
+        ["arbusto", () => copa(1, 1, "verde", 113, false, 56, 104)],
+        ["arbusto", () => copa(2, 1, "verdeClaro", 127, false, 50, 96)],
+        ["arbusto", () => copa(3, 1, "verde", 131, false, 54, 100, "#ff9ccf")],
+        ["arbusto", () => copa(4, 1, "verdeClaro", 149, false, 52, 100, "#c8b8ff")],
+        ["arbusto", () => copa(5, 1, "naranja", 151, false, 50, 96)],
+        ["arbusto", () => copa(6, 1, "verde", 163, false, 56, 104, "#ffe28a")]
+    ];
+
+    lista.forEach(([tipo, pintar]) => {
+        const { columna, fila } = pintar();
+        variantes.push({
+            tipo,
+            u0: columna / COLUMNAS_ATLAS,
+            u1: (columna + 1) / COLUMNAS_ATLAS,
+            v0: 1 - (fila + 1) / FILAS_ATLAS,
+            v1: 1 - fila / FILAS_ATLAS
+        });
+    });
+
+    ctx.putImageData(imagen, 0, 0);
+    return { lienzo, variantes };
+}
+
+const atlasArboles = crearAtlasArboles();
+const texturaArboles = new THREE.CanvasTexture(atlasArboles.lienzo);
+texturaArboles.colorSpace = THREE.SRGBColorSpace;
+texturaArboles.magFilter = THREE.NearestFilter;
+texturaArboles.minFilter = THREE.NearestMipmapLinearFilter;
+const variantesPorTipo = { pino: [], frondosoVerde: [], frondosoOtono: [], arbusto: [], arbustoFlores: [] };
+atlasArboles.variantes.forEach((v, i) => {
+    if (v.tipo === "pino") variantesPorTipo.pino.push(i);
+    if (v.tipo === "frondoso") variantesPorTipo[i <= 5 ? "frondosoVerde" : "frondosoOtono"].push(i);
+    if (v.tipo === "arbusto") variantesPorTipo[[11, 12, 14].includes(i) ? "arbustoFlores" : "arbusto"].push(i);
+});
+
+// Cada árbol es un rectángulo que gira solo en vertical para mirar a la
+// cámara. La copa se mece un poco con el viento.
+const materialArboles = new THREE.ShaderMaterial({
+    uniforms: {
+        ...comunes,
+        uAtlas: { value: texturaArboles }
+    },
+    vertexShader: `
+        attribute vec2 aEsquina;
+        attribute float aTam;
+        uniform float uTiempo;
+        uniform float uViento;
+        varying vec2 vUv;
+        varying vec3 vMundo;
+        varying float vAltura;
+        void main() {
+            vec3 derecha = normalize(vec3(viewMatrix[0][0], 0.0, viewMatrix[2][0]));
+            vec3 p = position + derecha * aEsquina.x * aTam + vec3(0.0, aEsquina.y * aTam, 0.0);
+            float vaiven = sin(uTiempo * 1.3 + position.x * 0.4 + position.z * 0.3) * 0.03 * uViento;
+            p += derecha * vaiven * aEsquina.y * aEsquina.y * aTam;
+            vUv = uv;
+            vMundo = p;
+            vAltura = aEsquina.y;
+            gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+        }
+    `,
+    fragmentShader: `
+        uniform sampler2D uAtlas;
+        uniform vec3 uLuz;
+        uniform vec3 uAmbiente;
+        uniform vec3 uNiebla;
+        uniform float uNoche;
+        varying vec2 vUv;
+        varying vec3 vMundo;
+        varying float vAltura;
+        ${terrenoGLSL}
+        void main() {
+            vec4 c = texture2D(uAtlas, vUv);
+            if (c.a < 0.5) discard;
+            float d = length(vMundo - cameraPosition);
+            if (smoothstep(36.0, 58.0, d) > tramado(gl_FragCoord.xy)) discard;
+            vec3 color = c.rgb * (uAmbiente * 1.25 + uLuz * 0.6) * (1.0 - uNoche * 0.4);
+            color += c.rgb * vec3(1.0, 0.6, 0.3) * luzFarolas(vMundo) * uNoche * (1.0 - vAltura) * 1.2;
+            color = mix(color, uNiebla, smoothstep(14.0, 95.0, d) * 0.88);
+            gl_FragColor = vec4(color, 1.0);
+            #include <colorspace_fragment>
+        }
+    `
+});
+
+// =====================================================================
 // 10. ÁRBOLES, ROCAS Y PLANTAS
 // =====================================================================
 
 function pino(o, x, z, alto) {
-    const a = o.aleatorio;
-    const y = alturaTerreno(x, z) - 0.2;
-    const color = o.elegir(colores.pino);
-    o.en(x, y, z);
-    const pisos = 4 + Math.floor(a() * 3);
-    for (let p = 0; p < pisos; p++) {
-        const t = p / pisos;
-        const radio = alto * 0.26 * (1 - t * 0.75);
-        o.poner(cono(radio, alto * 0.3, 7, 0, alto * (0.18 + t * 0.7), 0, a() * Math.PI), color, 0.15);
-    }
-    o.poner(cilindro(alto * 0.03, alto * 0.04, alto * 0.25, 5, 0, alto * 0.12, 0), colores.tronco, 0.1);
+    o.arbol(o.elegir(variantesPorTipo.pino), x, alturaTerreno(x, z) - 0.15, z, alto * 1.05);
 }
 
 function frondoso(o, x, z, alto) {
-    const a = o.aleatorio;
-    const y = alturaTerreno(x, z) - 0.1;
-    const color = a() < 0.3 ? o.elegir(colores.otono) : o.elegir(colores.hoja);
-    o.en(x, y, z, a() * 6);
-    o.poner(cilindro(alto * 0.05, alto * 0.08, alto * 0.55, 6, 0, alto * 0.27, 0), colores.tronco, 0.1);
-    o.poner(cilindro(alto * 0.025, alto * 0.035, alto * 0.3, 5, alto * 0.1, alto * 0.5, 0, 0, 0, -0.7), colores.tronco, 0.1);
-    const copas = 4 + Math.floor(a() * 3);
-    for (let i = 0; i < copas; i++) {
-        const ang = (i / copas) * Math.PI * 2 + a();
-        const r = alto * entre(0.1, 0.22, a);
-        o.poner(bola(alto * entre(0.2, 0.3, a), Math.cos(ang) * r, alto * entre(0.62, 0.85, a), Math.sin(ang) * r, 0.85), color, 0.18);
-    }
-    o.poner(bola(alto * 0.26, 0, alto * 0.95, 0, 0.8), color, 0.15);
+    const lista = o.aleatorio() < 0.35 ? variantesPorTipo.frondosoOtono : variantesPorTipo.frondosoVerde;
+    o.arbol(o.elegir(lista), x, alturaTerreno(x, z) - 0.1, z, alto * 1.1);
 }
 
 function arbusto(o, x, z, tam, conFlores) {
-    const a = o.aleatorio;
-    const y = alturaTerreno(x, z);
-    o.en(x, y, z);
-    const color = conFlores ? o.elegir(coloresFlor) : null;
-    for (let i = 0; i < 3; i++) {
-        const dx = entre(-0.5, 0.5, a) * tam;
-        const dz = entre(-0.5, 0.5, a) * tam;
-        const r = tam * entre(0.45, 0.7, a);
-        o.poner(bola(r, dx, r * 0.55, dz, 0.75), colores.arbusto, 0.2);
-        if (color) {
-            for (let f = 0; f < 7; f++) {
-                const ang = a() * Math.PI * 2;
-                const rr = r * Math.sqrt(a()) * 0.9;
-                o.flor(x + dx + Math.cos(ang) * rr, y + r * (0.55 + 0.75 * 0.75) - rr * 0.3, z + dz + Math.sin(ang) * rr, color);
-            }
-        }
-    }
+    const lista = conFlores ? variantesPorTipo.arbustoFlores : variantesPorTipo.arbusto;
+    o.arbol(o.elegir(lista), x, alturaTerreno(x, z) - 0.05, z, tam * 2.4);
 }
 
 function roca(o, x, z, tam) {
@@ -1509,6 +1980,7 @@ function crearTrozo(indice) {
         geometria.computeVertexNormals();
         grupo.add(new THREE.Mesh(geometria, materialMundo));
     }
+    if (o.arboles.length) grupo.add(mallaArboles(o.arboles));
     if (o.empedrado.length) grupo.add(new THREE.Mesh(mergeGeometries(o.empedrado), materialPuente));
     if (o.luces.length) grupo.add(new THREE.Mesh(mergeGeometries(o.luces), materialFarol));
     o.halos.forEach((h) => {
@@ -1530,6 +2002,38 @@ function crearTrozo(indice) {
 }
 
 const trozos = new Map();
+
+function mallaArboles(lista) {
+    const n = lista.length;
+    const posiciones = new Float32Array(n * 12);
+    const esquinas = new Float32Array(n * 8);
+    const tamanos = new Float32Array(n * 4);
+    const uvs = new Float32Array(n * 8);
+    const indices = [];
+    const forma = [[-0.5, 0], [0.5, 0], [0.5, 1], [-0.5, 1]];
+    lista.forEach((a, i) => {
+        const v = atlasArboles.variantes[a.variante];
+        const coordenadas = [[v.u0, v.v0], [v.u1, v.v0], [v.u1, v.v1], [v.u0, v.v1]];
+        forma.forEach((e, k) => {
+            const j = i * 4 + k;
+            posiciones.set([a.x, a.y, a.z], j * 3);
+            esquinas.set(e, j * 2);
+            tamanos[j] = a.tam;
+            uvs.set(coordenadas[k], j * 2);
+        });
+        const b = i * 4;
+        indices.push(b, b + 1, b + 2, b, b + 2, b + 3);
+    });
+    const geometria = new THREE.BufferGeometry();
+    geometria.setAttribute("position", new THREE.BufferAttribute(posiciones, 3));
+    geometria.setAttribute("aEsquina", new THREE.BufferAttribute(esquinas, 2));
+    geometria.setAttribute("aTam", new THREE.BufferAttribute(tamanos, 1));
+    geometria.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+    geometria.setIndex(indices);
+    const malla = new THREE.Mesh(geometria, materialArboles);
+    malla.frustumCulled = false;
+    return malla;
+}
 
 // Pasa a los shaders los claros de los trozos más cercanos
 function actualizarClaros() {
@@ -1811,6 +2315,7 @@ botonPixel.addEventListener("click", () => {
 
 function aplicarMomento() {
     comunes.uNoche.value = actual.noche;
+    comunes.uDia.value = actual.dia;
     escena.fog.color.copy(actual.niebla);
     const u = materialSuelo.uniforms;
     u.uTierra.value = actual.tierra;
@@ -1825,11 +2330,11 @@ function aplicarMomento() {
     hierba.material.uniforms.uPunta.value = actual.hierbaPunta;
 
     luzSol.color.copy(actual.luz);
-    luzSol.position.set(60 - 120 * actual.noche, 30 + 15 * actual.noche, 20);
+    luzSol.position.set(actual.luzX, actual.luzY, 20);
     materialMundo.emissive.setRGB(0.008 + actual.noche * 0.004, 0.012 + actual.noche * 0.008, 0.02 + actual.noche * 0.022);
-    luzSol.intensity = 1.6 - actual.noche * 1.38;
+    luzSol.intensity = actual.fuerzaSol;
     luzCielo.color.copy(actual.ambiente);
-    luzCielo.intensity = 2.0 - actual.noche * 1.4;
+    luzCielo.intensity = actual.fuerzaCielo;
     materialFarol.color.setRGB(0.06 + actual.noche * 0.94, 0.04 + actual.noche * 0.7, 0.035 + actual.noche * 0.36);
     materialHalo.opacity = actual.noche * 0.75;
     materialFlores.color.setScalar(1 - actual.noche * 0.6);
@@ -1879,12 +2384,9 @@ ajustarEncuadre();
 // 19. CARGA DE LAS CAPAS Y BUCLE PRINCIPAL
 // =====================================================================
 
+const soloFondo = parametros.get("fondo") === "solo";
 const reloj = new THREE.Clock();
 let tiempo = 0;
-
-function suavizar(t) {
-    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-}
 
 function animar() {
     requestAnimationFrame(animar);
@@ -1893,8 +2395,8 @@ function animar() {
     comunes.uTiempo.value = tiempo;
 
     if (progresoMomento < 1) {
-        progresoMomento = Math.min(1, progresoMomento + delta / 2);
-        mezclarMomentos(actual, momentoDesde, momentoHasta, suavizar(progresoMomento));
+        progresoMomento = Math.min(1, progresoMomento + delta / 5);
+        mezclarMomentos(actual, momentoDesde, momentoHasta, progresoMomento);
     }
 
     if (caminandoSolo) metrosObjetivo += 1.4 * delta;
@@ -1904,7 +2406,7 @@ function animar() {
     colocarCamara();
     aplicarMomento();
     actualizarTrozos();
-    actualizarCapas(metros);
+    actualizarFondo(metros);
     if (actual.noche > 0.02) moverLuciernagas(tiempo);
     else materialLuciernagas.opacity = 0;
     petalos.visible = actual.noche < 0.98;
@@ -1914,17 +2416,14 @@ function animar() {
     renderizador.clear();
     renderizador.render(escenaFondo, camaraFondo);
     renderizador.clearDepth();
-    renderizador.render(escena, camara);
+    if (!soloFondo) renderizador.render(escena, camara);
 
     revisarRendimiento();
 }
 
-const cargador = new THREE.TextureLoader();
-const texturas = {};
-Promise.all(capas.map((capa) => cargador.loadAsync("capas/" + capa.nombre + ".webp").then((t) => (texturas[capa.nombre] = t))))
-    .then(() => {
-        crearCapas(texturas);
-        materialBruma = crearBruma();
+new THREE.TextureLoader().loadAsync("capas/castillo.webp")
+    .then((textura) => {
+        crearFondo(textura);
         colocarCamara();
         actualizarTrozos(true);
         document.getElementById("cargando").classList.add("oculta");
