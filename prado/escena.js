@@ -129,8 +129,13 @@ const terrenoGLSL = `
         return h;
     }
 
+    // Hash sin sin(): sigue igual de bien aunque se caminen muchos kilómetros
+    // (en los móviles sin() con números muy grandes pierde precisión)
     float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        p = mod(p, 4096.0);
+        vec3 q = fract(vec3(p.xyx) * 0.1031);
+        q += dot(q, q.yzx + 33.33);
+        return fract((q.x + q.y) * q.z);
     }
 
     float tramado(vec2 pixel) {
@@ -281,7 +286,7 @@ const comunes = {
     uRaton: { value: new THREE.Vector2(999, 999) },
     uFuerzaRaton: { value: 0 },
     uViento: { value: movimientoReducido ? 0.25 : 1 },
-    uClaros: { value: Array.from({ length: 8 }, () => new THREE.Vector3(9999, 9999, 0)) }
+    uClaros: { value: Array.from({ length: 8 }, () => new THREE.Vector3(9999, 9999, 1)) }
 };
 
 // Claros: alrededor de la carreta, el pozo, etc. la hierba es más baja
@@ -500,10 +505,12 @@ const fragmentFondo = `
     }
 
     vec4 montana(vec2 f, float t, float semilla, float base, float altura, float frecuencia, vec3 color, float aire, float nieveDesde) {
+        // Por encima del pico más alto posible no hay montaña: se evita calcular
+        if (f.y > uLinea + base + altura) return vec4(0.0);
         float h = uLinea + base + altura * cresta(f.x, semilla, frecuencia);
         if (f.y > h) return vec4(0.0);
         float e = 0.004;
-        float pendiente = (cresta(f.x + e, semilla, frecuencia) - cresta(f.x - e, semilla, frecuencia)) * altura / (2.0 * e);
+        float pendiente = (cresta(f.x + e, semilla, frecuencia) - (h - uLinea - base) / altura) * altura / e;
         float ladoLuz = mix(sign(uSol.x - 0.89), -1.0, uNoche);
         vec2 pr = vec2(f.x * frecuencia * 7.0 + f.y * 9.0, f.y * frecuencia * 4.0 + semilla);
         float gx = relieve(pr + vec2(0.04, 0.0)) - relieve(pr - vec2(0.04, 0.0));
@@ -768,7 +775,10 @@ const fragmentSuelo = `
         float mojado = 0.0;
         float charco = 0.0;
 
-        if (lado < borde) {
+        if (lado < borde && detalle <= 0.0) {
+            // Lejos no se distinguen las piedras: color medio sin calcular adoquines
+            color = mix(uJuntas, uPiedra * 0.88, 0.72);
+        } else if (lado < borde) {
             vec3 empedrado;
             float exterior = (lado - (borde - 0.24)) / 0.24;
 
@@ -2238,7 +2248,7 @@ function actualizarClaros() {
     lista.sort((p, q) => cercania(p) - cercania(q));
     comunes.uClaros.value.forEach((v, i) => {
         if (lista[i]) v.copy(lista[i]);
-        else v.set(9999, 9999, 0);
+        else v.set(9999, 9999, 1);
     });
 }
 

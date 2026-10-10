@@ -397,7 +397,7 @@ const esferaCielo = new THREE.Mesh(
                 vec3 d = normalize(vDireccion);
                 float alto = d.y;
                 vec3 color = mix(uHorizonte, uCenit, pow(smoothstep(0.0, 0.6, alto), 0.7));
-                color = mix(color, uSuelo, smoothstep(0.0, -0.15, alto));
+                color = mix(color, uSuelo, 1.0 - smoothstep(-0.15, 0.0, alto));
 
                 float alSol = max(dot(d, normalize(uDireccionSol)), 0.0);
                 color += uColorSol * pow(alSol, 8.0) * 0.45 * (1.0 - uNoche);
@@ -408,9 +408,11 @@ const esferaCielo = new THREE.Mesh(
                     vec2 p = d.xz / (alto + 0.12) * 1.6 + vec2(uTiempo * 0.004, 0.0);
                     float n = fbm(p);
                     float nube = smoothstep(0.62 - uNubes * 0.3, 0.9, n) * smoothstep(0.02, 0.2, alto);
-                    float borde = fbm(p + normalize(uDireccionSol.xz) * 0.05);
-                    vec3 colorNube = mix(uColorNubes, uColorNubes * 0.6 + uCenit * 0.3, clamp((n - borde) * 6.0 + 0.4, 0.0, 1.0));
-                    color = mix(color, colorNube, nube * 0.9);
+                    if (nube > 0.001) {
+                        float borde = fbm(p + normalize(uDireccionSol.xz) * 0.05);
+                        vec3 colorNube = mix(uColorNubes, uColorNubes * 0.6 + uCenit * 0.3, clamp((n - borde) * 6.0 + 0.4, 0.0, 1.0));
+                        color = mix(color, colorNube, nube * 0.9);
+                    }
                 }
 
                 // Estrellas y luna
@@ -714,7 +716,7 @@ const sombreadorAgua = {
             float fase = fract(t * 0.8 + hash(celda) * 7.0);
             vec2 centro = (vec2(hash(celda + 1.3), hash(celda + 4.1)) - 0.5) * 0.5;
             float d = length(f - centro);
-            float anillo = sin((d - fase * 0.45) * 60.0) * smoothstep(0.45 * fase + 0.06, 0.45 * fase, d) * (1.0 - fase);
+            float anillo = sin((d - fase * 0.45) * 60.0) * (1.0 - smoothstep(0.45 * fase, 0.45 * fase + 0.06, d)) * (1.0 - fase);
             return normalize(f - centro + 0.0001) * anillo;
         }
 
@@ -722,7 +724,7 @@ const sombreadorAgua = {
             vec2 p = vMundo.xz;
             vec2 onda = vec2(ruido(p * 0.55 + vec2(uTiempo * 0.35, uTiempo * 0.1)) - 0.5, ruido(p * 0.55 + vec2(-uTiempo * 0.2, uTiempo * 0.3) + 7.0) - 0.5);
             onda += vec2(ruido(p * 2.1 + uTiempo * 0.6) - 0.5, ruido(p * 2.1 - uTiempo * 0.5 + 3.0) - 0.5) * 0.4;
-            onda += gotas(p * 1.4, uTiempo) * uLluvia * 0.8;
+            if (uLluvia > 0.0) onda += gotas(p * 1.4, uTiempo) * uLluvia * 0.8;
 
             vec4 uv = vUv;
             uv.xy += onda * 0.032 * uv.w;
@@ -2002,16 +2004,19 @@ function crearParticulas() {
             uMapa: { value: texturaRedonda(0.3) },
             uColor: { value: new THREE.Color("#d8d4d0") },
             uOpacidad: { value: 0.3 },
-            uTam: { value: 500 }
+            uTam: { value: 500 },
+            // Tamaño máximo de punto que admite la tarjeta (en móviles a veces es pequeño)
+            uTamMaximo: { value: renderizador.getContext().getParameter(renderizador.getContext().ALIASED_POINT_SIZE_RANGE)[1] }
         },
         vertexShader: `
             attribute float aT;
             uniform float uTam;
+            uniform float uTamMaximo;
             varying float vT;
             void main() {
                 vT = aT;
                 vec4 mv = modelViewMatrix * vec4(position, 1.0);
-                gl_PointSize = (0.8 + aT * 3.5) * uTam / -mv.z;
+                gl_PointSize = min((0.8 + aT * 3.5) * uTam / -mv.z, uTamMaximo);
                 gl_Position = projectionMatrix * mv;
             }
         `,
@@ -2745,6 +2750,9 @@ function empezarAPie() {
     aPie.indice = aPie.objetivo = Math.max(0, inicio);
     aPie.mirarX = 0;
     aPie.mirarY = 0.08;
+    // A pie se ve con un ángulo más abierto, como los ojos de una persona
+    camara.fov = camara.aspect < 0.8 ? 75 : 65;
+    camara.updateProjectionMatrix();
     document.body.classList.add("a-pie");
 }
 
@@ -2752,6 +2760,8 @@ function terminarAPie() {
     if (!aPie.activo) return;
     aPie.activo = false;
     aPie.arrastre = null;
+    camara.fov = camara.aspect < 0.8 ? 60 : 42;
+    camara.updateProjectionMatrix();
     controles.enabled = true;
     document.body.classList.remove("a-pie");
     // La órbita sigue mirando hacia donde miraba el paseante
@@ -2765,7 +2775,8 @@ let finLevadizo = -1;
 
 function avanzarAPie(cantidad) {
     if (finPatio < 0) {
-        finPatio = muestrasCamino.findIndex((m) => m.z < bisagraPuerta.z + 3);
+        // El paseo acaba en la última curva, a unos 10 m de la puerta, con el castillo delante
+        finPatio = muestrasCamino.length - 1 - [...muestrasCamino].reverse().findIndex((m) => m.x > 8);
         finLevadizo = muestrasCamino.findIndex((m) => m.z < bisagraPuerta.z + 4.6);
     }
     const tope = anguloLevadizo < -0.3 ? finLevadizo : finPatio;
@@ -2780,10 +2791,13 @@ function moverAPie(delta, tiempo) {
     const andando = Math.abs(aPie.indice - antes) > delta * 0.4 ? 1 : 0;
     puntoEnCamino(aPie.indice, auxPunto);
     puntoEnCamino(aPie.indice + 16, auxDelante);
-    const rumbo = Math.atan2(auxDelante.x - auxPunto.x, auxDelante.z - auxPunto.z) + aPie.mirarX;
-    // Al llegar a la puerta se levanta la mirada para ver las torres
-    const enPuerta = suave(-108, -116, auxPunto.z);
-    const subida = Math.atan2(auxDelante.y - auxPunto.y, 8) * 0.5 + 0.18 * enPuerta + aPie.mirarY;
+    let rumbo = Math.atan2(auxDelante.x - auxPunto.x, auxDelante.z - auxPunto.z);
+    // Al llegar a la puerta se mira de frente al arco y un poco hacia arriba
+    const enPuerta = suave(-107, -110, auxPunto.z);
+    const alArco = Math.atan2(bisagraPuerta.x - auxPunto.x, bisagraPuerta.z - 8 - auxPunto.z);
+    rumbo += Math.atan2(Math.sin(alArco - rumbo), Math.cos(alArco - rumbo)) * enPuerta;
+    rumbo += aPie.mirarX;
+    const subida = Math.atan2(auxDelante.y - auxPunto.y, 8) * 0.5 + 0.22 * enPuerta + aPie.mirarY;
     camara.position.set(auxPunto.x, auxPunto.y + 1.65 + Math.sin(aPie.indice * 1.3) * 0.04 * andando, auxPunto.z);
     auxMirada.set(Math.sin(rumbo) * Math.cos(subida), Math.sin(subida), Math.cos(rumbo) * Math.cos(subida)).add(camara.position);
     camara.lookAt(auxMirada);
@@ -2990,7 +3004,7 @@ if (parametros.get("interfaz") === "no") document.body.classList.add("sin-interf
 
 function ajustarTamano() {
     camara.aspect = window.innerWidth / window.innerHeight;
-    camara.fov = camara.aspect < 0.8 ? 60 : 42;
+    camara.fov = aPie.activo ? (camara.aspect < 0.8 ? 75 : 65) : camara.aspect < 0.8 ? 60 : 42;
     camara.updateProjectionMatrix();
     aplicarCalidad();
     if (agua) {
