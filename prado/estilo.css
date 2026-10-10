@@ -31,39 +31,6 @@ canvas {
     image-rendering: pixelated;
 }
 
-.marcador {
-    position: fixed;
-    top: 14px;
-    left: 14px;
-    z-index: 2;
-    padding: 8px 12px;
-    background: var(--panel);
-    border: 2px solid var(--borde);
-    font-size: 22px;
-    line-height: 1.1;
-    min-width: 190px;
-}
-
-.marcador p {
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
-}
-
-.marcador strong {
-    font-weight: normal;
-    color: var(--oro);
-}
-
-.destino {
-    position: fixed;
-    top: 14px;
-    right: 16px;
-    z-index: 2;
-    font-size: 24px;
-    text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6);
-}
-
 .controles {
     position: fixed;
     bottom: 14px;
@@ -141,7 +108,7 @@ canvas {
 
 .fps {
     position: fixed;
-    top: 84px;
+    top: 14px;
     left: 14px;
     z-index: 2;
     font-size: 20px;
@@ -150,18 +117,6 @@ canvas {
 }
 
 @media (max-width: 700px) {
-    .marcador {
-        font-size: 18px;
-        min-width: 150px;
-    }
-
-    .destino {
-        top: 70px;
-        left: 14px;
-        right: auto;
-        font-size: 19px;
-    }
-
     .volver {
         bottom: 52px;
         left: 50%;
