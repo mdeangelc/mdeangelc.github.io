@@ -281,16 +281,16 @@ const comunes = {
     uRaton: { value: new THREE.Vector2(999, 999) },
     uFuerzaRaton: { value: 0 },
     uViento: { value: movimientoReducido ? 0.25 : 1 },
-    uClaros: { value: Array.from({ length: 16 }, () => new THREE.Vector3(9999, 9999, 0)) }
+    uClaros: { value: Array.from({ length: 8 }, () => new THREE.Vector3(9999, 9999, 0)) }
 };
 
 // Claros: alrededor de la carreta, el pozo, etc. la hierba es más baja
 // y el suelo está pisado. Se guardan como (x, z, radio).
 const clarosGLSL = `
-    uniform vec3 uClaros[16];
+    uniform vec3 uClaros[8];
     float enClaro(vec2 p) {
         float c = 1.0;
-        for (int i = 0; i < 16; i++) {
+        for (int i = 0; i < 8; i++) {
             float r = uClaros[i].z;
             c = min(c, smoothstep(r * 0.5, r, length(p - uClaros[i].xy)));
         }
@@ -1206,7 +1206,15 @@ function crearObra(aleatorio) {
             return g;
         },
         arbol(variante, x, y, z, tam) {
-            arboles.push({ variante, x, y, z, tam });
+            // En una ladera, el pie del dibujo baja hasta el punto más bajo
+            // bajo el tronco para que no se vea flotando por un lado
+            const tipo = atlasArboles.variantes[variante].tipo;
+            const planta = ["pino", "frondoso", "arbusto", "juncos"].includes(tipo);
+            const r = tam * (planta ? 0.1 : 0.4);
+            const bajo = Math.min(alturaTerreno(x - r, z), alturaTerreno(x + r, z), alturaTerreno(x, z - r), alturaTerreno(x, z + r));
+            const final = Math.max(y - 0.4, Math.min(y, bajo - 0.08));
+            arboles.push({ variante, x, y: final, z, tam });
+            return final;
         },
         losa(geometria) {
             const g = geometria.toNonIndexed();
@@ -1601,7 +1609,7 @@ function crearAtlasArboles() {
         return { columna, fila };
     }
 
-    function tronco(columna, fila) {
+    function troncoCaido(columna, fila) {
         const azar = crearAzar(204);
         const { x0, y0, base } = casilla(columna, fila);
         const desde = x0 + 6;
@@ -1732,7 +1740,7 @@ function crearAtlasArboles() {
         ["carreta", () => carreta(7, 1)],
         ["pozo", () => pozo(0, 2)],
         ["lenas", () => lenas(1, 2)],
-        ["tronco", () => tronco(2, 2)],
+        ["tronco", () => troncoCaido(2, 2)],
         ["hito", () => hito(3, 2)],
         ["banco", () => banco(4, 2)],
         ["hornacina", () => hornacina(5, 2)],
@@ -1933,10 +1941,10 @@ function banco(o, x, z) {
 }
 
 function hornacina(o, x, z) {
-    o.arbol(variantesPorTipo.hornacina[0], x, alturaTerreno(x, z) - 0.05, z, 3.0);
-    // La vela de dentro sigue siendo una luz de verdad
-    o.en(x, alturaTerreno(x, z), z);
-    o.luz(caja(0.06, 0.12, 0.06, 0, 1.55, 0.05), 0.9);
+    const base = o.arbol(variantesPorTipo.hornacina[0], x, alturaTerreno(x, z) - 0.05, z, 3.0);
+    // La vela de dentro sigue siendo una luz de verdad, a la altura de la pintada
+    o.en(x, base, z);
+    o.luz(caja(0.06, 0.12, 0.06, 0, 1.83, 0.05), 0.9);
 }
 
 function ruina(o, x, z, angulo) {
@@ -2225,7 +2233,9 @@ function mallaArboles(lista) {
 function actualizarClaros() {
     const lista = [];
     trozos.forEach((grupo) => lista.push(...grupo.userData.claros));
-    lista.sort((p, q) => Math.abs(p.y - camara.position.z) - Math.abs(q.y - camara.position.z));
+    const z = camara.position.z;
+    const cercania = (c) => (c.y > z + 6 ? 1000 : 0) + Math.abs(c.y - z);
+    lista.sort((p, q) => cercania(p) - cercania(q));
     comunes.uClaros.value.forEach((v, i) => {
         if (lista[i]) v.copy(lista[i]);
         else v.set(9999, 9999, 0);
@@ -2604,6 +2614,10 @@ function pajaro(a) {
         vol.gain.linearRampToValueAtTime(0.035, inicio + 0.015);
         vol.gain.exponentialRampToValueAtTime(0.0005, inicio + 0.11);
         osc.connect(vol).connect(a.general);
+        osc.onended = () => {
+            osc.disconnect();
+            vol.disconnect();
+        };
         osc.start(inicio);
         osc.stop(inicio + 0.12);
     }
@@ -2621,6 +2635,10 @@ function grillo(a) {
         vol.gain.setValueAtTime(0, t + i * 0.05 + 0.025);
     }
     osc.connect(vol).connect(a.general);
+    osc.onended = () => {
+        osc.disconnect();
+        vol.disconnect();
+    };
     osc.start(t);
     osc.stop(t + 0.22);
 }
@@ -2629,11 +2647,11 @@ function actualizarSonido() {
     if (!audio || audio.ctx.state !== "running") return;
     const ahora = audio.ctx.currentTime;
     const rafaga = 0.5 + 0.5 * Math.sin(ahora * 0.3) * Math.sin(ahora * 0.11);
-    audio.viento.volumen.gain.value = (0.05 + rafaga * 0.07) * comunes.uViento.value;
-    audio.viento.filtro.frequency.value = 300 + rafaga * 300;
+    audio.viento.volumen.gain.setTargetAtTime((0.05 + rafaga * 0.07) * comunes.uViento.value, ahora, 0.3);
+    audio.viento.filtro.frequency.setTargetAtTime(300 + rafaga * 300, ahora, 0.3);
     const z = camara.position.z;
     const cercaAgua = Math.max(0, 1 - Math.abs(arroyo(caminoX(z), z)) / 30);
-    audio.agua.volumen.gain.value = cercaAgua * cercaAgua * 0.22;
+    audio.agua.volumen.gain.setTargetAtTime(cercaAgua * cercaAgua * 0.22, ahora, 0.3);
     if (ahora > audio.proximo) {
         if (actual.noche > 0.5) {
             grillo(audio);
