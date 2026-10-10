@@ -14,6 +14,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 //   ?ambiente=manana | atardecer | noche | lluvia
 //   ?vista=1..4              -> cámara inicial
 //   ?interfaz=no             -> sin botones (para capturas)
+//   ?camara=x,y,z,ox,oy,oz   -> cámara libre en esa posición mirando a ese punto
 // =====================================================================
 
 const parametros = new URLSearchParams(location.search);
@@ -101,6 +102,9 @@ function mezclar(a, b, t) {
 // =====================================================================
 
 const NIVEL_AGUA = 0;
+// Río arriba el valle está más alto: el río cae en una cascada
+const X_CASCADA = -56;
+const ALTO_CASCADA = 9;
 const ANCHO_RIO = 3.6;
 const CENTRO_CASTILLO = new THREE.Vector3(0, 24, -134);
 
@@ -119,7 +123,7 @@ function distanciaRio(x, z) {
 const puntosCamino = [
     [4, 62, null], [5, 42, null], [1, 22, null], [-3, 2, null], [1, -20, null],
     [7, -44, null], [5, -68, null], [1, -92, null],
-    [-11, -99, 5], [9, -106, 11], [-7, -112, 17], [0, -119, 23.5]
+    [-11, -99, 5], [9, -106, 11], [-7, -112, 17], [0, -119, 23.5], [0, -125, 24]
 ];
 
 // Se suaviza con una curva y se guarda como una lista de puntos cada 0.5 m
@@ -198,11 +202,20 @@ function alturaNatural(x, z) {
     // Pequeñas irregularidades para que las laderas no salgan en anillos
     h += 0.5 * (ruido2(x * 0.33, z * 0.33) - 0.5) * suave(1.4, 4, h);
 
-    // Cauce del río
+    // Escalón de la cascada: brusco junto al río, suave lejos de él
     const dr = distanciaRio(x, z);
-    const orilla = suave(ANCHO_RIO - 0.8, ANCHO_RIO + 5 + Math.max(0, h - 3) * 0.6, dr);
-    h = mezclar(-1.1, h, orilla);
+    const escalon = alturaEscalon(x, dr);
+    h += escalon;
+
+    // Cauce del río
+    const orilla = suave(ANCHO_RIO - 0.8, ANCHO_RIO + 5 + Math.max(0, h - escalon - 3) * 0.6, dr);
+    h = mezclar(-1.1 + escalon, h, orilla);
     return h;
+}
+
+function alturaEscalon(x, dr) {
+    const ancho = mezclar(1.2, 22, suave(9, 34, dr));
+    return ALTO_CASCADA * suave(X_CASCADA + ancho, X_CASCADA - ancho, x);
 }
 
 // Altura final: la natural, pero el camino se excava en la colina
@@ -477,6 +490,8 @@ function geometriaDe(m) {
 }
 
 const OSCURECER = [0.56, 0.72, 0.87, 1];
+// En el terreno los escalones de un cubo se marcan menos (si no, salen anillos)
+const OSCURECER_SUELO = [0.7, 0.81, 0.91, 1];
 
 function crearTerreno({ x0, z0, ancho, fondo, paso, hueco, alturaDe, colorDe }) {
     const nx = Math.round(ancho / paso);
@@ -512,7 +527,7 @@ function crearTerreno({ x0, z0, ancho, fondo, paso, hueco, alturaDe, colorDe }) 
                 const a = nivel(i + di, j) > n ? 1 : 0;
                 const b = nivel(i, j + dj) > n ? 1 : 0;
                 const c = nivel(i + di, j + dj) > n ? 1 : 0;
-                sombra[k] = OSCURECER[a && b ? 0 : 3 - (a + b + c)];
+                sombra[k] = OSCURECER_SUELO[a && b ? 0 : 3 - (a + b + c)];
             });
             cara(m, [[x, y, z], [x, y, z + paso], [x + paso, y, z + paso], [x + paso, y, z]].map((p) => p), [0, 1, 0], arriba, [sombra[0], sombra[3], sombra[2], sombra[1]]);
 
@@ -533,7 +548,7 @@ function crearTerreno({ x0, z0, ancho, fondo, paso, hueco, alturaDe, colorDe }) 
                     const yAbajo = (k === vecino + 1 || n - k > 5) ? vecino * paso : (k - 1) * paso;
                     const profundidad = n - k;
                     const col = colorDe(x + paso / 2, z + paso / 2, yArriba, pendiente, profundidad + 1, i, j);
-                    const abajo = k === vecino + 1 || n - k > 5 ? 0.72 : 1;
+                    const abajo = k === vecino + 1 || n - k > 5 ? (n - vecino === 1 ? 0.88 : 0.74) : 1;
                     let puntos;
                     if (di === 1) puntos = [[x + paso, yAbajo, z + paso], [x + paso, yAbajo, z], [x + paso, yArriba, z], [x + paso, yArriba, z + paso]];
                     if (di === -1) puntos = [[x, yAbajo, z], [x, yAbajo, z + paso], [x, yArriba, z + paso], [x, yArriba, z]];
@@ -602,8 +617,18 @@ function crearValle() {
     malla.receiveShadow = true;
     escena.add(malla);
 
+    // Alrededor del valle, cubos de 2 m; más lejos, de 4 m (en calidad ligera, todo de 4 m)
     const dentro = (x, z) => x > VALLE.x0 && x < VALLE.x0 + VALLE.ancho && z > VALLE.z0 && z < VALLE.z0 + VALLE.fondo;
-    const grueso = crearTerreno({ x0: -720, z0: -900, ancho: 1440, fondo: 1000, paso: 4, hueco: dentro, alturaDe: alturaLejana, colorDe: colorLejano });
+    const MEDIO = { x0: -264, z0: -424, ancho: 528, fondo: 520 };
+    const enMedio = (x, z) => x > MEDIO.x0 && x < MEDIO.x0 + MEDIO.ancho && z > MEDIO.z0 && z < MEDIO.z0 + MEDIO.fondo;
+    const conMedio = calidad === "alta";
+    if (conMedio) {
+        const medio = crearTerreno({ ...MEDIO, paso: 2, hueco: dentro, alturaDe: alturaLejana, colorDe: colorLejano });
+        const malla = new THREE.Mesh(medio, materialCubos);
+        malla.receiveShadow = true;
+        escena.add(malla);
+    }
+    const grueso = crearTerreno({ x0: -720, z0: -900, ancho: 1440, fondo: 1000, paso: 4, hueco: conMedio ? enMedio : dentro, alturaDe: alturaLejana, colorDe: colorLejano });
     const lejos = new THREE.Mesh(grueso, materialCubos);
     lejos.receiveShadow = true;
     escena.add(lejos);
@@ -697,13 +722,10 @@ const sombreadorAgua = {
 
 let agua = null;
 
-function crearAgua() {
-    // Una cinta que sigue el río, plana a la altura del agua
+// Cinta plana que sigue el río entre dos x (en el plano XY, como pide Reflector)
+function cintaRio(desde, hasta, pasos) {
     const puntos = [];
     const indices = [];
-    const desde = VALLE.x0 - 40;
-    const hasta = VALLE.x0 + VALLE.ancho + 40;
-    const pasos = 220;
     for (let k = 0; k <= pasos; k++) {
         const x = desde + ((hasta - desde) * k) / pasos;
         const z = rioZ(x);
@@ -722,9 +744,12 @@ function crearAgua() {
     geometria.setAttribute("position", new THREE.Float32BufferAttribute(puntos, 3));
     geometria.setIndex(indices);
     geometria.computeVertexNormals();
+    return geometria;
+}
 
+function crearAgua() {
     const escalaReflejo = calidad === "alta" ? 0.75 : 0.4;
-    agua = new Reflector(geometria, {
+    agua = new Reflector(cintaRio(X_CASCADA + 0.4, VALLE.x0 + VALLE.ancho + 40, 200), {
         shader: sombreadorAgua,
         textureWidth: Math.round(window.innerWidth * escalaReflejo),
         textureHeight: Math.round(window.innerHeight * escalaReflejo),
@@ -734,6 +759,192 @@ function crearAgua() {
     agua.rotation.x = -Math.PI / 2;
     agua.position.y = NIVEL_AGUA + 0.02;
     escena.add(agua);
+    crearCascada();
+}
+
+// =====================================================================
+// 8b. LA CASCADA
+// Río arriba el agua va 9 m más alta (sin reflejo, para no gastar) y
+// cae por el escalón en una cortina con rayas que bajan. Abajo hay
+// espuma que se abre en círculos y bruma que sube.
+// =====================================================================
+
+const aguaViva = {
+    uTiempo: { value: 0 },
+    uHondo: { value: new THREE.Color("#1d3a4a") },
+    uClaro: { value: new THREE.Color("#4f7f8a") },
+    uCielo: { value: new THREE.Color("#f2a07a") },
+    uNiebla: { value: new THREE.Color("#c9908a") },
+    uDensidad: { value: 0.0045 },
+    uBrillo: { value: 1 }
+};
+
+const ruidoGLSL = `
+    float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+    }
+    float ruido(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+    }
+    vec3 conNiebla(vec3 c, vec3 mundo, vec3 niebla, float densidad) {
+        float d = length(mundo - cameraPosition);
+        return mix(c, niebla, 1.0 - exp(-densidad * densidad * d * d));
+    }
+`;
+
+function crearCascada() {
+    // Agua de arriba
+    const alta = new THREE.Mesh(
+        cintaRio(X_CASCADA - 110, X_CASCADA - 0.9, 60),
+        new THREE.ShaderMaterial({
+            uniforms: aguaViva,
+            vertexShader: `
+                varying vec3 vMundo;
+                void main() {
+                    vec4 m = modelMatrix * vec4(position, 1.0);
+                    vMundo = m.xyz;
+                    gl_Position = projectionMatrix * viewMatrix * m;
+                }
+            `,
+            fragmentShader: `
+                uniform float uTiempo;
+                uniform vec3 uHondo;
+                uniform vec3 uClaro;
+                uniform vec3 uCielo;
+                uniform vec3 uNiebla;
+                uniform float uDensidad;
+                varying vec3 vMundo;
+                ${ruidoGLSL}
+                void main() {
+                    vec2 p = vMundo.xz;
+                    float onda = ruido(p * 0.6 + vec2(uTiempo * 0.9, 0.0)) * 0.6 + ruido(p * 2.0 + vec2(uTiempo * 1.6, uTiempo * 0.3)) * 0.4;
+                    vec3 vista = normalize(cameraPosition - vMundo);
+                    float fresnel = 0.3 + 0.7 * pow(1.0 - max(vista.y, 0.0), 3.0);
+                    vec3 c = mix(mix(uHondo, uClaro, onda), uCielo, fresnel * 0.55);
+                    c += vec3(0.9) * step(0.82, onda) * 0.15;
+                    gl_FragColor = vec4(conNiebla(c, vMundo, uNiebla, uDensidad), 1.0);
+                }
+            `
+        })
+    );
+    alta.rotation.x = -Math.PI / 2;
+    alta.position.y = NIVEL_AGUA + ALTO_CASCADA + 0.02;
+    escena.add(alta);
+
+    // Cortina que cae: arriba en el borde del escalón y abajo un poco hacia delante
+    const columnas = 28;
+    const filas = 24;
+    const puntos = [];
+    const uvs = [];
+    const indices = [];
+    const zCentro = rioZ(X_CASCADA);
+    const anchoCortina = ANCHO_RIO + 0.6;
+    for (let j = 0; j <= filas; j++) {
+        const v = j / filas;
+        for (let i = 0; i <= columnas; i++) {
+            const u = i / columnas;
+            const x = X_CASCADA - 1.3 + 2.8 * Math.sqrt(v) + Math.sin(u * 9) * 0.08;
+            const y = NIVEL_AGUA + ALTO_CASCADA + 0.05 - v * (ALTO_CASCADA + 0.05);
+            const z = zCentro + (u - 0.5) * 2 * anchoCortina * (1 - v * 0.08);
+            puntos.push(x, y, z);
+            uvs.push(u, v);
+            if (i > 0 && j > 0) {
+                const a = j * (columnas + 1) + i;
+                const b = a - 1;
+                const c = a - (columnas + 1);
+                const d = c - 1;
+                indices.push(d, b, a, d, a, c);
+            }
+        }
+    }
+    const geometria = new THREE.BufferGeometry();
+    geometria.setAttribute("position", new THREE.Float32BufferAttribute(puntos, 3));
+    geometria.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+    geometria.setIndex(indices);
+    const cortina = new THREE.Mesh(
+        geometria,
+        new THREE.ShaderMaterial({
+            uniforms: aguaViva,
+            transparent: true,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            vertexShader: `
+                varying vec2 vUv;
+                varying vec3 vMundo;
+                void main() {
+                    vUv = uv;
+                    vec4 m = modelMatrix * vec4(position, 1.0);
+                    vMundo = m.xyz;
+                    gl_Position = projectionMatrix * viewMatrix * m;
+                }
+            `,
+            fragmentShader: `
+                uniform float uTiempo;
+                uniform vec3 uClaro;
+                uniform vec3 uNiebla;
+                uniform float uDensidad;
+                uniform float uBrillo;
+                varying vec2 vUv;
+                varying vec3 vMundo;
+                ${ruidoGLSL}
+                void main() {
+                    float rayas = ruido(vec2(vUv.x * 30.0, vUv.y * 3.0 - uTiempo * 2.6)) * 0.6 + ruido(vec2(vUv.x * 70.0, vUv.y * 9.0 - uTiempo * 4.5)) * 0.4;
+                    vec3 blanco = vec3(0.9, 0.95, 1.0) * uBrillo;
+                    vec3 c = mix(uClaro * 1.15, blanco, smoothstep(0.32, 0.78, rayas));
+                    c = mix(c, blanco, smoothstep(0.72, 1.0, vUv.y) * 0.8);
+                    float a = 0.72 + rayas * 0.28;
+                    a *= smoothstep(0.0, 0.07, vUv.x) * (1.0 - smoothstep(0.93, 1.0, vUv.x));
+                    a *= smoothstep(0.0, 0.03, vUv.y);
+                    gl_FragColor = vec4(conNiebla(c, vMundo, uNiebla, uDensidad), a);
+                }
+            `
+        })
+    );
+    cortina.renderOrder = 2;
+    escena.add(cortina);
+
+    // Espuma en el pozo de abajo
+    const espuma = new THREE.Mesh(
+        new THREE.CircleGeometry(1, 40),
+        new THREE.ShaderMaterial({
+            uniforms: aguaViva,
+            transparent: true,
+            depthWrite: false,
+            vertexShader: `
+                varying vec2 vLocal;
+                varying vec3 vMundo;
+                void main() {
+                    vLocal = position.xy;
+                    vec4 m = modelMatrix * vec4(position, 1.0);
+                    vMundo = m.xyz;
+                    gl_Position = projectionMatrix * viewMatrix * m;
+                }
+            `,
+            fragmentShader: `
+                uniform float uTiempo;
+                uniform vec3 uNiebla;
+                uniform float uDensidad;
+                uniform float uBrillo;
+                varying vec2 vLocal;
+                varying vec3 vMundo;
+                ${ruidoGLSL}
+                void main() {
+                    float r = length(vLocal);
+                    float n = ruido(vec2(atan(vLocal.y, vLocal.x) * 4.0, r * 6.0 - uTiempo * 1.5)) * 0.6 + ruido(vMundo.xz * 3.0 + uTiempo) * 0.4;
+                    float a = smoothstep(0.45, 0.75, n) * (1.0 - smoothstep(0.55, 1.0, r)) * 0.85;
+                    gl_FragColor = vec4(conNiebla(vec3(0.92, 0.96, 1.0) * uBrillo, vMundo, uNiebla, uDensidad), a);
+                }
+            `
+        })
+    );
+    espuma.rotation.x = -Math.PI / 2;
+    espuma.scale.set(5.5, 3.6, 1);
+    espuma.position.set(X_CASCADA + 3, NIVEL_AGUA + 0.06, zCentro);
+    espuma.renderOrder = 3;
+    escena.add(espuma);
 }
 
 // =====================================================================
@@ -901,8 +1112,9 @@ function tejadoCono(c, cx, cz, y0, radio, alto, lista, azar, punta = true) {
         }
     }
     if (punta) {
-        c.caja(cx, y0 + alto, cz, cx, y0 + alto + 2, cz, colores.oro);
-        c.caja(cx + 1, y0 + alto + 1, cz, cx + 3, y0 + alto + 2, cz, colores.bandera);
+        c.caja(cx, y0 + alto, cz, cx, y0 + alto + 3, cz, colores.oro);
+        // La tela de la bandera se añade aparte para que ondee
+        if (c.banderas) c.banderas.push({ x: cx, y: y0 + alto + 3, z: cz });
     }
 }
 
@@ -948,8 +1160,10 @@ function crearCastillo() {
             if ((x + z) % 2 === 0) c.poner(x, altoMuro, z, piedra());
         }
     }
-    // Patio
-    c.caja(-mx + 2, -1, -mz + 2, mx - 2, -1, mz - 2, piedrasOscuras[2]);
+    c.banderas = [];
+
+    // Patio empedrado
+    c.caja(-mx + 2, -1, -mz + 2, mx - 2, -1, mz - 2, () => elegir([piedrasOscuras[2], piedrasOscuras[0], color("#a39a84"), color("#8f8676")], azar));
 
     // Torres de las esquinas
     [[-mx, -mz], [mx, -mz], [-mx, mz], [mx, mz]].forEach(([x, z], i) => {
@@ -977,6 +1191,7 @@ function crearCastillo() {
     c.poner(3, 7, mz + 3, colores.farol, true);
     // Estandartes a los lados de la puerta
     [-10, 10].forEach((x) => c.caja(x, 4, mz + 1, x + 1, 10, mz + 1, colores.bandera));
+    [-10, 10].forEach((x) => c.caja(x, 3, mz + 1, x + 1, 3, mz + 1, colores.oro));
 
     // Torre del homenaje: un edificio grande con tejado y dos torres altas
     c.caja(-12, 0, -14, 12, 26, 2, (x, y, z) => {
@@ -1004,7 +1219,54 @@ function crearCastillo() {
     tejadoDosAguas(c, -22, -14, 4, 14, 10, colores.tejaCastillo, azar);
     c.caja(-18, 4, 15, -17, 7, 15, colores.ventana, true);
 
-    colocar(c, CENTRO_CASTILLO.x, CENTRO_CASTILLO.y, CENTRO_CASTILLO.z + 4, 0);
+    patioCastillo(c, azar);
+
+    const origen = new THREE.Vector3(CENTRO_CASTILLO.x, CENTRO_CASTILLO.y, CENTRO_CASTILLO.z + 4);
+    colocar(c, origen.x, origen.y, origen.z, 0);
+    c.banderas.forEach((b) => banderasCastillo.push(new THREE.Vector3(origen.x + (b.x + 0.5) * VOXEL, origen.y + (b.y + 0.5) * VOXEL, origen.z + (b.z + 0.5) * VOXEL)));
+    // Bisagra del puente levadizo: al pie de la puerta, por fuera
+    bisagraPuerta.set(origen.x + 0.25, origen.y, origen.z + (mz + 4) * VOXEL);
+    lucesCalidas.push(new THREE.Vector3(origen.x, origen.y + 3, origen.z + (mz + 5) * VOXEL), new THREE.Vector3(origen.x + 3, origen.y + 2, origen.z + 9 * VOXEL));
+}
+
+const banderasCastillo = [];
+const bisagraPuerta = new THREE.Vector3();
+
+// Cosas del patio: puestos de mercado, pozo, barriles, heno, un muñeco
+// de entrenamiento, un árbol y antorchas en la fachada
+function patioCastillo(c, azar) {
+    const toldo = (x0, z0, colorA, colorB) => {
+        [[x0, z0], [x0 + 6, z0], [x0, z0 + 4], [x0 + 6, z0 + 4]].forEach(([x, z]) => c.caja(x, 0, z, x, 5, z, colores.madera));
+        for (let x = x0 - 1; x <= x0 + 7; x++) for (let z = z0 - 1; z <= z0 + 5; z++) c.poner(x, 6 + (z === z0 - 1 || z === z0 + 5 ? -1 : 0), z, (x & 1) ? colorA : colorB);
+        c.caja(x0, 2, z0 + 1, x0 + 6, 2, z0 + 3, colores.maderaClara);
+        for (let x = x0 + 1; x < x0 + 6; x += 2) c.poner(x, 3, z0 + 2, elegir([color("#d24a3a"), color("#e8b23a"), color("#7cae3a"), color("#e07a2a")], azar));
+    };
+    toldo(7, 12, color("#c23b3b"), color("#efe6d6"));
+    toldo(15, 4, color("#3f63c8"), color("#e8c84a"));
+    // Pozo
+    for (let x = -2; x <= 2; x++) for (let z = -2; z <= 2; z++) if (Math.abs(x) === 2 || Math.abs(z) === 2) c.caja(-8 + x, 0, 10 + z, -8 + x, 1, 10 + z, elegir(piedras, azar));
+    c.caja(-9, 0, 9, -7, 0, 11, color("#2a3a5a"));
+    c.caja(-10, 2, 10, -10, 5, 10, colores.madera);
+    c.caja(-6, 2, 10, -6, 5, 10, colores.madera);
+    c.caja(-10, 6, 9, -6, 6, 11, colores.tejaCastillo[0]);
+    // Barriles y heno junto a la muralla
+    [[20, 17], [22, 17], [21, 15], [-20, 17], [22, -6]].forEach(([x, z]) => {
+        c.caja(x, 0, z, x + 1, 2, z + 1, colores.maderaClara);
+        c.caja(x, 1, z, x + 1, 1, z + 1, colores.maderaOscura);
+    });
+    c.caja(-22, 0, 16, -18, 2, 19, colores.paja);
+    // Muñeco de entrenamiento
+    c.caja(19, 0, -12, 19, 6, -12, colores.madera);
+    c.caja(17, 4, -12, 21, 4, -12, colores.madera);
+    c.caja(18, 5, -12, 20, 7, -12, colores.paja);
+    // Árbol del patio
+    for (let y = 0; y < 6; y++) c.poner(-16, y, -4, colores.tronco);
+    for (let x = -3; x <= 3; x++) for (let y = -2; y <= 3; y++) for (let z = -3; z <= 3; z++) if (Math.hypot(x, y * 1.3, z) < 3.2 && azar() > 0.1) c.poner(-16 + x, 8 + y, -4 + z, elegir(colores.hojas, azar));
+    // Antorchas en la fachada de la torre del homenaje
+    [-10, 10].forEach((x) => {
+        c.poner(x, 6, 3, colores.maderaOscura);
+        c.poner(x, 7, 3, colores.farol, true);
+    });
 }
 
 // ---------------------------------------------------------------------
@@ -1489,6 +1751,11 @@ function crearAldea() {
         roca(rocas, Math.round(x / VOXEL), Math.round((altura(x, z) - 0.6) / VOXEL), Math.round(z / VOXEL), r, azar);
         ocupados.push({ x, z, r: r * 0.6 + 1 });
     });
+    // Rocas a los lados de la cascada, arriba y abajo
+    const zc = rioZ(X_CASCADA);
+    [[-58, -6.8, 4], [-58, 7, 4], [-53.5, -7.5, 3], [-53, 7.8, 3], [-60, -5.5, 2], [-51, -6.5, 2]].forEach(([x, dz, r]) => {
+        roca(rocas, Math.round(x / VOXEL), Math.round((altura(x, zc + dz) - 0.6) / VOXEL), Math.round((zc + dz) / VOXEL), r, azar);
+    });
     colocar(rocas, 0, 0, 0, 0);
 
     // Hojas caídas bajo el árbol viejo (cubitos pequeños)
@@ -1605,6 +1872,12 @@ function aplicarAmbiente() {
         w.uNiebla.value.copy(a.niebla);
         w.uDensidad.value = a.densidad;
     }
+    aguaViva.uHondo.value.copy(a.hondo);
+    aguaViva.uClaro.value.copy(a.claro);
+    aguaViva.uCielo.value.copy(a.horizonte);
+    aguaViva.uNiebla.value.copy(a.niebla);
+    aguaViva.uDensidad.value = a.densidad;
+    aguaViva.uBrillo.value = (0.3 + 0.7 * (1 - a.noche)) * (1 - a.lluvia * 0.25);
 }
 
 // =====================================================================
@@ -1722,6 +1995,18 @@ function crearParticulas() {
     escena.add(puntosHumo);
     particulas.humo = humo;
 
+    // Bruma al pie de la cascada (mismo sombreado que el humo, más grande)
+    const nBruma = 46;
+    const bruma = { datos: [], geometria: new THREE.BufferGeometry() };
+    for (let i = 0; i < nBruma; i++) bruma.datos.push({ t: i / nBruma, x: Math.random() - 0.5, z: Math.random() - 0.5 });
+    bruma.geometria.setAttribute("position", new THREE.BufferAttribute(new Float32Array(nBruma * 3), 3));
+    bruma.geometria.setAttribute("aT", new THREE.BufferAttribute(new Float32Array(nBruma), 1));
+    bruma.material = humo.material.clone();
+    const puntosBruma = new THREE.Points(bruma.geometria, bruma.material);
+    puntosBruma.frustumCulled = false;
+    escena.add(puntosBruma);
+    particulas.bruma = bruma;
+
     // Pájaros: una bandada que da vueltas a lo lejos
     const nPajaros = 9;
     const pajaros = { geometria: new THREE.BufferGeometry(), datos: [] };
@@ -1806,6 +2091,22 @@ function moverParticulas(delta, tiempo) {
     uh.uOpacidad.value = 0.32 * (1 - a.lluvia * 0.5);
     uh.uTam.value = (renderizador.domElement.height / 2) / Math.tan(THREE.MathUtils.degToRad(camara.fov / 2));
 
+    const br = particulas.bruma;
+    const pb = br.geometria.attributes.position;
+    const tb = br.geometria.attributes.aT;
+    const zCascada = rioZ(X_CASCADA);
+    br.datos.forEach((d, i) => {
+        d.t = (d.t + delta * 0.11 * lento) % 1;
+        pb.setXYZ(i, X_CASCADA + 2.5 + d.x * (2 + d.t * 6), NIVEL_AGUA + 0.2 + d.t * 4.5, zCascada + d.z * (5 + d.t * 6));
+        tb.setX(i, d.t);
+    });
+    pb.needsUpdate = true;
+    tb.needsUpdate = true;
+    const ub = br.material.uniforms;
+    ub.uColor.value.setRGB(0.9, 0.94, 1).multiplyScalar(aguaViva.uBrillo.value);
+    ub.uOpacidad.value = 0.28;
+    ub.uTam.value = uh.uTam.value * 1.6;
+
     const pj = particulas.pajaros;
     const pp = pj.geometria.attributes.position.array;
     pj.material.opacity = 1 - a.noche;
@@ -1848,7 +2149,7 @@ function prepararVistas() {
         { nombre: "Valle", posicion: new THREE.Vector3(6, 20, 24), objetivo: new THREE.Vector3(-1, 14, -112) },
         { nombre: "Río", posicion: new THREE.Vector3(34, 1.7, rioZ(34) + 5.5), objetivo: new THREE.Vector3(puente.x - 8, 9, puente.z - 34) },
         { nombre: "Camino", posicion: new THREE.Vector3(antesPuente.x, altura(antesPuente.x, antesPuente.z) + 2.8, antesPuente.z), objetivo: new THREE.Vector3(enAldea.x - 1, 13, -118) },
-        { nombre: "Colina", posicion: new THREE.Vector3(-74, 50, -12), objetivo: new THREE.Vector3(2, 10, -92) }
+        { nombre: "Colina", posicion: new THREE.Vector3(-42, 64, -96), objetivo: new THREE.Vector3(2, 20, -126) }
     ];
 }
 
@@ -1925,6 +2226,526 @@ function actualizarSonido() {
 }
 
 // =====================================================================
+// 14b. EL CASTILLO SE MUEVE: BANDERAS Y PUENTE LEVADIZO
+// Las banderas son telas que ondean en el shader. El puente levadizo
+// baja de día y se sube de noche, colgado de dos cadenas.
+// =====================================================================
+
+const tiempoVivo = { value: 0 };
+let levadizo = null;
+let cadenas = null;
+let anguloLevadizo = 0;
+
+function crearBanderas() {
+    const material = new THREE.MeshStandardMaterial({ color: "#c23b3b", roughness: 0.85, side: THREE.DoubleSide });
+    material.onBeforeCompile = (shader) => {
+        shader.uniforms.uTiempo = tiempoVivo;
+        shader.vertexShader = shader.vertexShader
+            .replace("#include <common>", "#include <common>\nuniform float uTiempo;")
+            .replace(
+                "#include <begin_vertex>",
+                `#include <begin_vertex>
+                float semilla = modelMatrix[3].x * 0.37 + modelMatrix[3].z * 0.21;
+                float largo = position.x;
+                transformed.z += sin(uTiempo * 3.2 - largo * 2.6 + semilla) * largo * 0.22;
+                transformed.y += sin(uTiempo * 2.1 - largo * 1.9 + semilla) * largo * 0.05;`
+            );
+    };
+    const geometria = new THREE.PlaneGeometry(1.8, 1.0, 10, 3);
+    geometria.translate(0.9, -0.5, 0);
+    banderasCastillo.forEach((p) => {
+        const bandera = new THREE.Mesh(geometria, material);
+        bandera.position.copy(p);
+        bandera.castShadow = false;
+        escena.add(bandera);
+    });
+}
+
+function crearLevadizo() {
+    const c = new Cubos(0.25);
+    for (let x = -7; x <= 7; x++) {
+        for (let z = 0; z < 15; z++) {
+            const herraje = z === 2 || z === 12;
+            c.poner(x, 0, z, herraje ? color("#3a3a42") : ((x + 7) % 3 === 0 ? colores.maderaOscura : colores.madera));
+        }
+    }
+    const { solida } = c.geometrias();
+    solida.translate(0, -0.12, 0);
+    levadizo = new THREE.Mesh(solida, materialCubos);
+    levadizo.position.copy(bisagraPuerta);
+    levadizo.castShadow = true;
+    levadizo.receiveShadow = true;
+    escena.add(levadizo);
+
+    const geometria = new THREE.BufferGeometry();
+    geometria.setAttribute("position", new THREE.BufferAttribute(new Float32Array(12), 3));
+    cadenas = new THREE.LineSegments(geometria, new THREE.LineBasicMaterial({ color: "#2a2a30" }));
+    cadenas.frustumCulled = false;
+    escena.add(cadenas);
+}
+
+function moverLevadizo(delta) {
+    if (!levadizo) return;
+    const objetivo = ambienteActual.noche > 0.5 ? -Math.PI / 2 : 0;
+    if (Math.abs(objetivo - anguloLevadizo) > 0.002) renderizador.shadowMap.needsUpdate = true;
+    anguloLevadizo += (objetivo - anguloLevadizo) * Math.min(1, delta * 0.8);
+    levadizo.rotation.x = anguloLevadizo;
+    // Cadenas desde lo alto de la puerta hasta la punta del puente
+    const punta = new THREE.Vector3(0, 0, 3.6).applyAxisAngle(new THREE.Vector3(1, 0, 0), anguloLevadizo).add(bisagraPuerta);
+    const p = cadenas.geometry.attributes.position.array;
+    [-1.6, 1.6].forEach((dx, i) => {
+        const k = i * 6;
+        p[k] = bisagraPuerta.x + dx;
+        p[k + 1] = bisagraPuerta.y + 5.5;
+        p[k + 2] = bisagraPuerta.z - 0.1;
+        p[k + 3] = punta.x + dx;
+        p[k + 4] = punta.y;
+        p[k + 5] = punta.z;
+    });
+    cadenas.geometry.attributes.position.needsUpdate = true;
+}
+
+// =====================================================================
+// 14c. VIDA EN EL VALLE
+// Aldeanos que van y vienen por el camino (mueven piernas y brazos),
+// ovejas que pastan y pasean, una barca en el río y peces que saltan.
+// =====================================================================
+
+// Altura para caminar: el suelo o, si es el puente, su tablero
+function alturaPaso(indice) {
+    const m = muestrasCamino[Math.max(0, Math.min(muestrasCamino.length - 1, Math.round(indice)))];
+    let h = alturasCamino[Math.round(indice)] ?? altura(m.x, m.z);
+    if (cruces.length) {
+        const d = (indice - cruces[0]) * 0.5;
+        if (Math.abs(d) < 14) h = Math.max(h, -0.75 + (3 + 5 * Math.cos((d / 14) * (Math.PI / 2))) * VOXEL);
+    }
+    return h;
+}
+
+function puntoEnCamino(indice, destino) {
+    const i = Math.max(0, Math.min(muestrasCamino.length - 2, indice));
+    const a = muestrasCamino[Math.floor(i)];
+    const b = muestrasCamino[Math.floor(i) + 1];
+    destino.lerpVectors(a, b, i - Math.floor(i));
+    destino.y = alturaPaso(i);
+    return destino;
+}
+
+const aldeanos = [];
+
+// Las sombras de la escena no se recalculan cada fotograma, así que lo
+// que se mueve lleva una sombra redonda debajo (como en muchos juegos)
+const geometriaSombra = new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2);
+const materialSombra = new THREE.MeshBasicMaterial({ color: "#000000", transparent: true, opacity: 0.28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+
+function modeloAldeano(azar) {
+    const piel = elegir([color("#e8b896"), color("#c98f6a"), color("#8d5a3c"), color("#f0c8a8")], azar);
+    const camisa = elegir([color("#4a6fa8"), color("#a8423a"), color("#5a8a4a"), color("#d8b04a"), color("#7a5aa0"), color("#e8e0d0")], azar);
+    const pantalon = elegir([color("#4a3a2a"), color("#3a4050"), color("#5a4a3a")], azar);
+    const pelo = elegir([color("#2a1a12"), color("#5a3a1a"), color("#c8a050"), color("#8a8a8a")], azar);
+    const sombrero = azar() < 0.4;
+
+    const cuerpo = new Cubos(0.125);
+    cuerpo.caja(-2, 6, -1, 2, 11, 1, camisa);
+    cuerpo.caja(-2, 6, -1, 2, 6, 1, colores.maderaOscura);
+    cuerpo.caja(-1, 12, -1, 1, 14, 1, piel);
+    cuerpo.caja(-1, 14, -1, 1, 14, 1, pelo);
+    cuerpo.caja(-1, 12, -1, 1, 14, -1, pelo);
+    cuerpo.poner(-1, 13, 1, color("#1a1a20"));
+    cuerpo.poner(1, 13, 1, color("#1a1a20"));
+    if (sombrero) cuerpo.caja(-2, 15, -2, 2, 15, 2, colores.paja);
+    if (sombrero) cuerpo.caja(-1, 16, -1, 1, 16, 1, colores.paja);
+
+    const pierna = new Cubos(0.125);
+    pierna.caja(0, -6, -1, 1, -1, 0, pantalon);
+    pierna.caja(0, -6, -1, 1, -6, 1, color("#2a2018"));
+
+    const brazo = new Cubos(0.125);
+    brazo.caja(0, -5, 0, 0, -1, 0, camisa);
+    brazo.poner(0, -5, 0, piel);
+
+    return {
+        cuerpo: cuerpo.geometrias().solida,
+        pierna: pierna.geometrias().solida,
+        brazo: brazo.geometrias().solida
+    };
+}
+
+function crearAldeanos() {
+    const azar = crearAzar(808);
+    const inicio = Math.max(0, cruces[0] - 70);
+    const fin = muestrasCamino.findIndex((m) => m.z < -90);
+    const cuantos = calidad === "alta" ? 10 : 6;
+    for (let i = 0; i < cuantos; i++) {
+        const modelo = modeloAldeano(azar);
+        const grupo = new THREE.Group();
+        const cuerpo = new THREE.Mesh(modelo.cuerpo, materialCubos);
+        grupo.add(cuerpo);
+        const sombra = new THREE.Mesh(geometriaSombra, materialSombra);
+        sombra.scale.set(0.42, 1, 0.32);
+        sombra.position.y = 0.03;
+        grupo.add(sombra);
+        const partes = [];
+        [[-0.25, 0.75, "pierna"], [0.0, 0.75, "pierna"], [-0.375, 1.5, "brazo"], [0.375, 1.5, "brazo"]].forEach(([x, y, tipo]) => {
+            const pivote = new THREE.Group();
+            pivote.position.set(x, y, 0);
+            const malla = new THREE.Mesh(modelo[tipo], materialCubos);
+            pivote.add(malla);
+            grupo.add(pivote);
+            partes.push(pivote);
+        });
+        escena.add(grupo);
+        aldeanos.push({
+            grupo,
+            partes,
+            indice: inicio + azar() * (fin - inicio),
+            sentido: azar() < 0.5 ? 1 : -1,
+            velocidad: 1.8 + azar() * 1.2,
+            lado: (azar() - 0.5) * 1.6,
+            fase: azar() * 6,
+            inicio,
+            fin,
+            parado: 0
+        });
+    }
+}
+
+const auxPunto = new THREE.Vector3();
+const auxDelante = new THREE.Vector3();
+
+function moverAldeanos(delta, tiempo) {
+    aldeanos.forEach((a) => {
+        if (a.parado > 0) {
+            a.parado -= delta;
+        } else {
+            a.indice += a.sentido * a.velocidad * delta;
+            if (a.indice > a.fin || a.indice < a.inicio) {
+                a.sentido *= -1;
+                a.indice = Math.max(a.inicio, Math.min(a.fin, a.indice));
+                a.parado = 2 + Math.random() * 4;
+            } else if (Math.random() < delta * 0.02) {
+                a.parado = 3 + Math.random() * 5;
+            }
+        }
+        puntoEnCamino(a.indice, auxPunto);
+        puntoEnCamino(a.indice + a.sentido * 2, auxDelante);
+        const direccion = Math.atan2(auxDelante.x - auxPunto.x, auxDelante.z - auxPunto.z);
+        const anda = a.parado > 0 ? 0 : 1;
+        const paso = tiempo * a.velocidad * 2.6 + a.fase;
+        // Se aparta a un lado del camino según hacia dónde va
+        const lateral = a.lado + a.sentido * 0.45;
+        a.grupo.position.set(auxPunto.x + Math.cos(direccion) * lateral, auxPunto.y + Math.abs(Math.sin(paso)) * 0.05 * anda, auxPunto.z - Math.sin(direccion) * lateral);
+        a.grupo.rotation.y = direccion;
+        const giro = Math.sin(paso) * 0.6 * anda;
+        a.partes[0].rotation.x = giro;
+        a.partes[1].rotation.x = -giro;
+        a.partes[2].rotation.x = -giro * 0.8;
+        a.partes[3].rotation.x = giro * 0.8;
+    });
+}
+
+// Ovejas
+let rebano = null;
+let sombrasRebano = null;
+const ovejas = [];
+const ZONA_PASTO = [
+    { x0: 14, x1: 40, z0: -84, z1: -46 },
+    { x0: 16, x1: 44, z0: 4, z1: 30 }
+];
+
+function crearOvejas() {
+    const azar = crearAzar(77);
+    const c = new Cubos(0.125);
+    const lana = [color("#f2efe6"), color("#e6e2d6"), color("#fbf8f0")];
+    for (let x = -3; x <= 3; x++) for (let y = 3; y <= 7; y++) for (let z = -4; z <= 4; z++) {
+        if (Math.hypot(x / 3.4, (y - 5) / 2.6, z / 4.6) < 1) c.poner(x, y, z, elegir(lana, azar));
+    }
+    c.caja(-1, 5, 5, 1, 7, 7, color("#2a2420"));
+    c.caja(-2, 7, 5, -2, 7, 5, color("#2a2420"));
+    c.caja(2, 7, 5, 2, 7, 5, color("#2a2420"));
+    [[-2, -3], [2, -3], [-2, 3], [2, 3]].forEach(([x, z]) => c.caja(x, 0, z, x, 2, z, color("#2a2420")));
+    const geometria = c.geometrias().solida;
+    const cuantas = calidad === "alta" ? 18 : 10;
+    rebano = new THREE.InstancedMesh(geometria, materialCubos, cuantas);
+    rebano.receiveShadow = true;
+    sombrasRebano = new THREE.InstancedMesh(geometriaSombra, materialSombra, cuantas);
+    escena.add(sombrasRebano);
+    for (let i = 0; i < cuantas; i++) {
+        const zona = ZONA_PASTO[i % ZONA_PASTO.length];
+        const o = { zona, x: 0, z: 0, angulo: azar() * 6, espera: azar() * 4, destino: null, fase: azar() * 6 };
+        nuevoDestino(o, azar);
+        o.x = o.destino.x;
+        o.z = o.destino.z;
+        ovejas.push(o);
+    }
+    escena.add(rebano);
+}
+
+function nuevoDestino(o, azar = Math.random) {
+    for (let intento = 0; intento < 20; intento++) {
+        const x = o.zona.x0 + azar() * (o.zona.x1 - o.zona.x0);
+        const z = o.zona.z0 + azar() * (o.zona.z1 - o.zona.z0);
+        if (distanciaRio(x, z) > ANCHO_RIO + 4 && cercaDelCamino(x, z).distancia > 4 && !ocupados.some((p) => Math.hypot(x - p.x, z - p.z) < p.r * 0.8)) {
+            o.destino = { x, z };
+            return;
+        }
+    }
+    o.destino = { x: o.x || (o.zona.x0 + o.zona.x1) / 2, z: o.z || (o.zona.z0 + o.zona.z1) / 2 };
+}
+
+const matrizOveja = new THREE.Matrix4();
+const cuaternionOveja = new THREE.Quaternion();
+const ejeY = new THREE.Vector3(0, 1, 0);
+const escalaUno = new THREE.Vector3(1, 1, 1);
+const escalaSombraOveja = new THREE.Vector3(0.5, 1, 0.75);
+const ejeX = new THREE.Vector3(1, 0, 0);
+const cabeceoOveja = new THREE.Quaternion();
+
+function moverOvejas(delta, tiempo) {
+    if (!rebano) return;
+    ovejas.forEach((o, i) => {
+        let pasta = 0;
+        if (o.espera > 0) {
+            o.espera -= delta;
+            pasta = 1;
+        } else {
+            const dx = o.destino.x - o.x;
+            const dz = o.destino.z - o.z;
+            const d = Math.hypot(dx, dz);
+            if (d < 0.3) {
+                o.espera = 3 + Math.random() * 8;
+                nuevoDestino(o);
+            } else {
+                const objetivo = Math.atan2(dx, dz);
+                let diferencia = objetivo - o.angulo;
+                diferencia = Math.atan2(Math.sin(diferencia), Math.cos(diferencia));
+                o.angulo += diferencia * Math.min(1, delta * 2);
+                o.x += Math.sin(o.angulo) * 0.45 * delta;
+                o.z += Math.cos(o.angulo) * 0.45 * delta;
+            }
+        }
+        if (o.suelo === undefined || Math.random() < 0.05) o.suelo = altura(o.x, o.z);
+        cuaternionOveja.setFromAxisAngle(ejeY, o.angulo);
+        cabeceoOveja.setFromAxisAngle(ejeX, pasta * (0.12 + Math.sin(tiempo * 2 + o.fase) * 0.05));
+        cuaternionOveja.multiply(cabeceoOveja);
+        matrizOveja.compose(auxPunto.set(o.x, o.suelo - 0.05, o.z), cuaternionOveja, escalaUno);
+        rebano.setMatrixAt(i, matrizOveja);
+        cuaternionOveja.setFromAxisAngle(ejeY, o.angulo);
+        matrizOveja.compose(auxPunto.set(o.x, o.suelo + 0.03, o.z), cuaternionOveja, escalaSombraOveja);
+        sombrasRebano.setMatrixAt(i, matrizOveja);
+    });
+    rebano.instanceMatrix.needsUpdate = true;
+    sombrasRebano.instanceMatrix.needsUpdate = true;
+}
+
+// Barca con un pescador que va y viene río abajo del puente
+let barca = null;
+let posicionBarca = 0;
+
+function crearBarca() {
+    const c = new Cubos(0.125);
+    for (let x = -12; x <= 12; x++) {
+        const ancho = Math.round(4 * Math.sqrt(1 - (x / 13) ** 2));
+        for (let z = -ancho; z <= ancho; z++) {
+            c.poner(x, 0, z, colores.maderaOscura);
+            if (Math.abs(z) === ancho) c.caja(x, 1, z, x, 2, z, colores.madera);
+        }
+        if (Math.abs(x) >= 11) c.caja(x, 1, -ancho, x, 2, ancho, colores.madera);
+    }
+    c.caja(-1, 1, -3, 1, 1, 3, colores.maderaClara);
+    // Pescador sentado con su caña
+    c.caja(-1, 2, -1, 1, 6, 1, color("#4a6fa8"));
+    c.caja(-1, 7, -1, 1, 9, 1, color("#e8b896"));
+    c.caja(-2, 10, -2, 2, 10, 2, colores.paja);
+    c.caja(-1, 11, -1, 1, 11, 1, colores.paja);
+    for (let k = 0; k < 16; k++) c.poner(2 + k, 5 + Math.round(k * 0.45), 2 + Math.round(k * 0.1), colores.maderaClara);
+    barca = new THREE.Mesh(c.geometrias().solida, materialCubos);
+    escena.add(barca);
+}
+
+function moverBarca(delta, tiempo) {
+    if (!barca) return;
+    posicionBarca += delta * 0.025;
+    const t = (Math.sin(posicionBarca) + 1) / 2;
+    const x = 14 + t * 46;
+    const z = rioZ(x) + 0.6;
+    const rumbo = Math.atan2(-(rioZ(x + 0.5) - rioZ(x - 0.5)), 1) - Math.PI / 2;
+    const vuelta = Math.cos(posicionBarca) >= 0 ? 0 : Math.PI;
+    barca.position.set(x, NIVEL_AGUA + 0.02 + Math.sin(tiempo * 1.7) * 0.04, z);
+    barca.rotation.set(Math.sin(tiempo * 1.3) * 0.03, rumbo + vuelta + Math.PI / 2, Math.sin(tiempo * 1.1) * 0.04);
+}
+
+// Peces que saltan de vez en cuando y dejan un anillo en el agua
+const peces = [];
+
+function crearPeces() {
+    const azar = crearAzar(3);
+    const c = new Cubos(0.06);
+    for (let x = -4; x <= 4; x++) {
+        const alto = Math.round(1.6 * Math.sqrt(1 - (x / 5) ** 2));
+        for (let y = -alto; y <= alto; y++) c.poner(x, y, 0, x > 2 ? color("#d8d8e0") : elegir([color("#e07a2a"), color("#f0a050"), color("#c85a20")], azar));
+    }
+    c.caja(-6, -2, 0, -5, 2, 0, color("#c85a20"));
+    const geometria = c.geometrias().solida;
+    const anillo = new THREE.RingGeometry(0.85, 1, 32);
+    for (let i = 0; i < 4; i++) {
+        const pez = new THREE.Mesh(geometria, materialCubos);
+        pez.visible = false;
+        escena.add(pez);
+        const onda = new THREE.Mesh(anillo, new THREE.MeshBasicMaterial({ color: "#e8f0ff", transparent: true, opacity: 0, depthWrite: false }));
+        onda.rotation.x = -Math.PI / 2;
+        escena.add(onda);
+        peces.push({ pez, onda, t: -azar() * 6, x: 0, z: 0, rumbo: 0, ondaT: 1 });
+    }
+}
+
+function moverPeces(delta) {
+    peces.forEach((p) => {
+        p.t += delta;
+        if (p.t < 0) {
+            p.pez.visible = false;
+        } else if (p.t === delta || p.t - delta < 0) {
+            p.x = X_CASCADA + 8 + Math.random() * 90;
+            p.z = rioZ(p.x) + (Math.random() - 0.5) * 3;
+            p.rumbo = Math.random() * Math.PI * 2;
+        }
+        const duracion = 0.9;
+        if (p.t >= 0 && p.t <= duracion) {
+            const s = p.t / duracion;
+            p.pez.visible = true;
+            p.pez.position.set(p.x + Math.cos(p.rumbo) * s * 1.2, NIVEL_AGUA + Math.sin(s * Math.PI) * 0.9 - 0.05, p.z + Math.sin(p.rumbo) * s * 1.2);
+            p.pez.rotation.set(0, -p.rumbo, (0.5 - s) * 2.2);
+            if (s > 0.92 && p.ondaT >= 1) {
+                p.ondaT = 0;
+                p.onda.position.set(p.pez.position.x, NIVEL_AGUA + 0.05, p.pez.position.z);
+            }
+        } else if (p.t > duracion) {
+            p.pez.visible = false;
+            p.t = -3 - Math.random() * 7;
+        }
+        if (p.ondaT < 1) {
+            p.ondaT = Math.min(1, p.ondaT + delta * 0.8);
+            const r = 0.2 + p.ondaT * 1.4;
+            p.onda.scale.set(r, r, r);
+            p.onda.material.opacity = (1 - p.ondaT) * 0.6;
+        }
+    });
+}
+
+function crearVida() {
+    crearBanderas();
+    crearLevadizo();
+    crearAldeanos();
+    crearOvejas();
+    crearBarca();
+    crearPeces();
+}
+
+function moverVida(delta, tiempo) {
+    tiempoVivo.value = tiempo;
+    moverLevadizo(delta);
+    moverAldeanos(delta, tiempo);
+    moverOvejas(delta, tiempo);
+    moverBarca(delta, tiempo);
+    moverPeces(delta);
+}
+
+// =====================================================================
+// 14d. A PIE
+// Recorrer el camino en primera persona: la rueda, las flechas o el
+// dedo hacia arriba avanzan; arrastrar mira alrededor.
+// =====================================================================
+
+const aPie = {
+    activo: false,
+    indice: 0,
+    objetivo: 0,
+    mirarX: 0,
+    mirarY: 0,
+    arrastre: null
+};
+
+function empezarAPie() {
+    aPie.activo = true;
+    viaje = null;
+    controles.enabled = false;
+    controles.autoRotate = false;
+    const inicio = muestrasCamino.findIndex((m) => m.z < 30);
+    aPie.indice = aPie.objetivo = Math.max(0, inicio);
+    aPie.mirarX = 0;
+    aPie.mirarY = 0.08;
+    document.body.classList.add("a-pie");
+}
+
+function terminarAPie() {
+    if (!aPie.activo) return;
+    aPie.activo = false;
+    controles.enabled = true;
+    document.body.classList.remove("a-pie");
+    // La órbita sigue mirando hacia donde miraba el paseante
+    const delante = new THREE.Vector3();
+    camara.getWorldDirection(delante);
+    controles.target.copy(camara.position).addScaledVector(delante, 30);
+}
+
+function avanzarAPie(cantidad) {
+    aPie.objetivo = Math.max(0, Math.min(muestrasCamino.length - 3, aPie.objetivo + cantidad));
+}
+
+const auxMirada = new THREE.Vector3();
+
+function moverAPie(delta, tiempo) {
+    const antes = aPie.indice;
+    aPie.indice += (aPie.objetivo - aPie.indice) * Math.min(1, delta * 2.2);
+    const andando = Math.abs(aPie.indice - antes) > delta * 0.4 ? 1 : 0;
+    puntoEnCamino(aPie.indice, auxPunto);
+    puntoEnCamino(aPie.indice + 10, auxDelante);
+    const rumbo = Math.atan2(auxDelante.x - auxPunto.x, auxDelante.z - auxPunto.z) + aPie.mirarX;
+    const subida = Math.atan2(auxDelante.y - auxPunto.y, 5) * 0.6 + aPie.mirarY;
+    camara.position.set(auxPunto.x, auxPunto.y + 1.65 + Math.sin(aPie.indice * 1.3) * 0.04 * andando, auxPunto.z);
+    auxMirada.set(Math.sin(rumbo) * Math.cos(subida), Math.sin(subida), Math.cos(rumbo) * Math.cos(subida)).add(camara.position);
+    camara.lookAt(auxMirada);
+}
+
+renderizador.domElement.addEventListener("wheel", (evento) => {
+    if (!aPie.activo) return;
+    evento.preventDefault();
+    avanzarAPie(evento.deltaY * 0.03);
+}, { passive: false });
+
+window.addEventListener("keydown", (evento) => {
+    if (!aPie.activo) return;
+    if (["ArrowUp", "w", "W"].includes(evento.key)) avanzarAPie(4);
+    if (["ArrowDown", "s", "S"].includes(evento.key)) avanzarAPie(-4);
+    if (["ArrowLeft", "a", "A"].includes(evento.key)) aPie.mirarX += 0.12;
+    if (["ArrowRight", "d", "D"].includes(evento.key)) aPie.mirarX -= 0.12;
+});
+
+renderizador.domElement.addEventListener("pointerdown", (evento) => {
+    if (!aPie.activo || aPie.arrastre) return;
+    aPie.arrastre = { id: evento.pointerId, x: evento.clientX, y: evento.clientY, tactil: evento.pointerType === "touch" };
+});
+
+renderizador.domElement.addEventListener("pointermove", (evento) => {
+    const a = aPie.arrastre;
+    if (!aPie.activo || !a || a.id !== evento.pointerId) return;
+    const dx = evento.clientX - a.x;
+    const dy = evento.clientY - a.y;
+    a.x = evento.clientX;
+    a.y = evento.clientY;
+    aPie.mirarX -= dx * 0.004;
+    // Con el dedo, deslizar en vertical camina; con el ratón, mira arriba y abajo
+    if (a.tactil) avanzarAPie(-dy * 0.06);
+    else aPie.mirarY = Math.max(-0.6, Math.min(0.6, aPie.mirarY - dy * 0.003));
+});
+
+["pointerup", "pointercancel"].forEach((tipo) => {
+    renderizador.domElement.addEventListener(tipo, (evento) => {
+        if (aPie.arrastre && aPie.arrastre.id === evento.pointerId) aPie.arrastre = null;
+    });
+});
+
+// =====================================================================
 // 15. BOTONES
 // =====================================================================
 
@@ -1939,7 +2760,11 @@ let tiempoPaseo = 0;
 let vistaActual = 0;
 
 function marcarVista(i) {
-    vistaActual = i;
+    if (i >= 0) vistaActual = i;
+    if (i >= 0 && botonAPie) {
+        botonAPie.classList.remove("activo");
+        botonAPie.setAttribute("aria-pressed", "false");
+    }
     botonesVista.forEach((b) => {
         b.classList.toggle("activo", Number(b.dataset.vista) === i);
         b.setAttribute("aria-pressed", String(Number(b.dataset.vista) === i));
@@ -1950,9 +2775,24 @@ botonesVista.forEach((boton) => {
     boton.addEventListener("click", () => {
         const i = Number(boton.dataset.vista);
         marcarVista(i);
+        terminarAPie();
         irAVista(i);
         tiempoPaseo = 0;
     });
+});
+
+const botonAPie = document.getElementById("boton-a-pie");
+botonAPie.addEventListener("click", () => {
+    paseo = false;
+    botonPaseo.classList.remove("activo");
+    botonPaseo.setAttribute("aria-pressed", "false");
+    marcarVista(-1);
+    botonAPie.classList.add("activo");
+    botonAPie.setAttribute("aria-pressed", "true");
+    empezarAPie();
+    pista.textContent = movil ? "Desliza arriba para caminar · a los lados para mirar" : "Rueda o flechas para caminar · arrastra para mirar";
+    pista.classList.remove("oculta");
+    setTimeout(() => pista.classList.add("oculta"), 5000);
 });
 
 botonesAmbiente.forEach((boton) => {
@@ -1968,6 +2808,11 @@ botonesAmbiente.forEach((boton) => {
 });
 
 botonPaseo.addEventListener("click", () => {
+    if (aPie.activo) {
+        terminarAPie();
+        marcarVista(vistaActual);
+        irAVista(vistaActual);
+    }
     paseo = !paseo;
     botonPaseo.classList.toggle("activo", paseo);
     botonPaseo.setAttribute("aria-pressed", String(paseo));
@@ -2009,6 +2854,7 @@ botonCalidad.addEventListener("click", () => {
 });
 
 document.getElementById("boton-centrar").addEventListener("click", () => {
+    terminarAPie();
     marcarVista(0);
     irAVista(0);
 });
@@ -2034,7 +2880,7 @@ document.getElementById("boton-guardar").addEventListener("click", () => {
 });
 
 renderizador.domElement.addEventListener("pointerdown", () => {
-    pista.classList.add("oculta");
+    if (!aPie.activo) pista.classList.add("oculta");
     viaje = null;
 });
 
@@ -2075,6 +2921,7 @@ function animar() {
     }
     uniformesCielo.uTiempo.value = tiempo;
     agua.material.uniforms.uTiempo.value = tiempo;
+    aguaViva.uTiempo.value = tiempo;
     esferaCielo.position.copy(camara.position);
     if (ruedaMolino) ruedaMolino.rotation.z -= delta * (movimientoReducido ? 0.15 : 0.5);
 
@@ -2087,10 +2934,15 @@ function animar() {
             irAVista(siguiente);
         }
     }
-    moverViaje(delta);
-    controles.update();
-    const sueloCamara = altura(camara.position.x, camara.position.z) + 1.2;
-    if (camara.position.y < sueloCamara) camara.position.y = sueloCamara;
+    if (aPie.activo) {
+        moverAPie(delta, tiempo);
+    } else {
+        moverViaje(delta);
+        controles.update();
+        const sueloCamara = altura(camara.position.x, camara.position.z) + 1.2;
+        if (camara.position.y < sueloCamara) camara.position.y = sueloCamara;
+    }
+    moverVida(delta, tiempo);
     moverParticulas(delta, tiempo);
     actualizarSonido();
     compositor.render();
@@ -2122,7 +2974,8 @@ async function construir() {
         edificios.receiveShadow = true;
         escena.add(edificios);
         if (piezasLuz.length) escena.add(new THREE.Mesh(mergeGeometries(piezasLuz), materialLuces));
-        lucesCalidas.slice(0, 6).forEach((p) => {
+        crearVida();
+        lucesCalidas.slice(0, 8).forEach((p) => {
             const foco = new THREE.PointLight("#ffb060", 0, 16, 2);
             foco.position.copy(p);
             escena.add(foco);
@@ -2140,6 +2993,14 @@ async function construir() {
         const inicial = pedida >= 0 && pedida < vistas.length ? pedida : 0;
         marcarVista(inicial);
         irAVista(inicial, true);
+        if (parametros.has("camara")) {
+            const n = parametros.get("camara").split(",").map(Number);
+            if (n.length === 6 && n.every(Number.isFinite)) {
+                camara.position.set(n[0], n[1], n[2]);
+                controles.target.set(n[3], n[4], n[5]);
+                controles.update();
+            }
+        }
         copiarAmbiente(ambienteActual, ambienteHasta);
         aplicarAmbiente();
         botonesAmbiente.forEach((b) => {
