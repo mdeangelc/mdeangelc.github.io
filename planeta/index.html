@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>El planeta pequeño | Miguel Ángel Calvente Medina</title>
+    <meta name="description" content="Un planeta pequeño con un castillo y un camino que lo rodea, hecho con three.js por Miguel Ángel Calvente Medina.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="estilo.css?v=1">
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <header class="cabecera">
+        <h1>El planeta pequeño</h1>
+        <p>Un castillo, un camino y cuatro lunas</p>
+        <a class="volver" href="../">Volver al portfolio</a>
+    </header>
+
+    <nav class="controles">
+        <button id="boton-girar" class="activo" aria-pressed="true">Girar</button>
+        <button id="boton-lunas" class="activo" aria-pressed="true">Lunas</button>
+        <button id="boton-paisaje" aria-pressed="false">Ver el paisaje</button>
+    </nav>
+
+    <button class="luna" data-tarjeta="tarjeta-sobre-mi">Sobre mí</button>
+    <button class="luna" data-tarjeta="tarjeta-habilidades">Habilidades</button>
+    <button class="luna" data-tarjeta="tarjeta-formacion">Formación</button>
+    <button class="luna" data-tarjeta="tarjeta-contacto">Contacto</button>
+
+    <section class="tarjetas" id="tarjetas">
+        <article class="tarjeta presentacion">
+            <button class="cerrar" aria-label="Cerrar">&times;</button>
+            <p class="numero">Hola</p>
+            <h2>Miguel Ángel Calvente Medina</h2>
+            <p>Desarrollador web en Málaga. Gira el planeta y toca las lunas: cada una guarda una parte de mi portfolio.</p>
+        </article>
+
+        <article class="tarjeta" id="tarjeta-sobre-mi">
+            <button class="cerrar" aria-label="Cerrar">&times;</button>
+            <p class="numero">01</p>
+            <h2>Sobre mí</h2>
+            <p>Mis dos pasiones son la geografía y la informática. Estoy terminando el Grado en Geografía en la Universidad de Málaga y estudio segundo de DAW en Digitech FP. Me centro en el desarrollo web.</p>
+            <p>Soy resolutivo e independiente, y me gusta hacer las cosas lo mejor posible.</p>
+        </article>
+
+        <article class="tarjeta" id="tarjeta-habilidades">
+            <button class="cerrar" aria-label="Cerrar">&times;</button>
+            <p class="numero">02</p>
+            <h2>Habilidades</h2>
+            <ul class="etiquetas">
+                <li>HTML</li>
+                <li>CSS</li>
+                <li>JavaScript</li>
+                <li>three.js</li>
+                <li>Java</li>
+                <li>SQL</li>
+                <li>PostgreSQL</li>
+                <li>Git</li>
+                <li>Linux</li>
+            </ul>
+            <p>El planeta, el castillo, los árboles y las lunas están hechos con three.js, sin ninguna imagen.</p>
+        </article>
+
+        <article class="tarjeta" id="tarjeta-formacion">
+            <button class="cerrar" aria-label="Cerrar">&times;</button>
+            <p class="numero">03</p>
+            <h2>Formación</h2>
+            <p><strong>Técnico Superior en Desarrollo de Aplicaciones Web</strong><br>Digitech FP Málaga · 2024 – 2026</p>
+            <p><strong>Grado en Geografía y Gestión del Territorio</strong><br>Universidad de Málaga · En curso</p>
+        </article>
+
+        <article class="tarjeta" id="tarjeta-contacto">
+            <button class="cerrar" aria-label="Cerrar">&times;</button>
+            <p class="numero">04</p>
+            <h2>Contacto</h2>
+            <p>Si quieres hablar de un proyecto o de unas prácticas, escríbeme.</p>
+            <a class="enlace" href="https://github.com/mdeangelc" target="_blank" rel="noopener">GitHub</a>
+        </article>
+    </section>
+
+    <p class="pista" id="pista">Arrastra para girar el planeta</p>
+    <p class="cargando" id="cargando">Cargando el planeta...</p>
+
+    <script type="module" src="escena.js?v=1"></script>
+</body>
+</html>
