@@ -192,6 +192,16 @@ canvas {
     opacity: 0;
 }
 
+.fps {
+    position: fixed;
+    top: 64px;
+    left: 22px;
+    z-index: 2;
+    font-size: 0.8rem;
+    color: var(--texto);
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+
 .cargando {
     position: fixed;
     inset: 0;
