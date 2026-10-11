@@ -12,10 +12,11 @@ import * as THREE from "three";
 const parametros = new URLSearchParams(location.search);
 const movil = matchMedia("(pointer: coarse)").matches || Math.min(innerWidth, innerHeight) < 600;
 const ajustes = {
-    resolucionMax: movil ? 1.5 : 1.25,
-    escala: movil ? 0.72 : 0.9,
-    escalaMinima: 0.38,
-    pasos: movil ? 150 : 220
+    resolucionMax: movil ? 2 : 1.5,
+    escala: movil ? 0.8 : 1,
+    escalaMinima: movil ? 0.55 : 0.65,
+    pasos: movil ? 130 : 180,
+    pasosMinimos: 90
 };
 const ACENTO = "#f2b27a";
 
@@ -86,6 +87,21 @@ function colocarCamara(t) {
 
 const MAX_PASOS = 260;
 
+function crearTexturaRuido() {
+    const n = 32;
+    const datos = new Uint8Array(n * n * n);
+    for (let i = 0; i < datos.length; i++) datos[i] = Math.floor(Math.random() * 256);
+    const t = new THREE.Data3DTexture(datos, n, n, n);
+    t.format = THREE.RedFormat;
+    t.type = THREE.UnsignedByteType;
+    t.minFilter = THREE.LinearFilter;
+    t.magFilter = THREE.LinearFilter;
+    t.wrapS = t.wrapT = t.wrapR = THREE.RepeatWrapping;
+    t.unpackAlignment = 1;
+    t.needsUpdate = true;
+    return t;
+}
+
 const materialAgujero = new THREE.ShaderMaterial({
     uniforms: {
         uTiempo: { value: 0 },
@@ -94,7 +110,8 @@ const materialAgujero = new THREE.ShaderMaterial({
         uTanFov: { value: 0.47 },
         uAspecto: { value: 1 },
         uPasos: { value: ajustes.pasos },
-        uDestello: { value: 0 }
+        uDestello: { value: 0 },
+        tRuido: { value: crearTexturaRuido() }
     },
     vertexShader: `
         varying vec2 vUv;
@@ -112,6 +129,7 @@ const materialAgujero = new THREE.ShaderMaterial({
         uniform float uAspecto;
         uniform int uPasos;
         uniform float uDestello;
+        uniform highp sampler3D tRuido;
         varying vec2 vUv;
 
         const float DENTRO = 2.6;
@@ -124,18 +142,7 @@ const materialAgujero = new THREE.ShaderMaterial({
         }
 
         float ruido3(vec3 p) {
-            vec3 i = floor(p);
-            vec3 f = fract(p);
-            f = f * f * (3.0 - 2.0 * f);
-            float a = hash13(i);
-            float b = hash13(i + vec3(1, 0, 0));
-            float c = hash13(i + vec3(0, 1, 0));
-            float d = hash13(i + vec3(1, 1, 0));
-            float e = hash13(i + vec3(0, 0, 1));
-            float g = hash13(i + vec3(1, 0, 1));
-            float h = hash13(i + vec3(0, 1, 1));
-            float k = hash13(i + vec3(1, 1, 1));
-            return mix(mix(mix(a, b, f.x), mix(c, d, f.x), f.y), mix(mix(e, g, f.x), mix(h, k, f.x), f.y), f.z);
+            return texture(tRuido, p * 0.03125).r;
         }
 
         float fbm3(vec3 p) {
@@ -230,15 +237,15 @@ const materialAgujero = new THREE.ShaderMaterial({
             for (int i = 0; i < ${MAX_PASOS}; i++) {
                 if (i >= uPasos) break;
                 float r = length(pos);
-                float paso = 0.025 + 0.085 * r * smoothstep(0.9, 3.5, r);
+                float paso = 0.025 + r * mix(0.085, 0.13, smoothstep(4.0, 12.0, r)) * smoothstep(0.9, 3.5, r);
                 vec3 acel = -1.5 * h2 * pos / pow(r, 5.0);
                 vec3 nuevo = pos + dir * paso;
                 dir += acel * paso;
                 float rh = length(pos.xz);
-                if (rh > DENTRO * 0.9 && rh < FUERA) {
-                    float grosor = 0.12 + 0.045 * rh;
+                float grosor = 0.12 + 0.045 * rh;
+                if (rh > DENTRO * 0.9 && rh < FUERA && abs(pos.y) < grosor * 2.2) {
                     float niebla = exp(-pos.y * pos.y / (grosor * grosor));
-                    if (niebla > 0.01) {
+                    {
                         float xr = (rh - DENTRO) / (FUERA - DENTRO);
                         float angulo = atan(pos.z, pos.x) - uTiempo * 3.4 * pow(rh, -1.5);
                         float ondas = 0.5 + 0.9 * ruido3(vec3(rh * 1.5, pos.y * 3.0 + uTiempo * 0.2, angulo * 2.0));
@@ -294,8 +301,28 @@ const materialFinal = new THREE.ShaderMaterial({
             return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
         }
         void main() {
-            vec3 c = texture2D(tAgujero, vUv).rgb * 0.5;
-            c += (texture2D(tAgujero, vUv + uTexel * vec2(0.5, 0.0)).rgb + texture2D(tAgujero, vUv - uTexel * vec2(0.5, 0.0)).rgb + texture2D(tAgujero, vUv + uTexel * vec2(0.0, 0.5)).rgb + texture2D(tAgujero, vUv - uTexel * vec2(0.0, 0.5)).rgb) * 0.125;
+            vec2 p = vUv / uTexel - 0.5;
+            vec2 f = fract(p);
+            vec2 base = (floor(p) + 0.5) * uTexel;
+            vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+            vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+            vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+            vec2 w3 = f * f * (-0.5 + 0.5 * f);
+            vec2 w12 = w1 + w2;
+            vec2 t0 = base - uTexel;
+            vec2 t3 = base + 2.0 * uTexel;
+            vec2 t12 = base + (w2 / w12) * uTexel;
+            vec3 c = vec3(0.0);
+            c += texture2D(tAgujero, vec2(t0.x, t0.y)).rgb * w0.x * w0.y;
+            c += texture2D(tAgujero, vec2(t12.x, t0.y)).rgb * w12.x * w0.y;
+            c += texture2D(tAgujero, vec2(t3.x, t0.y)).rgb * w3.x * w0.y;
+            c += texture2D(tAgujero, vec2(t0.x, t12.y)).rgb * w0.x * w12.y;
+            c += texture2D(tAgujero, vec2(t12.x, t12.y)).rgb * w12.x * w12.y;
+            c += texture2D(tAgujero, vec2(t3.x, t12.y)).rgb * w3.x * w12.y;
+            c += texture2D(tAgujero, vec2(t0.x, t3.y)).rgb * w0.x * w3.y;
+            c += texture2D(tAgujero, vec2(t12.x, t3.y)).rgb * w12.x * w3.y;
+            c += texture2D(tAgujero, vec2(t3.x, t3.y)).rgb * w3.x * w3.y;
+            c = max(c, vec3(0.0));
             vec3 halo = vec3(0.0);
             for (int i = 0; i < 8; i++) {
                 float a = float(i) * 0.785 + 0.39;
@@ -1163,8 +1190,8 @@ function ajustarTamano() {
 
 function crearObjetivo() {
     const tam = renderizador.getDrawingBufferSize(new THREE.Vector2());
-    const ancho = Math.max(64, Math.round(tam.x * escala));
-    const alto = Math.max(64, Math.round(tam.y * escala));
+    const ancho = Math.max(64, Math.min(tam.x, Math.round(innerWidth * escala)));
+    const alto = Math.max(64, Math.min(tam.y, Math.round(innerHeight * escala)));
     if (objetivoAgujero) objetivoAgujero.dispose();
     objetivoAgujero = new THREE.WebGLRenderTarget(ancho, alto, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false });
     materialFinal.uniforms.tAgujero.value = objetivoAgujero.texture;
@@ -1178,14 +1205,28 @@ const cargando = document.getElementById("cargando");
 let tiempos = [];
 let listo = false;
 
+let rapidas = 0;
+
 function vigilarRendimiento(delta) {
+    if (delta > 0.09) return;
     tiempos.push(delta);
-    if (tiempos.length < 45) return;
+    if (tiempos.length < 40) return;
     const media = tiempos.reduce((a, b) => a + b, 0) / tiempos.length;
     tiempos = [];
-    if (media > 1 / 42 && escala > ajustes.escalaMinima) {
-        escala = Math.max(ajustes.escalaMinima, escala * 0.85);
-        crearObjetivo();
+    const pasos = materialAgujero.uniforms.uPasos;
+    if (media > 1 / 45) {
+        rapidas = 0;
+        if (pasos.value > ajustes.pasosMinimos) pasos.value = Math.max(ajustes.pasosMinimos, Math.round(pasos.value * 0.85));
+        else if (escala > ajustes.escalaMinima) {
+            escala = Math.max(ajustes.escalaMinima, escala * 0.9);
+            crearObjetivo();
+        }
+    } else if (media < 1 / 56 && ++rapidas >= 3) {
+        rapidas = 0;
+        if (escala < ajustes.escala) {
+            escala = Math.min(ajustes.escala, escala * 1.08);
+            crearObjetivo();
+        } else if (pasos.value < ajustes.pasos) pasos.value = Math.min(ajustes.pasos, pasos.value + 15);
     }
 }
 
