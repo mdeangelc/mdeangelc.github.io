@@ -18,6 +18,16 @@ const movimientoReducido = window.matchMedia("(prefers-reduced-motion: reduce)")
 const tocarHierba = parametros.get("tocar") !== "no";
 const factorCalidad = (parametros.get("calidad") === "baja" ? 0.4 : 1) * (movil ? 0.45 : 1);
 
+// Carteles del portfolio a lo largo del camino (?carteles=si para verlos).
+// Cada uno salta al pasar por su metro y se cierra al seguir andando.
+const conCarteles = parametros.get("carteles") === "si";
+const CARTELES = [
+    { metro: 14, id: "cartel-sobre-mi" },
+    { metro: 40, id: "cartel-habilidades" },
+    { metro: 68, id: "cartel-formacion" },
+    { metro: 96, id: "cartel-contacto" }
+];
+
 // Largo de cada trozo del mundo (en metros)
 const LARGO_TROZO = 25;
 
@@ -2122,6 +2132,17 @@ function crearTrozo(indice) {
         if (huecos.length > 1 && a() < 0.5) ponerSuceso(o, o.elegir(PEQUENOS), huecos[1], -lado);
     }
 
+    // Un poste de señales donde salta cada cartel
+    if (conCarteles) {
+        CARTELES.forEach((c) => {
+            const z = -c.metro - 6;
+            if (Math.floor(-z / largo) !== indice) return;
+            const x = caminoX(z) + 2.6;
+            o.claro(x, z, 1.6);
+            hito(o, x, z);
+        });
+    }
+
     // Sitio libre: ni en el agua ni encima de un claro
     const libre = (x, z, margenAgua, margenClaro) =>
         Math.abs(arroyo(x, z)) > margenAgua && o.claros.every((c) => Math.hypot(x - c.x, z - c.y) > c.z + margenClaro);
@@ -2695,6 +2716,36 @@ botonSonido.addEventListener("click", async () => {
 });
 
 // =====================================================================
+// 16c. CARTELES
+// =====================================================================
+
+let cartelAbierto = null;
+const cartelesCerrados = new Set();
+
+function mostrarCartel(c) {
+    if (cartelAbierto === c) return;
+    if (cartelAbierto) document.getElementById(cartelAbierto.id).classList.remove("visible");
+    cartelAbierto = c;
+    if (c) document.getElementById(c.id).classList.add("visible");
+}
+
+function actualizarCarteles() {
+    // El cartel que toca es el último que has pasado, mientras no te alejes más de 18 m
+    let toca = null;
+    CARTELES.forEach((c) => {
+        if (metros >= c.metro && metros < c.metro + 18 && !cartelesCerrados.has(c.id)) toca = c;
+    });
+    mostrarCartel(toca);
+}
+
+document.querySelectorAll(".cartel .cerrar").forEach((boton) => {
+    boton.addEventListener("click", () => {
+        cartelesCerrados.add(boton.closest(".cartel").id);
+        mostrarCartel(null);
+    });
+});
+
+// =====================================================================
 // 17. RENDIMIENTO
 // Si los FPS bajan se quita hierba; si sobran, se vuelve a poner.
 // Las pantallas limitadas a 30 FPS (modo ahorro) no cuentan como lentas.
@@ -2778,6 +2829,7 @@ function animar() {
     if (petalos.visible) moverPetalos(delta, tiempo);
     moverPajaros(tiempo);
     actualizarSonido();
+    if (conCarteles) actualizarCarteles();
 
     renderizador.clear();
     renderizador.render(escenaFondo, camaraFondo);

@@ -117,6 +117,91 @@ canvas {
     background: var(--panel);
 }
 
+.cartel {
+    position: fixed;
+    left: 50%;
+    top: 18%;
+    z-index: 3;
+    width: min(380px, calc(100% - 32px));
+    padding: 18px 20px 16px;
+    background: rgba(22, 16, 40, 0.88);
+    border: 3px solid var(--oro);
+    box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.45);
+    font-size: 21px;
+    line-height: 1.15;
+    opacity: 0;
+    transform: translate(-50%, 24px) scale(0.96);
+    pointer-events: none;
+    transition: opacity 0.35s, transform 0.35s steps(4);
+}
+
+.cartel.visible {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+    pointer-events: auto;
+}
+
+.cartel h2 {
+    font-weight: normal;
+    font-size: 34px;
+    color: var(--oro);
+    margin-bottom: 8px;
+}
+
+.cartel p + p {
+    margin-top: 10px;
+}
+
+.cartel strong {
+    font-weight: normal;
+    color: var(--oro);
+}
+
+.numero {
+    font-size: 17px;
+    color: rgba(244, 236, 255, 0.6);
+}
+
+.cerrar {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    font-family: var(--fuente);
+    font-size: 22px;
+    color: var(--blanco);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px 8px;
+}
+
+.cerrar:hover {
+    color: var(--oro);
+}
+
+.etiquetas {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 6px 0 10px;
+}
+
+.etiquetas li {
+    padding: 1px 9px;
+    border: 2px solid var(--borde);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.enlace {
+    display: inline-block;
+    margin-top: 12px;
+    padding: 3px 14px;
+    color: #1a1230;
+    background: var(--oro);
+    text-decoration: none;
+}
+
 @media (max-width: 700px) {
     .volver {
         top: 10px;
@@ -138,6 +223,15 @@ canvas {
     .controles button {
         font-size: 16px;
         padding: 2px 6px;
+    }
+
+    .cartel {
+        top: 64px;
+        font-size: 19px;
+    }
+
+    .cartel h2 {
+        font-size: 28px;
     }
 
     .pista {
