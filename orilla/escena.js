@@ -353,8 +353,7 @@ function piedraBlanda(detalle, fuerza, frecuencia) {
     for (let i = 0; i < pos.count; i++) {
         v.fromBufferAttribute(pos, i);
         let k = 1 + ruido.noise3d(v.x * frecuencia + semillaPiedra, v.y * frecuencia, v.z * frecuencia) * fuerza;
-        k += ruido.noise3d(v.x * 3.2, v.y * 3.2 + semillaPiedra, v.z * 3.2) * fuerza * 0.35;
-        k += ruido.noise3d(v.x * 6, v.y * 6 + semillaPiedra, v.z * 6) * fuerza * 0.04;
+        k += ruido.noise3d(v.x * 2.4, v.y * 2.4 + semillaPiedra, v.z * 2.4) * fuerza * 0.18;
         v.multiplyScalar(k);
         if (v.y < -0.2) v.y = -0.2 + (v.y + 0.2) * 0.4;
         pos.setXYZ(i, v.x, v.y, v.z);
@@ -550,7 +549,7 @@ function arbolDelante() {
     brazos.forEach(([t, fin]) => {
         const inicio = base.clone().lerp(punta, t);
         ramas.push({ desde: inicio, hasta: fin, r0: 0.045, r1: 0.015 });
-        for (let i = 0; i < (movil ? 15 : 22); i++) {
+        for (let i = 0; i < (movil ? 11 : 20); i++) {
             const k = 0.12 + azar() * 0.95;
             const p = inicio.clone().lerp(fin, Math.min(1.05, k));
             p.x += (azar() - 0.5) * 0.9;
@@ -1239,6 +1238,57 @@ function moverHojasCayendo(delta) {
     mallaHojas.instanceMatrix.needsUpdate = true;
 }
 
+const libelula = { grupo: null, alas: [], desde: new THREE.Vector3(), hacia: new THREE.Vector3(), t: 1, espera: 0, rumbo: 0 };
+
+function crearLibelula() {
+    const grupo = new THREE.Group();
+    const cuerpo = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.004, 0.07, 8).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x2f6fb8, metalness: 0.4, roughness: 0.35, emissive: 0x0a2244 }));
+    const cabeza = new THREE.Mesh(new THREE.SphereGeometry(0.008, 10, 8), new THREE.MeshStandardMaterial({ color: 0x24508a, metalness: 0.3, roughness: 0.4 }));
+    cabeza.position.z = 0.04;
+    grupo.add(cuerpo, cabeza);
+    const materialAla = new THREE.MeshStandardMaterial({ color: 0xdfeeff, transparent: true, opacity: 0.45, side: THREE.DoubleSide, roughness: 0.2, depthWrite: false });
+    const ala = new THREE.PlaneGeometry(0.055, 0.012).translate(0.0275, 0, 0).rotateX(-Math.PI / 2);
+    [[1, 0.012], [-1, 0.012], [1, -0.004], [-1, -0.004]].forEach(([lado, z]) => {
+        const a = new THREE.Mesh(ala, materialAla);
+        a.scale.x = lado;
+        a.position.z = z;
+        grupo.add(a);
+        libelula.alas.push(a);
+    });
+    grupo.position.set(0.5, 0.35, -2);
+    libelula.desde.copy(grupo.position);
+    libelula.hacia.copy(grupo.position);
+    libelula.grupo = grupo;
+    escena.add(grupo);
+}
+
+function moverLibelula(delta, tiempo) {
+    const l = libelula;
+    if (!l.grupo) return;
+    l.grupo.visible = comunes.uNoche.value < 0.5;
+    if (l.t >= 1) {
+        l.espera -= delta;
+        if (l.espera <= 0) {
+            l.desde.copy(l.grupo.position);
+            for (let i = 0; i < 10; i++) {
+                l.hacia.set(-3 + Math.random() * 7, 0.15 + Math.random() * 0.6, 0.5 - Math.random() * 9);
+                if (altura(l.hacia.x, l.hacia.z) < -0.1 && l.hacia.distanceTo(l.desde) > 0.8) break;
+            }
+            l.t = 0;
+            l.espera = 0.6 + Math.random() * 2.5;
+        }
+    } else {
+        l.t = Math.min(1, l.t + delta * 0.9);
+    }
+    const k = l.t * l.t * (3 - 2 * l.t);
+    l.grupo.position.lerpVectors(l.desde, l.hacia, k);
+    l.grupo.position.y += Math.sin(tiempo * 9) * 0.006;
+    const objetivoRumbo = Math.atan2(l.hacia.x - l.desde.x, l.hacia.z - l.desde.z);
+    l.rumbo += Math.atan2(Math.sin(objetivoRumbo - l.rumbo), Math.cos(objetivoRumbo - l.rumbo)) * Math.min(1, delta * 6);
+    l.grupo.rotation.y = l.rumbo;
+    l.alas.forEach((a, i) => (a.rotation.z = Math.sin(tiempo * 60 + i * 1.3) * 0.45 * (i % 2 ? -1 : 1)));
+}
+
 let luciernagas = null;
 const datosLuciernagas = [];
 
@@ -1687,6 +1737,7 @@ function construir() {
     crearJuncos();
     crearHojasCayendo();
     crearLuciernagas();
+    crearLibelula();
     const mascara = crearMascaraAgua();
     materialOndas.uniforms.tMascara.value = mascara;
     ondas.forEach((o) => {
@@ -1720,14 +1771,21 @@ function colocarCamara(delta) {
     camaraReflejo.updateMatrixWorld();
 }
 
+let fotograma = 0;
+
 function dibujar() {
-    renderizador.setRenderTarget(objetivoReflejo);
-    renderizador.clippingPlanes = [plano];
-    comunes.uRecorte.value = 1;
-    if (luciernagas) luciernagas.visible = false;
-    renderizador.render(escena, camaraReflejo);
-    renderizador.clippingPlanes = [];
-    comunes.uRecorte.value = 0;
+    fotograma++;
+    if (!movil || fotograma % 2 === 0 || fotograma < 3) {
+        renderizador.setRenderTarget(objetivoReflejo);
+        renderizador.clippingPlanes = [plano];
+        comunes.uRecorte.value = 1;
+        if (luciernagas) luciernagas.visible = false;
+        if (mallaHojas) mallaHojas.visible = false;
+        renderizador.render(escena, camaraReflejo);
+        renderizador.clippingPlanes = [];
+        comunes.uRecorte.value = 0;
+        if (mallaHojas) mallaHojas.visible = true;
+    }
     if (luciernagas) luciernagas.visible = comunes.uNoche.value > 0.01;
     if (sombraPendiente > 0) {
         renderizador.shadowMap.needsUpdate = true;
@@ -1757,6 +1815,7 @@ function animar() {
     vidaDelAgua(delta);
     moverHojasCayendo(delta);
     moverLuciernagas(delta);
+    moverLibelula(delta, comunes.uTiempo.value);
     moverSonido(delta);
     simularOndas(delta);
     dibujar();
