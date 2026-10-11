@@ -583,6 +583,8 @@ document.querySelectorAll("[data-momento]").forEach((boton) => {
 
 const rayo = new THREE.Raycaster();
 const auxRaton = new THREE.Vector2();
+const esferaGlobo = new THREE.Sphere(new THREE.Vector3(), 1);
+const puntoCorte = new THREE.Vector3();
 const lupa = { objetivo: 0, valor: 0, hasta: 0 };
 let relieveTodo = false;
 const botonRelieve = document.getElementById("boton-relieve");
@@ -590,12 +592,12 @@ const botonRelieve = document.getElementById("boton-relieve");
 function apuntar(evento) {
     auxRaton.set((evento.clientX / innerWidth) * 2 - 1, -(evento.clientY / innerHeight) * 2 + 1);
     rayo.setFromCamera(auxRaton, camara);
-    const corte = rayo.intersectObject(globo, false)[0];
+    const corte = rayo.ray.intersectSphere(esferaGlobo, puntoCorte);
     if (!corte) {
         lupa.objetivo = 0;
         return false;
     }
-    const local = globo.worldToLocal(corte.point.clone()).normalize();
+    const local = globo.worldToLocal(puntoCorte.clone()).normalize();
     materialTierra.uniforms.uPuntero.value.copy(local);
     lupa.objetivo = 1;
     return true;

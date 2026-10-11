@@ -127,6 +127,7 @@ canvas {
     gap: 12px;
     overflow-y: auto;
     scrollbar-width: none;
+    pointer-events: none;
     transition: opacity 0.5s, transform 0.5s;
 }
 
@@ -143,6 +144,7 @@ canvas {
 .tarjeta {
     position: relative;
     flex: none;
+    pointer-events: auto;
     padding: 20px 22px;
     border-radius: 18px;
     background: var(--cristal);

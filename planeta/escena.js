@@ -44,7 +44,7 @@ document.body.prepend(renderizador.domElement);
 
 const escena = new THREE.Scene();
 const camara = new THREE.PerspectiveCamera(34, innerWidth / innerHeight, 0.05, 300);
-const distanciaInicial = Math.max(5.2, 1.75 / (Math.tan(THREE.MathUtils.degToRad(17)) * (innerWidth / innerHeight)));
+const distanciaInicial = Math.max(5.2, 1.2 / (Math.tan(THREE.MathUtils.degToRad(17)) * (innerWidth / innerHeight)));
 camara.position.set(0.7, 0.75, 1).normalize().multiplyScalar(distanciaInicial);
 
 const controles = new OrbitControls(camara, renderizador.domElement);
@@ -98,8 +98,18 @@ for (let i = 0; i < PUNTOS_CAMINO; i++) {
 }
 
 function distanciaCamino(d) {
-    let mejor = -1;
-    for (let i = 0; i < PUNTOS_CAMINO; i++) {
+    let mejor = -2;
+    let indice = 0;
+    for (let i = 0; i < PUNTOS_CAMINO; i += 6) {
+        const c = camino[i].dot(d);
+        if (c > mejor) {
+            mejor = c;
+            indice = i;
+        }
+    }
+    const desde = Math.max(0, indice - 6);
+    const hasta = Math.min(PUNTOS_CAMINO - 1, indice + 6);
+    for (let i = desde; i <= hasta; i++) {
         const c = camino[i].dot(d);
         if (c > mejor) mejor = c;
     }
@@ -131,6 +141,7 @@ function altura(d, dc = distanciaCamino(d)) {
 // =====================================================================
 
 const planeta = new THREE.Group();
+let suelo = null;
 planeta.rotation.z = 0.32;
 escena.add(planeta);
 
@@ -147,16 +158,10 @@ function crearSuelo() {
     const amarillo = new THREE.Color(0.72, 0.72, 0.3);
     const tierraColor = new THREE.Color(0.62, 0.47, 0.3);
     const c = new THREE.Color();
-    const cache = new Map();
     for (let i = 0; i < pos.count; i++) {
         d.fromBufferAttribute(pos, i).normalize();
-        const clave = `${d.x.toFixed(5)},${d.y.toFixed(5)},${d.z.toFixed(5)}`;
-        let datos = cache.get(clave);
-        if (!datos) {
-            const dc = distanciaCamino(d);
-            datos = { dc, h: altura(d, dc) };
-            cache.set(clave, datos);
-        }
+        const dc = distanciaCamino(d);
+        const datos = { dc, h: altura(d, dc) };
         pos.setXYZ(i, d.x * datos.h, d.y * datos.h, d.z * datos.h);
         const variacion = ruido.noise3d(d.x * 6, d.y * 6, d.z * 6) * 0.5 + 0.5;
         const loma = THREE.MathUtils.clamp((datos.h - 0.98) / 0.07, 0, 1);
@@ -168,9 +173,8 @@ function crearSuelo() {
     geometria.setAttribute("color", new THREE.BufferAttribute(colores, 3));
     geometria.computeVertexNormals();
     const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
-    const suelo = new THREE.Mesh(geometria, material);
+    suelo = new THREE.Mesh(geometria, material);
     suelo.receiveShadow = true;
-    suelo.castShadow = true;
     planeta.add(suelo);
 }
 
@@ -274,9 +278,9 @@ function crearArboles() {
         capa.translate(0, 0.05 + k * 0.032, 0);
         return capa;
     }));
-    const cipres = blandito(new THREE.SphereGeometry(0.022, 24, 18), 0.06, 40);
-    cipres.scale(1.1, 2.5, 1.1);
-    cipres.translate(0, 0.07, 0);
+    const cipres = blandito(new THREE.SphereGeometry(0.024, 24, 18), 0.07, 40);
+    cipres.scale(1.1, 2.0, 1.1);
+    cipres.translate(0, 0.085, 0);
 
     const materialTronco = new THREE.MeshStandardMaterial({ color: 0x6b4a33, roughness: 1 });
     const materialHojas = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 });
@@ -286,7 +290,7 @@ function crearArboles() {
     const paleta = {
         redondo: [0x4f9a3c, 0x67b04a, 0x3d8a3f, 0xe59a5b, 0xf0b8c8, 0x8cbf4f],
         pino: [0x2f6e4a, 0x2a6242, 0x3c7f55],
-        cipres: [0x2e5e3a, 0x37703f]
+        cipres: [0x3f7a45, 0x4a8a4c]
     };
     const m = new THREE.Matrix4();
     for (let i = 0; i < ajustes.arboles; i++) {
@@ -385,6 +389,7 @@ function crearCastillo() {
         m.position.set(x, y, z);
         m.castShadow = true;
         m.receiveShadow = true;
+        m.userData.fija = true;
         castillo.add(m);
         return m;
     };
@@ -450,6 +455,9 @@ function crearCastillo() {
     const puerta = malla(new THREE.ShapeGeometry(arco, 16), oscuro, 0, 0.002, 0.1425);
     puerta.castShadow = false;
 
+    juntarPiezas(castillo);
+    castillo.userData.puntosVentana = ventanas.map((v) => v.position.clone());
+
     const final = camino[PUNTOS_CAMINO - 1];
     castillo.rotation.y = Math.atan2(final.x, final.z);
     castillo.position.set(0, altura(new THREE.Vector3(0, 1, 0)) - 0.005, 0);
@@ -457,6 +465,26 @@ function crearCastillo() {
     castillo.userData.ventanas = ventanas;
     planeta.add(castillo);
     return castillo;
+}
+
+function juntarPiezas(grupo) {
+    const porMaterial = new Map();
+    grupo.children.filter((m) => m.userData.fija).forEach((m) => {
+        m.updateMatrix();
+        const geo = m.geometry.clone().applyMatrix4(m.matrix);
+        geo.deleteAttribute("uv");
+        if (!porMaterial.has(m.material)) porMaterial.set(m.material, { piezas: [], sombra: false });
+        const grupoMat = porMaterial.get(m.material);
+        grupoMat.piezas.push(geo.index ? geo.toNonIndexed() : geo);
+        grupoMat.sombra = grupoMat.sombra || m.castShadow;
+        grupo.remove(m);
+    });
+    porMaterial.forEach(({ piezas, sombra }, material) => {
+        const junta = new THREE.Mesh(mergeGeometries(piezas), material);
+        junta.castShadow = sombra;
+        junta.receiveShadow = true;
+        grupo.add(junta);
+    });
 }
 
 function crearBandera(padre, x, y, z, color) {
@@ -566,8 +594,8 @@ let brillos = null;
 function crearBrillos(castillo) {
     const puntos = [...farolas];
     planeta.updateMatrixWorld(true);
-    castillo.userData.ventanas.forEach((v) => {
-        const p = v.getWorldPosition(new THREE.Vector3());
+    castillo.userData.puntosVentana.forEach((v) => {
+        const p = castillo.localToWorld(v.clone());
         puntos.push(planeta.worldToLocal(p));
     });
     const geometria = new THREE.BufferGeometry().setFromPoints(puntos);
@@ -765,6 +793,290 @@ function moverFugaz(f, delta) {
 
 
 // =====================================================================
+// 8b. EL CAMINANTE
+// Un viajero pequeño con gorro y farol que sube por el camino hasta el
+// castillo. Al llegar entra por la puerta y vuelve a salir abajo.
+// =====================================================================
+
+const alturasCamino = [];
+const caminante = { grupo: null, piernas: [], farol: null, brillo: null, s: 0, escala: 0, salto: 0, fase: 0 };
+
+function crearCaminante() {
+    camino.forEach((d) => alturasCamino.push(altura(d)));
+    const grupo = new THREE.Group();
+    const tela = new THREE.MeshStandardMaterial({ color: 0x3f8f8a, roughness: 0.8 });
+    const piel = new THREE.MeshStandardMaterial({ color: 0xf1c9a5, roughness: 0.7 });
+    const gorro = new THREE.MeshStandardMaterial({ color: 0xd9a33f, roughness: 0.7 });
+    const oscuro = new THREE.MeshStandardMaterial({ color: 0x3a2f45, roughness: 0.9 });
+    const pieza = (geo, mat, x, y, z) => {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(x, y, z);
+        m.castShadow = true;
+        grupo.add(m);
+        return m;
+    };
+    pieza(new THREE.CapsuleGeometry(0.0075, 0.012, 6, 14), tela, 0, 0.019, 0);
+    pieza(new THREE.SphereGeometry(0.0072, 16, 12), piel, 0, 0.0345, 0);
+    const sombrero = pieza(new THREE.ConeGeometry(0.0085, 0.019, 16), gorro, 0, 0.047, -0.001);
+    sombrero.rotation.x = -0.25;
+    pieza(new THREE.TorusGeometry(0.0072, 0.0018, 8, 20), gorro, 0, 0.0385, 0).rotation.x = Math.PI / 2;
+    [-0.0035, 0.0035].forEach((x) => {
+        const pierna = new THREE.Group();
+        pierna.position.set(x, 0.009, 0);
+        const m = new THREE.Mesh(new THREE.CylinderGeometry(0.0022, 0.0022, 0.009, 8), oscuro);
+        m.position.y = -0.0045;
+        m.castShadow = true;
+        pierna.add(m);
+        grupo.add(pierna);
+        caminante.piernas.push(pierna);
+    });
+    caminante.farol = new THREE.MeshStandardMaterial({ color: 0xffe2a8, emissive: 0xffb24a, emissiveIntensity: 1 });
+    pieza(new THREE.SphereGeometry(0.0035, 12, 8), caminante.farol, 0.011, 0.016, 0.004);
+    const brillo = new THREE.Points(
+        new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0.011, 0.016, 0.004)]),
+        new THREE.ShaderMaterial({
+            uniforms: { uLuz: { value: 0 }, uTam: { value: 90 * renderizador.getPixelRatio() } },
+            vertexShader: `
+                uniform float uTam;
+                void main() {
+                    vec4 vista = modelViewMatrix * vec4(position, 1.0);
+                    gl_PointSize = uTam / -vista.z;
+                    gl_Position = projectionMatrix * vista;
+                }
+            `,
+            fragmentShader: `
+                uniform float uLuz;
+                void main() {
+                    float r = length(gl_PointCoord - 0.5) * 2.0;
+                    float a = exp(-r * r * 5.0) * 0.6 + exp(-r * r * 40.0);
+                    gl_FragColor = vec4(vec3(1.0, 0.75, 0.38) * a * uLuz, 1.0);
+                }
+            `,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        })
+    );
+    grupo.add(brillo);
+    caminante.brillo = brillo;
+    caminante.grupo = grupo;
+    planeta.add(grupo);
+}
+
+const auxA = new THREE.Vector3();
+const auxB = new THREE.Vector3();
+const auxDelante = new THREE.Vector3();
+const auxDerecha = new THREE.Vector3();
+const auxArriba = new THREE.Vector3();
+const auxBase = new THREE.Matrix4();
+
+function moverCaminante(delta) {
+    const c = caminante;
+    if (!c.grupo) return;
+    const fin = PUNTOS_CAMINO - 2;
+    if (c.s < fin) {
+        c.s = Math.min(fin, c.s + delta * 6.5);
+        c.escala = Math.min(1, c.escala + delta * 2);
+    } else {
+        c.escala -= delta * 1.5;
+        if (c.escala <= 0) {
+            c.s = 1;
+            c.escala = 0;
+        }
+    }
+    c.fase += delta * 9;
+    c.salto = Math.max(0, c.salto - delta * 1.8);
+    const i = Math.floor(c.s);
+    const t = c.s - i;
+    auxArriba.lerpVectors(camino[i], camino[i + 1], t).normalize();
+    const h = alturasCamino[i] + (alturasCamino[i + 1] - alturasCamino[i]) * t;
+    auxA.copy(camino[Math.max(0, i - 2)]);
+    auxB.copy(camino[Math.min(PUNTOS_CAMINO - 1, i + 3)]);
+    auxDelante.subVectors(auxB, auxA);
+    auxDelante.addScaledVector(auxArriba, -auxDelante.dot(auxArriba)).normalize();
+    auxDerecha.crossVectors(auxArriba, auxDelante).normalize();
+    auxBase.makeBasis(auxDerecha, auxArriba, auxDelante);
+    c.grupo.quaternion.setFromRotationMatrix(auxBase);
+    const bote = Math.abs(Math.sin(c.fase)) * 0.0015 + Math.sin(c.salto * Math.PI) * 0.03;
+    c.grupo.position.copy(auxArriba).multiplyScalar(h + 0.002 + bote);
+    c.grupo.scale.setScalar(Math.max(0.001, c.escala) * 1.15);
+    c.piernas[0].rotation.x = Math.sin(c.fase) * 0.6;
+    c.piernas[1].rotation.x = -Math.sin(c.fase) * 0.6;
+    auxArriba.applyQuaternion(planeta.quaternion);
+    const noche = THREE.MathUtils.smoothstep(-auxArriba.dot(DIR_SOL), -0.25, 0.25);
+    c.farol.emissiveIntensity = 0.4 + noche * 2.6;
+    c.brillo.material.uniforms.uLuz.value = noche * c.escala;
+}
+
+
+// =====================================================================
+// 8c. FUEGOS ARTIFICIALES Y FLORES
+// Al tocar el castillo salen fuegos; al tocar la hierba crece una flor.
+// =====================================================================
+
+const MAX_CHISPAS = 480;
+const chispas = { puntos: null, vel: [], vida: new Float32Array(MAX_CHISPAS), siguiente: 0 };
+
+function crearChispas() {
+    const geometria = new THREE.BufferGeometry();
+    geometria.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX_CHISPAS * 3), 3));
+    geometria.setAttribute("aColor", new THREE.BufferAttribute(new Float32Array(MAX_CHISPAS * 3), 3));
+    geometria.setAttribute("aVida", new THREE.BufferAttribute(chispas.vida, 1));
+    for (let i = 0; i < MAX_CHISPAS; i++) chispas.vel.push(new THREE.Vector3());
+    const material = new THREE.ShaderMaterial({
+        uniforms: { uTam: { value: 40 * renderizador.getPixelRatio() } },
+        vertexShader: `
+            attribute vec3 aColor;
+            attribute float aVida;
+            uniform float uTam;
+            varying vec3 vColor;
+            varying float vVida;
+            void main() {
+                vColor = aColor;
+                vVida = aVida;
+                vec4 vista = modelViewMatrix * vec4(position, 1.0);
+                gl_PointSize = aVida > 0.0 ? uTam * (0.4 + aVida) / -vista.z : 0.0;
+                gl_Position = projectionMatrix * vista;
+            }
+        `,
+        fragmentShader: `
+            varying vec3 vColor;
+            varying float vVida;
+            void main() {
+                float r = length(gl_PointCoord - 0.5) * 2.0;
+                float a = exp(-r * r * 8.0) * min(1.0, vVida * 2.0);
+                gl_FragColor = vec4(vColor * a * 2.2, 1.0);
+            }
+        `,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+    });
+    chispas.puntos = new THREE.Points(geometria, material);
+    chispas.puntos.frustumCulled = false;
+    escena.add(chispas.puntos);
+}
+
+const coloresFuego = [0xffd166, 0xff6b9a, 0x7ad7ff, 0xb48cff, 0x9effa0].map((c) => new THREE.Color(c));
+
+function lanzarFuegos() {
+    const origen = new THREE.Vector3();
+    castillo.localToWorld(origen.set(0, 0.3, 0));
+    const arribaCastillo = new THREE.Vector3(0, 1, 0).applyQuaternion(planeta.quaternion);
+    const pos = chispas.puntos.geometry.attributes.position;
+    const col = chispas.puntos.geometry.attributes.aColor;
+    for (let r = 0; r < 3; r++) {
+        const centro = origen.clone().addScaledVector(arribaCastillo, 0.12 + r * 0.07).add(new THREE.Vector3().randomDirection().multiplyScalar(0.1));
+        const color = coloresFuego[Math.floor(Math.random() * coloresFuego.length)];
+        for (let k = 0; k < 120; k++) {
+            const i = chispas.siguiente;
+            chispas.siguiente = (i + 1) % MAX_CHISPAS;
+            pos.setXYZ(i, centro.x, centro.y, centro.z);
+            chispas.vel[i].randomDirection().multiplyScalar(0.25 + Math.random() * 0.12);
+            chispas.vida[i] = 1 + r * 0.35;
+            col.setXYZ(i, color.r, color.g, color.b);
+        }
+    }
+    col.needsUpdate = true;
+    pos.needsUpdate = true;
+}
+
+function moverChispas(delta) {
+    if (!chispas.puntos) return;
+    const pos = chispas.puntos.geometry.attributes.position;
+    let activas = false;
+    for (let i = 0; i < MAX_CHISPAS; i++) {
+        if (chispas.vida[i] <= 0) continue;
+        activas = true;
+        chispas.vida[i] = Math.max(0, chispas.vida[i] - delta * 0.7);
+        const v = chispas.vel[i];
+        auxA.fromBufferAttribute(pos, i);
+        v.multiplyScalar(1 - delta * 1.6).addScaledVector(auxA, -delta * 0.12 / Math.max(0.5, auxA.lengthSq()));
+        auxA.addScaledVector(v, delta);
+        pos.setXYZ(i, auxA.x, auxA.y, auxA.z);
+    }
+    if (activas) {
+        pos.needsUpdate = true;
+        chispas.puntos.geometry.attributes.aVida.needsUpdate = true;
+    }
+}
+
+const floresPlantadas = [];
+let piezasFlor = null;
+
+function plantarFlor(puntoMundo) {
+    if (!piezasFlor) {
+        piezasFlor = {
+            tallo: new THREE.CylinderGeometry(0.0012, 0.0016, 0.02, 6).translate(0, 0.01, 0),
+            petalo: new THREE.SphereGeometry(0.0045, 10, 8).scale(1, 0.35, 0.6),
+            centro: new THREE.SphereGeometry(0.0028, 10, 8),
+            verde: new THREE.MeshStandardMaterial({ color: 0x4f9a3c, roughness: 0.8 }),
+            amarillo: new THREE.MeshStandardMaterial({ color: 0xffd34d, roughness: 0.6 }),
+            colores: [0xff8fb8, 0xffffff, 0xb48cff, 0xff9b5c, 0x7ad7ff].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6 }))
+        };
+    }
+    const d = planeta.worldToLocal(puntoMundo.clone()).normalize();
+    if (d.y > 0.9 || distanciaCamino(d) < 0.03) return false;
+    const flor = new THREE.Group();
+    flor.add(new THREE.Mesh(piezasFlor.tallo, piezasFlor.verde));
+    const color = piezasFlor.colores[Math.floor(Math.random() * piezasFlor.colores.length)];
+    for (let k = 0; k < 5; k++) {
+        const a = (k / 5) * Math.PI * 2;
+        const p = new THREE.Mesh(piezasFlor.petalo, color);
+        p.position.set(Math.cos(a) * 0.0042, 0.021, Math.sin(a) * 0.0042);
+        p.rotation.y = -a;
+        flor.add(p);
+    }
+    const centro = new THREE.Mesh(piezasFlor.centro, piezasFlor.amarillo);
+    centro.position.y = 0.022;
+    flor.add(centro);
+    flor.position.copy(d).multiplyScalar(altura(d) - 0.001);
+    flor.quaternion.setFromUnitVectors(arriba, d).multiply(new THREE.Quaternion().setFromAxisAngle(arriba, Math.random() * 6));
+    flor.scale.setScalar(0.001);
+    flor.userData.crece = 0;
+    flor.userData.tam = 3 + Math.random() * 1.2;
+    planeta.add(flor);
+    floresPlantadas.push(flor);
+    if (floresPlantadas.length > 40) planeta.remove(floresPlantadas.shift());
+    return true;
+}
+
+function crecerFlores(delta) {
+    floresPlantadas.forEach((f) => {
+        if (f.userData.crece >= 1) return;
+        f.userData.crece = Math.min(1, f.userData.crece + delta * 1.8);
+        const k = f.userData.crece;
+        const rebote = 1 + Math.sin(k * Math.PI) * 0.25;
+        f.scale.setScalar(Math.max(0.001, k * rebote * f.userData.tam));
+    });
+}
+
+
+// =====================================================================
+// 8d. VUELOS DE CÁMARA
+// Al tocar una luna la cámara gira hasta verla delante del planeta.
+// =====================================================================
+
+let vuelo = null;
+
+function volarHacia(direccionMundo) {
+    const inicio = camara.position.clone();
+    const distancia = inicio.distanceTo(controles.target);
+    const destino = direccionMundo.clone().normalize().multiplyScalar(0.75).add(inicio.clone().normalize().multiplyScalar(0.25)).normalize().multiplyScalar(distancia);
+    vuelo = { inicio, destino, t: 0 };
+}
+
+function moverVuelo(delta) {
+    if (!vuelo) return;
+    vuelo.t = Math.min(1, vuelo.t + delta / 1.6);
+    const k = vuelo.t < 0.5 ? 4 * vuelo.t ** 3 : 1 - (-2 * vuelo.t + 2) ** 3 / 2;
+    const largo = THREE.MathUtils.lerp(vuelo.inicio.length(), vuelo.destino.length(), k);
+    camara.position.copy(vuelo.inicio).normalize().lerp(auxA.copy(vuelo.destino).normalize(), k).normalize().multiplyScalar(largo);
+    if (vuelo.t >= 1) vuelo = null;
+}
+
+
+// =====================================================================
 // 9. LAS LUNAS
 // Cada luna lleva el nombre de una tarjeta. Al tocarla se abre la
 // tarjeta correspondiente.
@@ -800,16 +1112,25 @@ function crearLunas() {
         orbita.add(giro);
         escena.add(orbita);
         lunas.push({ luna, giro, boton, velocidad: 0.09 - i * 0.012, encima: false });
-        boton.addEventListener("click", () => abrirTarjeta(boton.dataset.tarjeta));
+        boton.addEventListener("click", () => elegirLuna(lunas[i]));
     });
 }
 
+function elegirLuna(l) {
+    abrirTarjeta(l.boton.dataset.tarjeta);
+    l.luna.getWorldPosition(auxMundo);
+    volarHacia(auxMundo);
+}
+
 const auxPantalla = new THREE.Vector3();
+const auxCerca = new THREE.Vector3();
+const etiquetas = [];
 const auxMundo = new THREE.Vector3();
 const auxRayo = new THREE.Vector3();
 let lunasVisibles = true;
 
 function colocarEtiquetas() {
+    etiquetas.length = 0;
     lunas.forEach((l) => {
         l.luna.getWorldPosition(auxMundo);
         auxPantalla.copy(auxMundo).project(camara);
@@ -819,11 +1140,26 @@ function colocarEtiquetas() {
         const largo = auxRayo.length();
         auxRayo.normalize();
         const t = -camara.position.dot(auxRayo);
-        const cercania = camara.position.clone().addScaledVector(auxRayo, t).length();
+        const cercania = auxCerca.copy(camara.position).addScaledVector(auxRayo, t).length();
         const tapada = t > 0 && t < largo && cercania < 1.08;
         const dentro = auxPantalla.z < 1 && x > -50 && x < innerWidth + 50 && y > -20 && y < innerHeight + 20;
-        l.boton.style.transform = `translate(${Math.round(x + 14)}px, ${Math.round(y - 14)}px)`;
-        l.boton.classList.toggle("visible", listo && lunasVisibles && dentro && !tapada);
+        const visible = listo && lunasVisibles && dentro && !tapada;
+        l.boton.classList.toggle("visible", visible);
+        etiquetas.push({ l, x: x + 14, y: y - 14, visible });
+    });
+    etiquetas.sort((a, b) => a.y - b.y);
+    const puestas = [];
+    etiquetas.forEach((e) => {
+        if (e.visible) {
+            puestas.forEach((o) => {
+                if (Math.abs(o.x - e.x) < 110 && e.y - o.y < 30) e.y = o.y + 30;
+            });
+            puestas.push(e);
+        }
+        if (!e.l.ancho) e.l.ancho = e.l.boton.offsetWidth;
+        const ancho = e.l.ancho || 90;
+        const x = Math.max(8, Math.min(innerWidth - ancho - 8, e.x));
+        e.l.boton.style.transform = `translate(${Math.round(x)}px, ${Math.round(e.y)}px)`;
     });
 }
 
@@ -911,17 +1247,39 @@ const rayo = new THREE.Raycaster();
 const auxRaton = new THREE.Vector2();
 let lunaEncima = null;
 
-function lunaBajo(evento) {
+function apuntar(evento) {
     auxRaton.set((evento.clientX / innerWidth) * 2 - 1, -(evento.clientY / innerHeight) * 2 + 1);
     rayo.setFromCamera(auxRaton, camara);
+}
+
+function lunaBajo(evento) {
+    if (!lunasVisibles) return null;
+    apuntar(evento);
     const corte = rayo.intersectObjects(lunas.map((l) => l.luna), false)[0];
     return corte ? lunas.find((l) => l.luna === corte.object) : null;
 }
 
+function queHayBajo(evento, conSuelo) {
+    const luna = lunaBajo(evento);
+    if (luna) return { tipo: "luna", luna };
+    apuntar(evento);
+    const objetos = conSuelo ? [castillo, caminante.grupo, suelo] : [castillo, caminante.grupo];
+    const corte = rayo.intersectObjects(objetos, true)[0];
+    if (!corte) return null;
+    let o = corte.object;
+    while (o) {
+        if (o === castillo) return { tipo: "castillo" };
+        if (o === caminante.grupo) return { tipo: "caminante" };
+        o = o.parent;
+    }
+    return { tipo: "suelo", punto: corte.point };
+}
+
 renderizador.domElement.addEventListener("pointermove", (evento) => {
-    if (evento.pointerType === "touch" || !lunasVisibles) return;
-    lunaEncima = lunaBajo(evento);
-    renderizador.domElement.style.cursor = lunaEncima ? "pointer" : "";
+    if (evento.pointerType === "touch" || evento.buttons || !listo) return;
+    const cosa = queHayBajo(evento, false);
+    lunaEncima = cosa && cosa.tipo === "luna" ? cosa.luna : null;
+    renderizador.domElement.style.cursor = cosa ? "pointer" : "";
     lunas.forEach((l) => l.boton.classList.toggle("encima", l === lunaEncima));
 });
 
@@ -932,12 +1290,22 @@ renderizador.domElement.addEventListener("pointerdown", (evento) => {
 });
 
 renderizador.domElement.addEventListener("pointerup", (evento) => {
-    if (!inicioToque || !lunasVisibles) return;
+    if (!inicioToque || !listo) return;
     const movido = Math.hypot(evento.clientX - inicioToque.x, evento.clientY - inicioToque.y);
     inicioToque = null;
     if (movido > 8) return;
-    const l = lunaBajo(evento);
-    if (l) abrirTarjeta(l.boton.dataset.tarjeta);
+    const cosa = queHayBajo(evento, true);
+    if (!cosa) return;
+    if (cosa.tipo === "luna") elegirLuna(cosa.luna);
+    else if (cosa.tipo === "castillo") {
+        lanzarFuegos();
+        abrirTarjeta("tarjeta-hola");
+    } else if (cosa.tipo === "caminante") caminante.salto = 1;
+    else plantarFlor(cosa.punto);
+});
+
+renderizador.domElement.addEventListener("pointerdown", () => {
+    vuelo = null;
 });
 
 
@@ -969,6 +1337,8 @@ function construir() {
     crearNubes();
     crearAtmosfera();
     crearLunas();
+    crearCaminante();
+    crearChispas();
     estrellas = crearEspacio();
     renderizador.compile(escena, camara);
     listo = true;
@@ -998,6 +1368,10 @@ function animar() {
     estrellas.material.uniforms.uTiempo.value = tiempo;
     moverBanderas(tiempo);
     moverFugaz(fugaz, delta);
+    moverCaminante(delta);
+    moverChispas(delta);
+    crecerFlores(delta);
+    moverVuelo(delta);
     controles.update();
     aplicarEncuadre(delta);
     colocarEtiquetas();
