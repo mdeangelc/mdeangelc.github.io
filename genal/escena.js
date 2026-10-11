@@ -21,7 +21,7 @@ const ajustes = {
     matas: movil ? 22 : 32,
     luciernagas: movil ? 30 : 44,
     ondas: movil ? 256 : 320,
-    resolucionMax: movil ? 1.5 : 2,
+    resolucionMax: movil ? 1.5 : 1.25,
     trozosPorFotograma: movil ? 2 : 4
 };
 

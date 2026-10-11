@@ -18,7 +18,7 @@ const ajustes = {
     flores: movil ? 300 : 520,
     estrellas: movil ? 2200 : 4000,
     sombra: movil ? 1024 : 2048,
-    resolucionMax: movil ? 1.75 : 2
+    resolucionMax: movil ? 1.75 : 1.5
 };
 
 let semilla = 7;

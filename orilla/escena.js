@@ -13,7 +13,7 @@ import { mergeGeometries, mergeVertices } from "three/addons/utils/BufferGeometr
 const parametros = new URLSearchParams(location.search);
 const movil = matchMedia("(pointer: coarse)").matches || Math.min(innerWidth, innerHeight) < 600;
 const ajustes = {
-    resolucionMax: movil ? 1.5 : 2,
+    resolucionMax: movil ? 1.5 : 1.25,
     sombra: movil ? 1024 : 2048,
     reflejo: movil ? 0.5 : 0.6,
     ondas: movil ? 0.75 : 1,
@@ -2462,7 +2462,7 @@ function vigilarRitmo(delta) {
     medida.tiempo += delta;
     medida.fotogramas++;
     medida.deltas.push(delta);
-    if (medida.tiempo < 2.5) return;
+    if (medida.tiempo < 1.5) return;
     const fps = medida.fotogramas / medida.tiempo;
     const media = medida.tiempo / medida.fotogramas;
     const desviacion = Math.sqrt(medida.deltas.reduce((s, d) => s + (d - media) ** 2, 0) / medida.deltas.length);
@@ -2471,7 +2471,7 @@ function vigilarRitmo(delta) {
     medida.fotogramas = 0;
     medida.deltas = [];
     if (topeTreinta) return;
-    if (fps < 40 && escalaResolucion > 0.55) {
+    if (fps < 48 && escalaResolucion > 0.55) {
         escalaResolucion = Math.max(0.55, escalaResolucion - 0.15);
         ajustarTamano();
     } else if (fps > 58 && escalaResolucion < 1) {
@@ -2547,7 +2547,7 @@ let fotograma = 0;
 
 function dibujar() {
     fotograma++;
-    if (!movil || fotograma % 2 === 0 || fotograma < 3) {
+    if (fotograma % 2 === 0 || fotograma < 3) {
         renderizador.setRenderTarget(objetivoReflejo);
         renderizador.clippingPlanes = [plano];
         comunes.uRecorte.value = 1;

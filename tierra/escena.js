@@ -15,7 +15,7 @@ const INCLINACION = THREE.MathUtils.degToRad(23.4);
 const ajustes = {
     segmentos: movil ? 96 : 160,
     estrellas: movil ? 2500 : 5000,
-    resolucionMax: movil ? 1.75 : 2
+    resolucionMax: movil ? 1.75 : 1.5
 };
 
 
