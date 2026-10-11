@@ -1,26 +1,26 @@
 import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 // =====================================================================
 // 1. AJUSTES
-// Gaucín hecho de cubos: el castillo del Águila en lo alto de la peña,
-// el pueblo blanco bajando por la ladera, la iglesia con su campanario,
-// los castaños de otoño y el río Genal con un remanso abajo. Todo es un
-// trozo de tierra que flota sobre un mar de nubes, como una maqueta.
+// Gaucín hecho de cubos visto desde la plaza: delante la iglesia con su
+// campanario y la fuente, alrededor el pueblo blanco, arriba el castillo
+// del Águila en la peña y abajo el valle del Genal con los castaños de
+// otoño. A lo lejos, la Serranía, Sierra Bermeja, el mar y el Peñón.
 // =====================================================================
 
 const parametros = new URLSearchParams(location.search);
 const movil = matchMedia("(pointer: coarse)").matches || Math.min(innerWidth, innerHeight) < 600;
 const ajustes = {
     resolucionMax: movil ? 1.5 : 1.25,
-    sombra: movil ? 1024 : 2048,
+    sombra: 2048,
     reflejo: movil ? 0.4 : 0.5,
     truchas: 6,
-    flores: movil ? 260 : 420
+    palomas: movil ? 8 : 11,
+    arboles: movil ? 75 : 115,
+    flores: movil ? 420 : 700
 };
 
-const MITAD = 32;
-const FONDO = -9;
+const MITAD = 56;
 const AGUA = 3.6;
 const CIMA = 46;
 
@@ -296,30 +296,20 @@ renderizador.shadowMap.autoUpdate = false;
 document.body.prepend(renderizador.domElement);
 
 const escena = new THREE.Scene();
-escena.fog = new THREE.Fog(0xc8d8ea, 120, 520);
+escena.fog = new THREE.Fog(0xc8d8ea, 90, movil ? 300 : 390);
 
-const camara = new THREE.PerspectiveCamera(46, innerWidth / innerHeight, 0.5, 1600);
-camara.position.set(74, 54, 88);
-const controles = new OrbitControls(camara, renderizador.domElement);
-controles.target.set(-1, 17, -4);
-controles.enableDamping = true;
-controles.dampingFactor = 0.06;
-controles.enablePan = false;
-controles.minDistance = 18;
-controles.maxDistance = 150;
-controles.minPolarAngle = Math.PI * 0.12;
-controles.maxPolarAngle = Math.PI * 0.47;
-controles.rotateSpeed = 0.5;
-controles.autoRotate = true;
-controles.autoRotateSpeed = 0.22;
+const camara = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 1600);
+camara.rotation.order = "YXZ";
+camara.layers.enable(1);
+const orbita = { centro: new THREE.Vector3(9, 28, -11), radio: 40, theta: 0.4, phi: 1.45, objetivoRadio: 40, objetivoTheta: 0.4, objetivoPhi: 1.45, base: 0.4, auto: true, reloj: 0, alzado: 0, fov: 50 };
 
 const sol = new THREE.DirectionalLight(0xffffff, 2.6);
 sol.castShadow = true;
 sol.shadow.mapSize.set(ajustes.sombra, ajustes.sombra);
-Object.assign(sol.shadow.camera, { left: -52, right: 52, top: 52, bottom: -52, near: 1, far: 260 });
+Object.assign(sol.shadow.camera, { left: -50, right: 50, top: 50, bottom: -50, near: 1, far: 280 });
 sol.shadow.bias = -0.0006;
 sol.shadow.normalBias = 0.05;
-sol.target.position.set(0, 10, 0);
+sol.target.position.set(6, 16, -8);
 escena.add(sol, sol.target);
 const cielo = new THREE.HemisphereLight(0xbcd8ff, 0x5a4a38, 1.1);
 escena.add(cielo);
@@ -410,7 +400,7 @@ function materialBloques(tam, opciones = {}) {
         const anterior = material.onBeforeCompile;
         material.onBeforeCompile = (shader) => {
             anterior(shader);
-            shader.fragmentShader = shader.fragmentShader.replace("#include <fog_fragment>", "#include <fog_fragment>\ngl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, smoothstep(60.0, 330.0, vFogDepth) * 0.6);");
+            shader.fragmentShader = shader.fragmentShader.replace("#include <fog_fragment>", "#include <fog_fragment>\ngl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, smoothstep(40.0, 300.0, vFogDepth) * 0.55);");
         };
     }
     material.customProgramCacheKey = () => "bloques" + tam + JSON.stringify(opciones);
@@ -479,30 +469,43 @@ function zonaOlivar(x, z) {
     return x < -12 && z > -12 && z < centroRio(x) - anchoRio(x) - 3 && peña(x, z) < -0.18;
 }
 
-const PLAZA = { x0: 8, z0: -13, x1: 25, z1: -1 };
+const PLAZA = { x0: 8, z0: -13, x1: 25, z1: 3 };
 const enPlaza = (x, z) => x >= PLAZA.x0 && x <= PLAZA.x1 && z >= PLAZA.z0 && z <= PLAZA.z1;
 
 function enPueblo(x, z) {
     if (peña(x, z) > -0.12) return false;
     if (z > centroRio(x) - anchoRio(x) - 5) return false;
     const borde = (ruido2(x * 0.12 + 7, z * 0.12) - 0.5) * 8;
-    return x > -14 + borde && x < 27 + borde && z > -28 + borde * 0.4;
+    return x > -16 + borde && x < 42 + borde && z > -44 + borde * 0.4;
 }
 
 function alturaBase(x, z) {
     const d = distRio(x, z);
     if (d < 0) return Math.max(1, 3 - Math.floor(-d * 0.7));
     const zr = centroRio(x);
+    const r = Math.hypot(x, z);
     let h;
     if (z > zr) {
-        h = 4 + Math.max(0, d - 3) * 0.28 + (fbm2(x * 0.09 + 4, z * 0.09) - 0.45) * 2.5 * Math.min(1, d / 5);
+        const s = Math.max(0, d - 3);
+        h = 4 + Math.min(s, 60) * 0.3 + (fbm2(x * 0.09 + 4, z * 0.09) - 0.45) * 2.5 * Math.min(1, d / 5);
+        h += (fbm2(x * 0.018 + 9, z * 0.018) - 0.42) * 34 * suave(8, 50, s);
     } else {
         const s = Math.max(0, d - 2.5);
-        h = 4 + s * 0.5 + (fbm2(x * 0.05 + 2, z * 0.05) - 0.45) * 7 * Math.min(1, s / 8);
-        h -= Math.max(0, -z - 25) * 1.6 + Math.max(0, x - 25) * 1.1;
+        h = 4 + Math.min(s, 62) * 0.5 + (fbm2(x * 0.05 + 2, z * 0.05) - 0.45) * 7 * Math.min(1, s / 8);
+        h += (fbm2(x * 0.018 + 3, z * 0.018 + 5) - 0.42) * 34 * suave(55, 95, s);
         if (zonaOlivar(x, z)) h = Math.floor(h / 2) * 2 + 0.1;
     }
-    h = Math.max(4, h);
+    h += (fbm2(x * 0.008 + 11, z * 0.008 + 3) - 0.4) * 120 * suave(130, 260, r);
+    h += Math.max(0, fbm2(x * 0.03, z * 0.03) - 0.5) * 50 * suave(120, 200, r);
+    h += Math.exp(-(((x + 120) / 30) ** 2) - (((z + 130) / 60) ** 2)) * 50 * (0.7 + 0.6 * ruido2(x * 0.08, z * 0.08));
+    h -= suave(90, 180, z) * 80;
+    const u = z - 215;
+    const v = x - 40;
+    if (u > -34 && u < 50 && Math.abs(v) < 16) {
+        const perfil = u < -26 ? 0 : 62 - Math.max(0, u + 18) * 0.6;
+        h = Math.max(h, perfil * Math.sqrt(Math.max(0, 1 - (v / 16) ** 2)) - 6);
+    }
+    if (r < 100) h = Math.max(4, h);
     const p = peña(x, z);
     if (p > 0) {
         const k = Math.min(1, p / 0.25);
@@ -537,7 +540,7 @@ function crearTerreno() {
             const borde = x === -MITAD || x === MITAD - 1 || z === -MITAD || z === MITAD - 1;
             let minimo = h;
             [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([a, b]) => (minimo = Math.min(minimo, alturaEn(x + a, z + b))));
-            const desde = borde ? FONDO : Math.max(FONDO, Math.min(h - 1, minimo - 1));
+            const desde = Math.min(h - 1, minimo - 1) - (borde ? 3 : 0);
             const p = peña(x, z);
             const d = distRio(x, z);
             const rio = h <= 3;
@@ -548,7 +551,7 @@ function crearTerreno() {
                 let b;
                 if (prof === 0) {
                     if (rio) b = ruido2(x * 0.4, z * 0.4) > 0.6 ? B.canto : ruido2(x * 0.3 + 5, z * 0.3) > 0.5 ? B.grava : B.arena;
-                    else if (plaza) b = B.losa;
+                    else if (plaza) b = (x - PLAZA.x0) % 4 === 0 || (z - PLAZA.z0) % 4 === 0 ? B.empedrado : B.losa;
                     else if (p > 0.25) b = ruido2(x * 0.4, z * 0.4) > 0.55 ? B.empedrado : B.hierbaSeca;
                     else if (roca) b = ruido2(x * 0.3, y * 0.3 + z * 0.3) > 0.55 ? B.calizaMancha : B.caliza;
                     else if (d < 1.4 && h === 4) b = ruido2(x * 0.5, z * 0.5) > 0.5 ? B.grava : B.arena;
@@ -597,6 +600,7 @@ function crearRocasRio() {
 // =====================================================================
 
 const casas = [];
+const posaderos = [];
 const chimeneas = [];
 const luces = [];
 
@@ -618,9 +622,9 @@ function cabeCasa(x0, z0, x1, z1) {
 }
 
 function planearCasas() {
-    for (let fila = 0; fila < 7; fila++) {
-        let x = -16 + Math.floor(azar() * 3);
-        while (x < 30) {
+    for (let fila = 0; fila < 9; fila++) {
+        let x = -22 + Math.floor(azar() * 3);
+        while (x < 46) {
             const ancho = 4 + Math.floor(azar() * 4);
             const fondo = 4 + (azar() < 0.4 ? 1 : 0);
             const zf = 9 - fila * 6 + Math.round(Math.sin(x * 0.09 + fila * 1.7) * 1.2);
@@ -787,6 +791,7 @@ function construirCasa(c) {
     }
     const teja = B.teja[Math.floor(azar() * B.teja.length)];
     const t = tejadoDosAguas(x0, z0, x1, z1, techo, teja);
+    if (Math.hypot((x0 + x1) / 2 - 16, (z0 + z1) / 2 + 4) < 30) for (let k = 0; k < 2; k++) posaderos.push(new THREE.Vector3(x0 + 0.5 + azar() * (x1 - x0), (t.cumbre + 1) * 0.5, (t.zCumbre + 1) * 0.5));
     if (azar() < 0.4 && x1 - x0 >= 3) {
         const cx = 2 * (x0 + 1 + Math.floor(azar() * (x1 - x0 - 2)));
         const cz = t.zCumbre - 1 + (azar() < 0.5 ? 0 : 2);
@@ -839,7 +844,8 @@ function crearIglesia() {
         });
     }
     [nx0 + 1, nx1 - 1].forEach((x) => mundo.caja(x, P, nz1 + 1, x, P + 5, nz1 + 1, B.sillar));
-    tejadoDosAguas(nx0, nz0, nx1, nz1, P + alto, B.teja[0]);
+    const tc = tejadoDosAguas(nx0, nz0, nx1, nz1, P + alto, B.teja[0]);
+    for (let k = 0; k < 4; k++) posaderos.push(new THREE.Vector3(nx0 + 1 + k * 2.5, (tc.cumbre + 1) * 0.5, (tc.zCumbre + 1) * 0.5));
 
     const tx0 = 9;
     const tx1 = 12;
@@ -905,11 +911,35 @@ function crearIglesia() {
     focos[1].set(11, P + 12, -8, 9);
     zonaIglesia.set(new THREE.Vector3(tx0 - 1, P, tz0 - 1), new THREE.Vector3(tx1 + 2, P + 22, tz1 + 2));
 
-    [[9, -3], [24, -4]].forEach(([x, z]) => naranjo(x, z));
-    banco(21 * 4, P * 4, -2 * 4, "sur");
-    banco(12 * 4, P * 4, -2 * 4, "sur");
-    [[8, -1], [16, -1], [25, -1]].forEach(([x, z]) => farolaPie(x, P, z));
+    [[9, -3], [24, -4], [9, 1], [24, 1]].forEach(([x, z]) => naranjo(x, z));
+    banco(21 * 4, P * 4, -2 * 4);
+    banco(11 * 4, P * 4, 1 * 4 + 2, true);
+    banco(19 * 4 + 2, P * 4, 1 * 4 + 2, true);
+    [[13, -1], [20, -1], [8, 3], [25, -9]].forEach(([x, z]) => farolaPie(x, P, z));
     fuente(14, P, -4);
+    [[15, -6], [21, -6], [8, -7], [25, -1]].forEach(([x, z]) => maceton(x, P, z));
+    const fz = PLAZA.z1 * 4 + 3;
+    for (let fx = PLAZA.x0 * 4; fx <= PLAZA.x1 * 4 + 3; fx++) {
+        fino.poner(fx, P * 4, fz, B.sillar);
+        fino.poner(fx, P * 4 + 4, fz, B.hierro);
+        fino.poner(fx, P * 4 + 2, fz, B.hierro);
+        if (fx % 3 === 0) {
+            fino.poner(fx, P * 4 + 1, fz, B.hierro);
+            fino.poner(fx, P * 4 + 3, fz, B.hierro);
+        }
+    }
+    for (let z = PLAZA.z0; z <= PLAZA.z1; z++) {
+        [PLAZA.x0 - 1, PLAZA.x1 + 1].forEach((x) => {
+            if (ocupado.has(k2(x, z)) || alturaEn(x, z) >= P) return;
+            const lado = x < PLAZA.x0 ? PLAZA.x0 * 4 : PLAZA.x1 * 4 + 3;
+            for (let k = 0; k < 4; k++) {
+                fino.poner(lado, P * 4, z * 4 + k, B.sillar);
+                fino.poner(lado, P * 4 + 4, z * 4 + k, B.hierro);
+                if (k % 3 === 0) for (let y = 1; y < 4; y++) fino.poner(lado, P * 4 + y, z * 4 + k, B.hierro);
+            }
+        });
+    }
+    orbita.centro.set(9, P + 13, -11);
 }
 
 function farolaPie(x, y, z) {
@@ -923,21 +953,34 @@ function farolaPie(x, y, z) {
     luces.push(new THREE.Vector3((fx + 0.5) * 0.25, (fy + 11) * 0.25, (fz + 0.5) * 0.25));
 }
 
-function banco(fx, fy, fz) {
+function banco(fx, fy, fz, alSur = false) {
+    const asiento = alSur ? [fz + 1, fz + 2] : [fz, fz + 1];
+    const respaldo = alSur ? fz : fz + 2;
+    const delante = alSur ? fz + 2 : fz;
     for (let a = 0; a < 8; a++) {
-        fino.poner(fx + a, fy + 2, fz, B.madera);
-        fino.poner(fx + a, fy + 2, fz + 1, B.madera);
-        fino.poner(fx + a, fy + 4, fz + 2, B.madera);
-        fino.poner(fx + a, fy + 5, fz + 2, B.madera);
+        asiento.forEach((z) => fino.poner(fx + a, fy + 2, z, B.madera));
+        fino.poner(fx + a, fy + 4, respaldo, B.madera);
+        fino.poner(fx + a, fy + 5, respaldo, B.madera);
     }
     [0, 7].forEach((a) => {
-        fino.poner(fx + a, fy, fz, B.hierro);
-        fino.poner(fx + a, fy + 1, fz, B.hierro);
-        fino.poner(fx + a, fy, fz + 2, B.hierro);
-        fino.poner(fx + a, fy + 1, fz + 2, B.hierro);
-        fino.poner(fx + a, fy + 2, fz + 2, B.hierro);
-        fino.poner(fx + a, fy + 3, fz + 2, B.hierro);
+        fino.poner(fx + a, fy, delante, B.hierro);
+        fino.poner(fx + a, fy + 1, delante, B.hierro);
+        for (let y = 0; y < 4; y++) fino.poner(fx + a, fy + y, respaldo, B.hierro);
     });
+}
+
+function maceton(x, y, z) {
+    const fx = x * 4;
+    const fy = y * 4;
+    const fz = z * 4;
+    for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) for (let c = 0; c < 3; c++) {
+        const borde = a === 0 || a === 3 || b === 0 || b === 3;
+        fino.poner(fx + a, fy + c, fz + b, borde || c === 0 ? B.maceta : B.tierra);
+    }
+    for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) {
+        fino.poner(fx + a, fy + 3, fz + b, B.tallo, 0.3);
+        if (azar() < 0.7) fino.poner(fx + a, fy + 4, fz + b, azar() < 0.6 ? B.geranio : B.geranioRosa, 0.5);
+    }
 }
 
 function fuente(x, y, z) {
@@ -1134,33 +1177,33 @@ function libre(x, z, radio) {
 function crearVegetacion() {
     const puestos = [];
     const lejosDe = (x, z, r) => puestos.every(([a, b]) => Math.hypot(a - x, b - z) > r);
-    for (let i = 0; i < 1600 && puestos.length < (movil ? 52 : 66); i++) {
+    for (let i = 0; i < 6000 && puestos.length < ajustes.arboles; i++) {
         const x = Math.floor(-MITAD + 3 + azar() * (MITAD * 2 - 6));
         const z = Math.floor(-MITAD + 3 + azar() * (MITAD * 2 - 6));
         if (!libre(x, z, 2) || distRio(x, z) < 1.5 || peña(x, z) > -0.06 || zonaOlivar(x, z)) continue;
         const delante = z > centroRio(x);
-        if (delante && x > -8 && x < 24) continue;
-        if (!lejosDe(x, z, 6.5)) continue;
+        if (delante && Math.abs(x - 8) < 7 && distRio(x, z) < 4) continue;
+        if (!lejosDe(x, z, 6)) continue;
         puestos.push([x, z]);
         if (azar() < 0.72) castaño(x, z);
         else alcornoque(x, z);
     }
-    for (let x = -30; x < -12; x += 4) {
-        for (let z = -10; z < 16; z += 4) {
+    for (let x = -MITAD + 2; x < -12; x += 4) {
+        for (let z = -12; z < 16; z += 4) {
             const ox = x + Math.floor(azar() * 2);
             const oz = z + Math.floor(azar() * 2);
             if (!zonaOlivar(ox, oz) || !libre(ox, oz, 1) || !lejosDe(ox, oz, 3)) continue;
             olivo(ox, oz);
         }
     }
-    for (let i = 0, n = 0; i < 300 && n < 8; i++) {
-        const x = Math.floor(-12 + azar() * 38);
-        const z = Math.floor(-26 + azar() * 34);
+    for (let i = 0, n = 0; i < 600 && n < 14; i++) {
+        const x = Math.floor(-16 + azar() * 58);
+        const z = Math.floor(-44 + azar() * 52);
         if (!enPueblo(x, z) || !libre(x, z, 1)) continue;
         naranjo(x, z);
         n++;
     }
-    for (let i = 0, n = 0; i < 600 && n < 26; i++) {
+    for (let i = 0, n = 0; i < 900 && n < 40; i++) {
         const x = Math.floor(-MITAD + 2 + azar() * (MITAD * 2 - 4));
         const z = Math.round(centroRio(x) + (azar() < 0.5 ? -1 : 1) * (anchoRio(x) + 1 + azar() * 1.5));
         if (!dentroTrozo(x, z) || alturaEn(x, z) !== 4 || mundo.hay(x, 4, z)) continue;
@@ -1286,78 +1329,11 @@ let agua = null;
 let materialSalto = null;
 
 function crearAgua() {
-    agua = new THREE.Mesh(new THREE.PlaneGeometry(MITAD * 2, 22).rotateX(-Math.PI / 2), materialAgua);
+    agua = new THREE.Mesh(new THREE.PlaneGeometry(800, 24).rotateX(-Math.PI / 2), materialAgua);
     agua.position.set(0, AGUA, 19);
     agua.renderOrder = 2;
     escena.add(agua);
-
-    const lado = [];
-    const salto = [];
-    for (let z = -MITAD; z < MITAD; z++) {
-        const hEntrada = alturaEn(-MITAD, z);
-        if (hEntrada <= 3) lado.push(z, hEntrada);
-        const hSalida = alturaEn(MITAD - 1, z);
-        if (hSalida <= 3) salto.push(z);
-    }
-    const pos = [];
-    for (let i = 0; i < lado.length; i += 2) {
-        const z = lado[i];
-        const h = lado[i + 1];
-        const x = -MITAD - 0.02;
-        pos.push(x, h, z, x, AGUA, z, x, AGUA, z + 1, x, h, z, x, AGUA, z + 1, x, h, z + 1);
-    }
-    const gLado = new THREE.BufferGeometry();
-    gLado.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-    const caraLado = new THREE.Mesh(gLado, new THREE.MeshBasicMaterial({ color: 0x3f8f8a, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }));
-    caraLado.renderOrder = 2;
-    escena.add(caraLado);
-
-    if (!salto.length) return;
-    const z0 = Math.min(...salto);
-    const z1 = Math.max(...salto) + 1;
-    materialSalto = new THREE.ShaderMaterial({
-        uniforms: { uTiempo: comunes.uTiempo, uLuz: { value: new THREE.Color(1, 1, 1) }, uColorAgua: materialAgua.uniforms.uColorAgua },
-        vertexShader: `
-            varying vec2 vUv;
-            void main() {
-                vUv = uv;
-                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            }
-        `,
-        fragmentShader: `
-            uniform float uTiempo;
-            uniform vec3 uLuz;
-            uniform vec3 uColorAgua;
-            varying vec2 vUv;
-            float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-            void main() {
-                vec2 celda = floor(vec2(vUv.x * 24.0, vUv.y * 70.0 + uTiempo * 22.0));
-                float h = hash(vec2(celda.x, floor(celda.y / 3.0)));
-                float borde = smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.92, vUv.x);
-                float a = (0.55 + h * 0.4) * borde * smoothstep(0.0, 0.25, vUv.y);
-                vec3 c = mix(uColorAgua * 1.6 + 0.15, vec3(0.95), h * 0.7 + (1.0 - vUv.y) * 0.3) * uLuz;
-                gl_FragColor = vec4(c, a);
-                #include <tonemapping_fragment>
-                #include <colorspace_fragment>
-            }
-        `,
-        transparent: true,
-        depthWrite: false,
-        side: THREE.DoubleSide
-    });
-    const pie = NUBE.y + NUBE.alto;
-    const geo = new THREE.PlaneGeometry(z1 - z0, AGUA - pie, 1, 1);
-    const cortina = new THREE.Mesh(geo, materialSalto);
-    cortina.rotation.y = Math.PI / 2;
-    cortina.position.set(MITAD + 0.15, (AGUA + pie) / 2, (z0 + z1) / 2);
-    cortina.renderOrder = 2;
-    escena.add(cortina);
-    salidaSalto.set(MITAD + 0.4, pie - 1, (z0 + z1) / 2);
-    anchoSalto = z1 - z0;
 }
-
-const salidaSalto = new THREE.Vector3(MITAD, -10, 20);
-let anchoSalto = 4;
 
 const truchas = [];
 
@@ -1453,86 +1429,62 @@ function asustarTruchas(x, z) {
 
 
 // =====================================================================
-// 12. EL MAR DE NUBES Y LAS SIERRAS
-// Las nubes son cubos planos que se mueven despacio y se repiten sin
-// cortes. Alrededor asoman la Serranía, Sierra Bermeja (roja) y, al
-// sur, el Peñón de Gibraltar.
+// 12. LOS ALREDEDORES
+// Más allá del pueblo el terreno sigue con cubos grandes: castañares,
+// la Serranía, Sierra Bermeja (roja), la costa y el Peñón de Gibraltar
+// saliendo del mar.
 // =====================================================================
-
-const NUBE = { celda: 5, periodo: 96, alto: 2.2, y: -40 };
-let capaNubes = null;
-let manto = null;
-const materialNubes = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x1a2230 });
-
-function crearNubes() {
-    const c = new Cubos(1);
-    const P = NUBE.periodo;
-    for (let i = -P; i < P; i++) {
-        for (let j = -P / 2; j < P / 2; j++) {
-            const n = ruidoCiclico(i * 0.11, j * 0.11, P * 0.11) * 0.6 + ruidoCiclico(i * 0.3 + 3, j * 0.3, P * 0.3) * 0.28 + ruidoCiclico(i * 0.75 + 7, j * 0.75, P * 0.75) * 0.12;
-            if (n < 0.52) continue;
-            const pisos = 1 + (n > 0.58 ? 1 : 0) + (n > 0.64 ? 1 : 0) + (n > 0.7 ? 1 : 0);
-            for (let y = 0; y < pisos; y++) c.poner(i, y, j, B.nube);
-        }
-    }
-    const m = c.mallas(true);
-    capaNubes = new THREE.Mesh(m.solida, materialNubes);
-    capaNubes.scale.set(NUBE.celda, NUBE.alto, NUBE.celda);
-    capaNubes.position.y = NUBE.y;
-    escena.add(capaNubes);
-    manto = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xaab8c6, fog: false }));
-    manto.position.y = -70;
-    escena.add(manto);
-}
 
 const lejos = new Cubos(4);
 
-function alturaLejos(wx, wz) {
-    const d = Math.hypot(wx, wz);
-    const sur = suave(0.2, 0.7, wz / Math.max(d, 1));
-    let h = (fbm2(wx * 0.009 + 11, wz * 0.009 + 3) - 0.4) * 130 * suave(110, 230, d) - 14;
-    h += Math.max(0, fbm2(wx * 0.03, wz * 0.03) - 0.5) * 60 * suave(110, 200, d);
-    h -= sur * 50 + 26;
-    const crest = Math.exp(-(((wx + 110) / 30) ** 2) - (((wz + 120) / 70) ** 2));
-    h += crest * 55 * (0.7 + 0.6 * ruido2(wx * 0.08, wz * 0.08));
-    const u = wz - 250;
-    const v = wx - 70;
-    if (u > -36 && u < 50 && Math.abs(v) < 16) {
-        const perfil = u < -28 ? 0 : 62 - Math.max(0, u + 20) * 0.6;
-        const g = perfil * Math.sqrt(Math.max(0, 1 - (v / 16) ** 2)) - 12;
-        h = Math.max(h, g);
-    }
-    return h;
-}
-
-function crearSierras() {
-    const n = 70;
-    for (let x = -n; x <= n; x++) {
-        for (let z = -n; z <= n; z++) {
-            const wx = x * 4;
-            const wz = z * 4;
-            if (Math.hypot(wx, wz) < 100) continue;
-            const h = alturaLejos(wx, wz);
-            if (h < NUBE.y + 2) continue;
-            const alto = Math.round(h / 4);
-            const bermeja = wx > 110 && wz < 90 && wz > -160;
-            const gibraltar = wz > 200;
-            for (let y = -11; y < alto; y++) {
-                const top = y === alto - 1;
+function crearAlrededores() {
+    const n = movil ? 66 : 88;
+    const altos = new Map();
+    const llave = (i, j) => i * 1000 + j;
+    const dentro = (i, j) => i * 4 < MITAD && i * 4 + 4 > -MITAD && j * 4 < MITAD && j * 4 + 4 > -MITAD;
+    for (let i = -n - 1; i <= n + 1; i++) for (let j = -n - 1; j <= n + 1; j++) altos.set(llave(i, j), Math.round(alturaBase(i * 4 + 2, j * 4 + 2) / 4));
+    const hojas = [B.hojaCobre, B.hojaDorada, B.hojaVerdosa, B.hojaRojiza, B.hojaCobre];
+    for (let i = -n; i <= n; i++) {
+        for (let j = -n; j <= n; j++) {
+            if (dentro(i, j)) continue;
+            const wx = i * 4 + 2;
+            const wz = j * 4 + 2;
+            const a = altos.get(llave(i, j));
+            if (a < 0 && wz > 60) continue;
+            let minimo = a;
+            [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([p, q]) => (minimo = Math.min(minimo, altos.get(llave(i + p, j + q)))));
+            const bermeja = wx > 110 && wz < 90 && wz > -200;
+            const gibraltar = wz > 170;
+            const h = a * 4;
+            for (let y = Math.min(a - 1, minimo - 1); y < a; y++) {
                 let b = bermeja ? B.peridotita : B.piedra;
-                if (top) {
-                    if (bermeja) b = alto > 8 ? B.peridotita : B.monte;
-                    else if (gibraltar || alto > 9) b = B.caliza;
-                    else b = B.monte;
-                }
-                lejos.poner(x, y, z, b);
+                if (y === a - 1) {
+                    if (a <= 0) b = wz > 60 ? B.arena : B.grava;
+                    else if (bermeja) b = h > 40 ? B.peridotita : B.monte;
+                    else if (gibraltar || h > 56) b = B.caliza;
+                    else if (h > 34) b = B.monte;
+                    else b = hash2(i, j) > 0.7 ? B.hierbaSeca : B.hierba;
+                } else if (!bermeja && a - y <= 2) b = B.tierra;
+                lejos.poner(i, y, j, b);
             }
-            if (!bermeja && !gibraltar && alto > 1 && alto < 9 && hash2(x * 1.7, z * 2.3) > 0.78) {
-                lejos.poner(x, alto, z, B.pinsapo);
-                if (hash2(x, z) > 0.5) lejos.poner(x, alto + 1, z, B.pinsapo);
+            if (!gibraltar && !bermeja && a >= 2 && h < 48 && wz < 110) {
+                const k = hash2(i * 1.7, j * 2.3);
+                if (k < fbm2(wx * 0.02, wz * 0.02 + 7) * 0.95) {
+                    lejos.poner(i, a, j, k < 0.12 ? B.hojaAlcornoque : hojas[Math.floor(hash2(i, j) * hojas.length)], 0.1);
+                    if (k < 0.05) lejos.poner(i, a + 1, j, B.hojaCobre, 0.1);
+                }
             }
         }
     }
+}
+
+let mar = null;
+
+function crearMar() {
+    mar = new THREE.Mesh(new THREE.PlaneGeometry(4000, 2000).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x2c6a8e }));
+    mar.position.set(0, -1.5, 1100);
+    mar.layers.set(1);
+    escena.add(mar);
 }
 
 
@@ -1718,6 +1670,152 @@ function moverBuitres(delta, t) {
 
 
 // =====================================================================
+// 14b. LAS PALOMAS DE LA PLAZA
+// Andan y picotean por el suelo. Si las tocas (o tocas cerca) salen
+// volando a los tejados y al rato vuelven a bajar.
+// =====================================================================
+
+const palomas = [];
+
+function puntoPlaza() {
+    const arboles = [[9.5, -2.5], [24.5, -3.5], [9.5, 1.5], [24.5, 1.5]];
+    for (let i = 0; i < 40; i++) {
+        const x = 9.5 + Math.random() * 15;
+        const z = -5.5 + Math.random() * 8;
+        if (x > 13.6 && x < 18.2 && z > -4.4 && z < -2) continue;
+        if (arboles.some(([a, b]) => Math.hypot(x - a, z - b) < 1.4)) continue;
+        return new THREE.Vector3(x, nivelPlaza, z);
+    }
+    return new THREE.Vector3(18, nivelPlaza, -1);
+}
+
+function crearPalomas() {
+    const gris = { c: [color("#8c919a"), color("#959aa3")] };
+    const oscuro = { c: color("#5a5f68") };
+    const cuello = { c: [color("#5f8a78"), color("#6a7a90")] };
+    const pico = { c: color("#3a3232") };
+    const pata = { c: color("#c4645a") };
+    const cuerpo = new Cubos(0.08);
+    for (let x = -2; x <= 2; x++) for (let z = -1; z <= 1; z++) for (let y = 1; y <= 2; y++) cuerpo.poner(x, y, z, gris);
+    cuerpo.poner(3, 2, 0, cuello);
+    cuerpo.poner(3, 3, 0, oscuro);
+    cuerpo.poner(4, 3, 0, pico);
+    for (let z = -1; z <= 1; z++) cuerpo.poner(-3, 2, z, oscuro);
+    cuerpo.poner(-4, 2, 0, oscuro);
+    cuerpo.poner(0, 0, 0, pata);
+    const ala = new Cubos(0.08);
+    for (let x = -2; x <= 1; x++) for (let z = 0; z <= 3; z++) ala.poner(x, 0, z, x === -1 && z < 3 ? oscuro : gris);
+    const gCuerpo = cuerpo.mallas().solida;
+    const gAla = ala.mallas().solida;
+    const material = materialBloques(0.08, { contraste: "0.92", rango: "0.16" });
+    for (let i = 0; i < ajustes.palomas; i++) {
+        const grupo = new THREE.Group();
+        const malla = new THREE.Mesh(gCuerpo, material);
+        malla.castShadow = true;
+        const izq = new THREE.Mesh(gAla, material);
+        const der = new THREE.Mesh(gAla, material);
+        izq.position.set(0, 0.2, 0.12);
+        der.position.set(0, 0.2, -0.12);
+        der.scale.z = -1;
+        grupo.add(malla, izq, der);
+        grupo.rotation.order = "YXZ";
+        escena.add(grupo);
+        const pos = puntoPlaza();
+        palomas.push({ grupo, izq, der, estado: "suelo", pos, rumbo: Math.random() * 6, objetivo: puntoPlaza(), pausa: Math.random() * 3, fase: Math.random() * 6, t: 0, dur: 1, desde: new THREE.Vector3(), hasta: new THREE.Vector3(), luego: "suelo", espera: 0 });
+    }
+}
+
+function volar(p, destino, luego) {
+    p.desde.copy(p.pos);
+    p.hasta.copy(destino);
+    p.dur = 0.8 + p.desde.distanceTo(destino) / 6;
+    p.t = 0;
+    p.luego = luego;
+    p.estado = "vuela";
+    p.rumbo = Math.atan2(destino.z - p.pos.z, destino.x - p.pos.x);
+}
+
+function asustarPalomas(punto, radio) {
+    let alguna = false;
+    palomas.forEach((p) => {
+        if (p.estado !== "suelo" || p.pos.distanceTo(punto) > radio) return;
+        const sitio = posaderos.length ? posaderos[Math.floor(Math.random() * posaderos.length)] : puntoPlaza().setY(nivelPlaza + 6);
+        setTimeout(() => volar(p, sitio, "tejado"), Math.random() * 250);
+        alguna = true;
+    });
+    if (alguna) sonarAleteo();
+}
+
+function palomaTocada(rayo) {
+    let mejor = null;
+    palomas.forEach((p) => {
+        if (rayo.distanceSqToPoint(p.pos) > 0.36) return;
+        const d = p.pos.distanceTo(rayo.origin);
+        if (!mejor || d < mejor.d) mejor = { d, p: p.pos.clone() };
+    });
+    return mejor;
+}
+
+let siguienteVuelo = 12;
+
+function moverPalomas(delta, t) {
+    siguienteVuelo -= delta;
+    if (siguienteVuelo < 0) {
+        siguienteVuelo = 15 + Math.random() * 25;
+        const p = palomas[Math.floor(Math.random() * palomas.length)];
+        if (p && p.estado === "suelo" && posaderos.length) volar(p, posaderos[Math.floor(Math.random() * posaderos.length)], "tejado");
+    }
+    palomas.forEach((p, i) => {
+        let pico = 0;
+        let alas = 0;
+        let alto = 0;
+        if (p.estado === "suelo") {
+            if (p.pausa > 0) {
+                p.pausa -= delta;
+                pico = Math.sin(t * 9 + i) > 0.4 ? -0.55 : 0;
+            } else {
+                const dx = p.objetivo.x - p.pos.x;
+                const dz = p.objetivo.z - p.pos.z;
+                const lejos = Math.hypot(dx, dz);
+                if (lejos < 0.1) {
+                    p.pausa = 1 + Math.random() * 4;
+                    p.objetivo = puntoPlaza();
+                } else {
+                    const deseado = Math.atan2(dz, dx);
+                    p.rumbo += Math.atan2(Math.sin(deseado - p.rumbo), Math.cos(deseado - p.rumbo)) * Math.min(1, delta * 6);
+                    const paso = Math.min(lejos, delta * 0.55);
+                    p.pos.x += Math.cos(p.rumbo) * paso;
+                    p.pos.z += Math.sin(p.rumbo) * paso;
+                    alto = Math.abs(Math.sin(t * 14 + i)) * 0.03;
+                    pico = Math.sin(t * 14 + i) * 0.12;
+                }
+            }
+        } else if (p.estado === "vuela") {
+            p.t = Math.min(1, p.t + delta / p.dur);
+            const k = p.t;
+            p.pos.lerpVectors(p.desde, p.hasta, k);
+            p.pos.y += Math.sin(k * Math.PI) * (1.5 + p.desde.distanceTo(p.hasta) * 0.15);
+            alas = Math.sin(t * 40 + i) * 0.9;
+            if (k >= 1) {
+                p.estado = p.luego;
+                p.espera = 8 + Math.random() * 14;
+                p.pausa = 1;
+                p.objetivo = puntoPlaza();
+            }
+        } else {
+            p.espera -= delta;
+            pico = Math.sin(t * 0.7 + i) > 0.95 ? -0.3 : 0;
+            if (p.espera < 0) volar(p, puntoPlaza(), "suelo");
+        }
+        p.grupo.position.set(p.pos.x, p.pos.y + alto, p.pos.z);
+        p.grupo.rotation.set(0, -p.rumbo, pico + (p.estado === "vuela" ? 0.15 : 0));
+        p.izq.rotation.x = -alas - (p.estado === "vuela" ? 0.3 : 0);
+        p.der.rotation.x = alas + (p.estado === "vuela" ? 0.3 : 0);
+    });
+}
+
+
+// =====================================================================
 // 15. PARTÍCULAS: HUMO, HOJAS, LUCIÉRNAGAS, LUCES Y ESPUMA
 // =====================================================================
 
@@ -1771,16 +1869,14 @@ let humo;
 let hojas;
 let luciernagas;
 let brillos;
-let espuma;
 
 function crearParticulas() {
     if (!origenHojas.length) origenHojas.push({ p: new THREE.Vector3(0, 20, 0), color: B.hojaCobre });
     const fuegos = chimeneas.slice(0, 6);
-    humo = particulas(fuegos.length ? 72 : 0, { tam: 1500, color: new THREE.Color(0.86, 0.87, 0.89), forma: "cuadro", ilumina: true });
-    hojas = particulas(90, { tam: 140, color: new THREE.Color(1, 1, 1), forma: "cuadro", ilumina: true, colores: true });
-    luciernagas = particulas(50, { tam: 260, color: new THREE.Color(0.75, 1, 0.35), aditivo: true });
-    brillos = particulas(luces.length, { tam: 2000, color: new THREE.Color(1, 0.7, 0.35), aditivo: true });
-    espuma = particulas(60, { tam: 1800, color: new THREE.Color(1, 1, 1), forma: "cuadro", ilumina: true });
+    humo = particulas(fuegos.length ? 72 : 0, { tam: 420, color: new THREE.Color(0.86, 0.87, 0.89), forma: "cuadro", ilumina: true });
+    hojas = particulas(90, { tam: 70, color: new THREE.Color(1, 1, 1), forma: "cuadro", ilumina: true, colores: true });
+    luciernagas = particulas(50, { tam: 160, color: new THREE.Color(0.75, 1, 0.35), aditivo: true });
+    brillos = particulas(luces.length, { tam: 900, color: new THREE.Color(1, 0.7, 0.35), aditivo: true });
     humo.fuegos = fuegos;
     for (let i = 0; i < humo.n; i++) {
         const c = fuegos[i % fuegos.length];
@@ -1801,11 +1897,10 @@ function crearParticulas() {
     luces.forEach((l, i) => brillos.pos.setXYZ(i, l.x, l.y, l.z));
     brillos.pos.needsUpdate = true;
     for (let i = 0; i < 50; i++) {
-        const x = -28 + Math.random() * 56;
+        const x = -50 + Math.random() * 100;
         luciernagas.vel[i].set(x, AGUA + 1 + Math.random() * 3, centroRio(x) + (Math.random() - 0.5) * 12);
         luciernagas.vida[i] = Math.random() * 100;
     }
-    for (let i = 0; i < espuma.n; i++) espuma.vida[i] = Math.random();
 }
 
 function reiniciarHoja(i, repartir) {
@@ -1843,15 +1938,6 @@ function moverParticulas(delta, t) {
         hojas.pos.setXYZ(i, x, Math.max(suelo, hojas.pos.getY(i) + hojas.vel[i].y * delta), z);
         hojas.datos.setXY(i, Math.max(0, Math.min(1, hojas.vida[i] * 4)), 1);
     }
-    for (let i = 0; i < espuma.n; i++) {
-        espuma.vida[i] -= delta * 0.5;
-        if (espuma.vida[i] <= 0) espuma.vida[i] = 1;
-        const v = espuma.vida[i];
-        const k = 1 - v;
-        const lado = ((i * 0.618) % 1 - 0.5) * anchoSalto * 0.9;
-        espuma.pos.setXYZ(i, salidaSalto.x + k * 2.5 + Math.sin(i) * 0.6, salidaSalto.y + 1 + k * 3, salidaSalto.z + lado + Math.cos(i * 1.7) * k);
-        espuma.datos.setXY(i, Math.sin(v * Math.PI) * 0.5, 0.6 + k * 1.5);
-    }
     const noche = comunes.uNoche.value;
     luciernagas.puntos.visible = noche > 0.02;
     if (noche > 0.02) {
@@ -1866,7 +1952,7 @@ function moverParticulas(delta, t) {
     }
     for (let i = 0; i < luces.length; i++) brillos.datos.setXY(i, (0.1 + noche * 0.9) * (0.92 + 0.08 * Math.sin(t * 9 + i)), 1);
     brillos.datos.needsUpdate = true;
-    [humo, hojas, espuma].forEach((p) => {
+    [humo, hojas].forEach((p) => {
         p.pos.needsUpdate = true;
         p.datos.needsUpdate = true;
     });
@@ -1953,7 +2039,6 @@ function aplicarMomento(delta) {
         materialFlores.uniforms.uCieloLuz.value.copy(cielo.color).multiplyScalar(cielo.intensity);
         materialFlores.uniforms.uFuerza.value = sol.intensity / 2.6;
     }
-    if (manto) manto.material.color.copy(escena.fog.color).multiplyScalar(0.5).add(auxColor.setRGB(0.05, 0.1, 0.16).multiplyScalar(1 - comunes.uNoche.value));
     if (materialSalto) materialSalto.uniforms.uLuz.value.copy(cielo.color).multiplyScalar(cielo.intensity * 0.6).add(auxColor.copy(comunes.uColorSol.value).multiplyScalar(sol.intensity * 0.12));
     sol.color.copy(comunes.uColorSol.value);
     sol.intensity += (m.intensidad - sol.intensity) * k;
@@ -1978,7 +2063,7 @@ document.querySelectorAll("[data-momento]").forEach((boton) => {
 
 
 // =====================================================================
-// 17. TOCAR: EL RÍO, EL CAMPANARIO Y EL CASTILLO
+// 17. MIRAR Y TOCAR: LAS PALOMAS, EL CAMPANARIO, EL CASTILLO Y EL RÍO
 // =====================================================================
 
 const rayo = new THREE.Raycaster();
@@ -1988,13 +2073,57 @@ const auxCorte = new THREE.Vector3();
 const pista = document.getElementById("pista");
 let pulsado = null;
 
-renderizador.domElement.addEventListener("pointerdown", (evento) => {
-    pulsado = { x: evento.clientX, y: evento.clientY };
-    controles.autoRotate = false;
+const punteros = new Map();
+let pellizco = 0;
+const lienzo = renderizador.domElement;
+
+lienzo.addEventListener("pointerdown", (evento) => {
+    punteros.set(evento.pointerId, { x: evento.clientX, y: evento.clientY });
+    lienzo.setPointerCapture(evento.pointerId);
+    pulsado = punteros.size === 1 ? { x: evento.clientX, y: evento.clientY } : null;
+    if (punteros.size === 2) {
+        const [a, b] = [...punteros.values()];
+        pellizco = Math.hypot(a.x - b.x, a.y - b.y);
+    }
+    orbita.auto = false;
     pista.classList.add("oculta");
 });
 
-renderizador.domElement.addEventListener("pointerup", (evento) => {
+lienzo.addEventListener("pointermove", (evento) => {
+    const antes = punteros.get(evento.pointerId);
+    if (!antes) return;
+    const dx = evento.clientX - antes.x;
+    const dy = evento.clientY - antes.y;
+    punteros.set(evento.pointerId, { x: evento.clientX, y: evento.clientY });
+    if (punteros.size === 2) {
+        const [a, b] = [...punteros.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (pellizco > 0) orbita.objetivoRadio = Math.max(16, Math.min(56, orbita.objetivoRadio * (pellizco / d)));
+        pellizco = d;
+        return;
+    }
+    const escala = 4.5 / Math.max(innerHeight, 400);
+    orbita.objetivoTheta = Math.max(-0.95, Math.min(1.15, orbita.objetivoTheta - dx * escala));
+    orbita.objetivoPhi = Math.max(1.12, Math.min(1.52, orbita.objetivoPhi - dy * escala));
+});
+
+const soltar = (evento) => {
+    punteros.delete(evento.pointerId);
+    if (punteros.size < 2) pellizco = 0;
+};
+
+lienzo.addEventListener("pointercancel", (evento) => {
+    soltar(evento);
+    pulsado = null;
+});
+
+lienzo.addEventListener("wheel", (evento) => {
+    evento.preventDefault();
+    orbita.objetivoRadio = Math.max(16, Math.min(56, orbita.objetivoRadio * (1 + evento.deltaY * 0.001)));
+}, { passive: false });
+
+lienzo.addEventListener("pointerup", (evento) => {
+    soltar(evento);
     if (!pulsado) return;
     const movido = Math.hypot(evento.clientX - pulsado.x, evento.clientY - pulsado.y);
     pulsado = null;
@@ -2004,9 +2133,15 @@ renderizador.domElement.addEventListener("pointerup", (evento) => {
     const toques = [];
     if (rayo.ray.intersectBox(zonaIglesia, auxCorte)) toques.push(["iglesia", auxCorte.distanceTo(rayo.ray.origin)]);
     if (rayo.ray.intersectBox(zonaCastillo, auxCorte)) toques.push(["castillo", auxCorte.distanceTo(rayo.ray.origin)]);
+    planoPlaza.constant = -nivelPlaza;
+    if (rayo.ray.intersectPlane(planoPlaza, auxCorte) && enPlaza(Math.floor(auxCorte.x), Math.floor(auxCorte.z))) {
+        toques.push(["plaza", auxCorte.distanceTo(rayo.ray.origin), auxCorte.clone()]);
+    }
     if (rayo.ray.intersectPlane(planoAgua, auxCorte) && dentroTrozo(Math.floor(auxCorte.x), Math.floor(auxCorte.z)) && alturaEn(Math.floor(auxCorte.x), Math.floor(auxCorte.z)) <= 3) {
         toques.push(["agua", auxCorte.distanceTo(rayo.ray.origin), auxCorte.clone()]);
     }
+    const paloma = palomaTocada(rayo.ray);
+    if (paloma) toques.push(["paloma", paloma.d, paloma.p]);
     if (!toques.length) return;
     toques.sort((a, b) => a[1] - b[1]);
     const [que, , punto] = toques[0];
@@ -2016,11 +2151,52 @@ renderizador.domElement.addEventListener("pointerup", (evento) => {
         sonarGota(0.6);
     } else if (que === "iglesia") {
         tocarCampanas();
-    } else {
+    } else if (que === "castillo") {
         buitres.forEach((b) => (b.aleteo = 0));
         sonarBuitre();
+    } else {
+        asustarPalomas(punto, que === "paloma" ? 3 : 6);
     }
 });
+
+const planoPlaza = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+const techos = new Map();
+
+function calcularTechos() {
+    mundo.mapa.forEach((v) => {
+        const k = k2(v.x, v.z);
+        techos.set(k, Math.max(techos.get(k) ?? -99, v.y + 1));
+    });
+    medio.mapa.forEach((v) => {
+        const k = k2(Math.floor(v.x / 2), Math.floor(v.z / 2));
+        techos.set(k, Math.max(techos.get(k) ?? -99, (v.y + 1) / 2));
+    });
+}
+
+function techoEn(x, z) {
+    let maximo = -99;
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) maximo = Math.max(maximo, techos.get(k2(Math.floor(x) + a, Math.floor(z) + b)) ?? alturaBase(Math.floor(x), Math.floor(z)));
+    return maximo;
+}
+
+function moverMirada(delta) {
+    if (orbita.auto) {
+        orbita.reloj += delta;
+        orbita.objetivoTheta = orbita.base + Math.sin(orbita.reloj * 0.06) * 0.7;
+    }
+    const k = delta <= 0 ? 1 : 1 - Math.exp(-delta * 6);
+    orbita.theta += (orbita.objetivoTheta - orbita.theta) * k;
+    orbita.phi += (orbita.objetivoPhi - orbita.phi) * k;
+    orbita.radio += (orbita.objetivoRadio - orbita.radio) * k;
+    const c = orbita.centro;
+    const sp = Math.sin(orbita.phi);
+    camara.position.set(c.x + Math.sin(orbita.theta) * sp * orbita.radio, c.y + Math.cos(orbita.phi) * orbita.radio, c.z + Math.cos(orbita.theta) * sp * orbita.radio);
+    const falta = Math.max(0, techoEn(camara.position.x, camara.position.z) + 2.5 - camara.position.y);
+    orbita.alzado += (falta - orbita.alzado) * (delta <= 0 ? 1 : 1 - Math.exp(-delta * 4));
+    camara.position.y += Math.max(orbita.alzado, falta * 0.6);
+    camara.lookAt(c);
+}
 
 function tocarCampanas() {
     campanas.forEach((c, i) => (c.velocidad += i === 0 ? 2.6 : -2.2));
@@ -2122,6 +2298,28 @@ function sonarCampanas() {
     for (let i = 0; i < 4; i++) golpeCampana(i % 2 === 0 ? 392 : 330, i * 0.75);
 }
 
+function sonarAleteo() {
+    if (!audio || !sonidoActivo) return;
+    const ctx = audio.ctx;
+    const dur = 0.7;
+    const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+    const datos = buffer.getChannelData(0);
+    for (let i = 0; i < datos.length; i++) {
+        const t = i / ctx.sampleRate;
+        datos[i] = (Math.random() * 2 - 1) * Math.max(0, Math.sin(t * Math.PI * 2 * 11)) * (1 - t / dur);
+    }
+    const fuente = ctx.createBufferSource();
+    fuente.buffer = buffer;
+    const filtro = ctx.createBiquadFilter();
+    filtro.type = "bandpass";
+    filtro.frequency.value = 1400;
+    const vol = ctx.createGain();
+    vol.gain.value = 0.35;
+    fuente.connect(filtro).connect(vol).connect(audio.general);
+    fuente.start();
+    fuente.onended = () => fuente.disconnect();
+}
+
 function sonarBuitre() {
     if (!audio || !sonidoActivo) return;
     pitido(900, 500, 0.25, 0.03, 0, "sawtooth");
@@ -2199,17 +2397,21 @@ if (parametros.get("tarjetas") === "no") mostrarTarjetas(false);
 // 20. TAMAÑO, CARGA Y BUCLE
 // =====================================================================
 
-function ajustarTamano() {
+function ajustarFov() {
     camara.aspect = innerWidth / innerHeight;
-    camara.fov = camara.aspect < 1 ? 60 : 46;
+    camara.fov = camara.aspect < 1 ? 64 : orbita.fov;
     camara.updateProjectionMatrix();
+}
+
+function ajustarTamano() {
+    ajustarFov();
     renderizador.setSize(innerWidth, innerHeight);
     const tam = renderizador.getDrawingBufferSize(new THREE.Vector2());
     if (objetivoReflejo) objetivoReflejo.dispose();
     objetivoReflejo = new THREE.WebGLRenderTarget(Math.round(tam.x * ajustes.reflejo), Math.round(tam.y * ajustes.reflejo), { type: THREE.HalfFloatType });
     materialAgua.uniforms.tReflejo.value = objetivoReflejo.texture;
     const escala = tam.y / 900;
-    [humo, hojas, luciernagas, brillos, espuma].forEach((p) => p && (p.material.uniforms.uEscala.value = escala));
+    [humo, hojas, luciernagas, brillos].forEach((p) => p && (p.material.uniforms.uEscala.value = escala));
 }
 
 window.addEventListener("resize", ajustarTamano);
@@ -2219,7 +2421,6 @@ const reloj = new THREE.Clock();
 const planoRecorte = new THREE.Plane(new THREE.Vector3(0, 1, 0), -AGUA + 0.05);
 let listo = false;
 let fotograma = 0;
-let desplazamientoNubes = 0;
 
 function construir() {
     calcularAlturas();
@@ -2231,21 +2432,24 @@ function construir() {
     crearCastillo();
     crearVegetacion();
     crearBancoRio();
-    crearSierras();
+    crearAlrededores();
     añadir(mundo, "");
     añadir(medio, "medio");
     añadir(fino, "fina");
-    añadir(lejos, "lejos", false, true);
-    crearNubes();
+    añadir(lejos, "lejos", false, true).forEach((m) => m.layers.set(1));
+    crearMar();
     crearAgua();
     crearTruchas();
     crearBuitres();
+    crearPalomas();
     materialFlores = crearFlores();
     crearParticulas();
+    calcularTechos();
+    if (innerWidth < innerHeight) orbita.radio = orbita.objetivoRadio = 46;
     ajustarTamano();
     aplicarMomento(-1);
     cambiarMomento(momento);
-    if (camara.aspect < 1) camara.position.set(92, 66, 116);
+    moverMirada(0);
     renderizador.compile(escena, camara);
     listo = true;
     cargando.classList.add("oculta");
@@ -2254,13 +2458,11 @@ function construir() {
 
 function dibujar() {
     fotograma++;
-    if (!movil || fotograma % 2 === 1) {
+    if (fotograma % 2 === 1) {
         camaraReflejo.copy(camara);
         camaraReflejo.position.y = 2 * AGUA - camara.position.y;
-        const mira = controles.target.clone();
-        mira.y = 2 * AGUA - mira.y;
-        camaraReflejo.up.set(0, 1, 0);
-        camaraReflejo.lookAt(mira);
+        camaraReflejo.rotation.set(-camara.rotation.x, camara.rotation.y, 0, "YXZ");
+        camaraReflejo.layers.set(0);
         camaraReflejo.updateMatrixWorld();
         materialAgua.uniforms.uReflejoVP.value.multiplyMatrices(camaraReflejo.projectionMatrix, camaraReflejo.matrixWorldInverse);
         agua.visible = false;
@@ -2284,10 +2486,8 @@ function animar() {
     const delta = Math.min(reloj.getDelta(), 0.1);
     const t = (comunes.uTiempo.value += delta);
     aplicarMomento(delta);
-    controles.update();
-    const periodo = NUBE.periodo * NUBE.celda;
-    desplazamientoNubes = (desplazamientoNubes + delta * 0.8) % periodo;
-    capaNubes.position.x = desplazamientoNubes - periodo / 2;
+    moverMirada(delta);
+    moverPalomas(delta, t);
     vidaDelAgua(delta);
     moverTruchas(delta);
     moverBuitres(delta, t);
