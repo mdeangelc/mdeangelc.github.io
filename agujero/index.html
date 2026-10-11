@@ -4,11 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Horizonte de sucesos | Miguel Ángel Calvente Medina</title>
-    <meta name="description" content="Un agujero negro calculado en directo con three.js y shaders: la luz se curva, el disco gira y cada planeta con mi información cae dentro al pasar. Por Miguel Ángel Calvente Medina.">
+    <meta name="description" content="Un agujero negro calculado en directo con three.js y shaders: la luz se curva, el disco gira y mis secciones flotan en burbujas que el agujero se traga letra a letra. Por Miguel Ángel Calvente Medina.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="estilo.css?v=1">
+    <link rel="stylesheet" href="estilo.css?v=2">
     <script type="importmap">
         {
             "imports": {
@@ -21,28 +21,27 @@
 <body>
     <header class="cabecera">
         <h1>Horizonte de sucesos</h1>
-        <p>Desliza para avanzar</p>
+        <p>Toca una burbuja</p>
         <a class="volver" href="../">Volver al portfolio</a>
     </header>
 
     <nav class="controles">
         <button id="boton-sonido" aria-pressed="false">Sonido</button>
-        <button id="boton-paisaje" aria-pressed="false">Ocultar texto</button>
     </nav>
 
-    <nav class="puntos" aria-label="Secciones">
-        <button class="activo" aria-label="Hola"></button>
-        <button aria-label="Sobre mí"></button>
-        <button aria-label="Habilidades"></button>
-        <button aria-label="Formación"></button>
-        <button aria-label="Contacto"></button>
+    <nav class="atajos" aria-label="Secciones">
+        <button>Hola</button>
+        <button>Sobre mí</button>
+        <button>Habilidades</button>
+        <button>Formación</button>
+        <button>Contacto</button>
     </nav>
 
     <main class="secciones">
-        <article class="seccion activa">
+        <article class="seccion">
             <p class="numero">Hola</p>
             <h2>Miguel Ángel Calvente Medina</h2>
-            <p>Desarrollador web en Málaga. Cada planeta guarda una parte de mí. Cuando lo hayas leído, desliza y caerá al agujero negro.</p>
+            <p>Desarrollador web en Málaga. Cada burbuja guarda una parte de mí. Cuando la cierres, el agujero negro se tragará las letras y luego la burbuja, pero volverá a salir.</p>
         </article>
 
         <article class="seccion">
@@ -79,14 +78,14 @@
         <article class="seccion">
             <p class="numero">04</p>
             <h2>Contacto</h2>
-            <p>Este planeta no cae. Si quieres hablar de un proyecto o de unas prácticas, escríbeme.</p>
+            <p>Si quieres hablar de un proyecto o de unas prácticas, escríbeme.</p>
             <a class="enlace" href="https://github.com/mdeangelc" target="_blank" rel="noopener">GitHub</a>
         </article>
     </main>
 
-    <p class="pista" id="pista">Desliza hacia arriba</p>
+    <p class="pista" id="pista">Toca una burbuja</p>
     <p class="cargando" id="cargando">Curvando la luz...</p>
 
-    <script type="module" src="escena.js?v=1"></script>
+    <script type="module" src="escena.js?v=2"></script>
 </body>
 </html>
