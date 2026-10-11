@@ -119,8 +119,8 @@ canvas {
 
 .cartel {
     position: fixed;
-    left: 50%;
-    top: 18%;
+    right: 32px;
+    top: 50%;
     z-index: 3;
     width: min(380px, calc(100% - 32px));
     padding: 18px 20px 16px;
@@ -130,14 +130,14 @@ canvas {
     font-size: 21px;
     line-height: 1.15;
     opacity: 0;
-    transform: translate(-50%, 24px) scale(0.96);
+    transform: translate(32px, -50%);
     pointer-events: none;
     transition: opacity 0.35s, transform 0.35s steps(4);
 }
 
 .cartel.visible {
     opacity: 1;
-    transform: translate(-50%, 0) scale(1);
+    transform: translate(0, -50%);
     pointer-events: auto;
 }
 
@@ -227,7 +227,13 @@ canvas {
 
     .cartel {
         top: 64px;
+        right: 16px;
         font-size: 19px;
+        transform: translate(32px, 0);
+    }
+
+    .cartel.visible {
+        transform: translate(0, 0);
     }
 
     .cartel h2 {
