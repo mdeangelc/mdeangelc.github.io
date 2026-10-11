@@ -15,10 +15,10 @@ const movil = matchMedia("(pointer: coarse)").matches || Math.min(innerWidth, in
 const ajustes = {
     resolucionMax: movil ? 1.5 : 2,
     sombra: movil ? 1024 : 2048,
-    reflejo: movil ? 0.4 : 0.5,
+    reflejo: movil ? 0.5 : 0.6,
     ondas: movil ? 0.75 : 1,
-    terreno: movil ? 170 : 240,
-    hojasPorArbol: movil ? 13 : 18,
+    terreno: movil ? 220 : 320,
+    hojasPorArbol: movil ? 16 : 24,
     luciernagas: movil ? 40 : 60
 };
 
@@ -47,7 +47,7 @@ const bordeIzquierdo = (z) => -5.6 + 1.7 * suave(-4, -9, z) - 3.2 * suave(-15, -
 const bordeDerecho = (z) => 6.6 - 1.0 * suave(-6, -12, z) + 3.4 * suave(-17, -27, z) + 0.6 * Math.sin(z * 0.3 + 0.4) + 0.3 * Math.sin(z * 0.9 + 2.0);
 
 const perfiles = [
-    (d) => 0.42 * suave(0, 0.8, d) + Math.max(0, d - 6) * 0.15,
+    (d) => 0.42 * suave(0, 0.8, d) + Math.max(0, d - 8) * 0.18,
     (d) => 0.7 * suave(0, 1.5, d) + Math.max(0, d - 3) * 0.3,
     (d) => 2.4 * suave(0, 3.2, d) + Math.max(0, d - 3) * 0.45,
     (d) => 0.32 * suave(0, 3, d) + Math.max(0, d - 4) * 0.45
@@ -100,7 +100,7 @@ escena.fog = new THREE.FogExp2(0xa8c2d6, 0.0042);
 
 const camara = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 1400);
 const camaraReflejo = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 1400);
-const POSICION_BASE = new THREE.Vector3(0.15, 2.15, 5.0);
+const POSICION_BASE = new THREE.Vector3(0.2, 2.3, 6.9);
 const objetivoVista = new THREE.Vector3();
 
 const sol = new THREE.DirectionalLight(0xffffff, 3);
@@ -184,13 +184,16 @@ function materialProcedural(colorGLSL, opciones = {}) {
     const material = new THREE.MeshStandardMaterial({
         roughness: opciones.rugosidad ?? 0.95,
         metalness: 0,
-        side: opciones.lado || THREE.FrontSide
+        side: opciones.lado || THREE.FrontSide,
+        vertexColors: !!opciones.coloresVertice
     });
+    const clave = colorGLSL + JSON.stringify(opciones);
+    material.customProgramCacheKey = () => clave;
     material.onBeforeCompile = (shader) => {
         shader.uniforms.uTiempo = comunes.uTiempo;
         const conZona = opciones.zona ? "attribute vec2 aZona;\nvarying vec2 vZona;\n" : "";
         shader.vertexShader = shader.vertexShader
-            .replace("#include <common>", "#include <common>\nvarying vec3 vMundo;\nvarying vec3 vNormalMundo;\nvarying vec3 vLocal;\n" + conZona)
+            .replace("#include <common>", "#include <common>\nvarying vec3 vMundo;\nvarying vec3 vNormalMundo;\nvarying vec3 vLocal;\nvarying vec3 vNormalLocal;\n" + conZona)
             .replace(
                 "#include <worldpos_vertex>",
                 `#include <worldpos_vertex>
@@ -204,10 +207,11 @@ function materialProcedural(colorGLSL, opciones = {}) {
                 vMundo = puntoMundo.xyz;
                 vNormalMundo = normalize(mat3(modelMatrix) * normalMundo);
                 vLocal = position;
+                vNormalLocal = objectNormal;
                 ${opciones.zona ? "vZona = aZona;" : ""}`
             );
         shader.fragmentShader = shader.fragmentShader
-            .replace("#include <common>", "#include <common>\nvarying vec3 vMundo;\nvarying vec3 vNormalMundo;\nvarying vec3 vLocal;\nuniform float uTiempo;\n" + (opciones.zona ? "varying vec2 vZona;\n" : "") + GLSL_RUIDO + colorGLSL)
+            .replace("#include <common>", "#include <common>\nvarying vec3 vMundo;\nvarying vec3 vNormalMundo;\nvarying vec3 vLocal;\nvarying vec3 vNormalLocal;\nuniform float uTiempo;\n" + (opciones.zona ? "varying vec2 vZona;\n" : "") + GLSL_RUIDO + colorGLSL)
             .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= colorProcedural(vMundo, normalize(vNormalMundo), vLocal);")
             .replace(
                 "#include <aomap_fragment>",
@@ -240,6 +244,16 @@ vec3 colorProcedural(vec3 p, vec3 n, vec3 l) {
     vec3 c = mix(tierra, grava, playa);
     c = mix(c, bosque, monte);
     c = mix(c, roca, smoothstep(0.32, 0.6, pendiente) * (0.35 + 0.65 * monte));
+    float limpio = (1.0 - monte) * (1.0 - playa) * smoothstep(0.1, 0.3, h) * smoothstep(-3.0, 1.0, p.z);
+    vec2 ch = floor(p.xz * 4.0);
+    vec2 qh = fract(p.xz * 4.0) - 0.25 - 0.5 * vec2(hash12(ch), hash12(ch + 7.0));
+    float ah = hash12(ch + 3.0) * 6.2832;
+    qh = mat2(cos(ah), sin(ah), -sin(ah), cos(ah)) * qh;
+    float hojaSeca = step(0.55, hash12(ch + 11.0)) * smoothstep(1.0, 0.8, length(qh / vec2(0.16, 0.07)));
+    c = mix(c, mix(vec3(0.62, 0.45, 0.24), vec3(0.78, 0.66, 0.36), hash12(ch + 5.0)), hojaSeca * limpio * 0.85);
+    vec2 db = p.xz - vec2(BANCO_X, BANCO_Z);
+    db = mat2(cos(BANCO_G), sin(BANCO_G), -sin(BANCO_G), cos(BANCO_G)) * db;
+    c *= 1.0 - smoothstep(1.0, 0.25, length(db / vec2(0.95, 0.32))) * 0.4;
     float bajo = smoothstep(0.02, -0.25, h);
     c = mix(c, lecho, bajo);
     float mojado = smoothstep(0.12, 0.0, h) * (1.0 - bajo);
@@ -251,12 +265,12 @@ vec3 colorProcedural(vec3 p, vec3 n, vec3 l) {
 const COLOR_CALIZA = `
 vec3 colorProcedural(vec3 p, vec3 n, vec3 l) {
     float estratos = sin(p.y * 5.0 + fbm(p.xz * 0.7) * 4.0) * 0.5 + 0.5;
-    vec3 c = mix(vec3(0.76, 0.75, 0.72), vec3(0.58, 0.57, 0.55), estratos * 0.6);
-    c *= 0.65 + 0.45 * ruido3(p * 1.4) * (0.7 + 0.3 * ruido3(p * 6.0));
+    vec3 c = mix(vec3(0.78, 0.75, 0.69), vec3(0.64, 0.61, 0.56), estratos * 0.5);
+    c *= 0.8 + 0.25 * ruido3(p * 1.4) * (0.75 + 0.25 * ruido3(p * 7.0));
     float churrete = smoothstep(0.55, 0.8, ruido(vec2((p.x + p.z) * 2.6, p.y * 0.35)));
     c = mix(c, vec3(0.3, 0.29, 0.27), churrete * 0.55 * (1.0 - abs(n.y)));
-    float oxido = smoothstep(0.62, 0.8, ruido3(p * 0.35 + 7.0));
-    c = mix(c, vec3(0.72, 0.5, 0.32), oxido * 0.4);
+    float oxido = smoothstep(0.6, 0.85, ruido3(p * 0.5 + 7.0));
+    c = mix(c, vec3(0.7, 0.6, 0.48), oxido * 0.3);
     float musgo = smoothstep(0.55, 0.85, n.y) * smoothstep(0.45, 0.7, ruido3(p * 0.8));
     c = mix(c, vec3(0.34, 0.4, 0.17), musgo * 0.65);
     c *= 1.0 - smoothstep(0.3, 0.0, p.y) * 0.45;
@@ -280,29 +294,29 @@ vec3 colorProcedural(vec3 p, vec3 n, vec3 l) {
 }
 `;
 
-const COLOR_TABLA = `
+const COLOR_BANCO = `
 vec3 colorProcedural(vec3 p, vec3 n, vec3 l) {
-    vec3 c = vec3(0.6, 0.53, 0.44);
-    float veta = sin(l.y * 90.0 + fbm(l.xz * vec2(1.5, 18.0)) * 8.0) * 0.5 + 0.5;
-    c *= 0.82 + 0.18 * veta;
-    float grieta = smoothstep(0.82, 0.9, ruido(vec2(l.x * 2.0, l.z * 40.0)));
-    c *= 1.0 - grieta * 0.55;
-    float lado = step(0.7, abs(l.x) / 0.75);
-    float anillos = sin(length(l.yz) * 160.0) * 0.5 + 0.5;
-    c = mix(c, vec3(0.66, 0.56, 0.42) * (0.8 + 0.2 * anillos), lado * step(0.995, abs(l.x) / 0.75));
-    c *= 0.85 + 0.25 * fbm(l.xz * 6.0);
-    return pow(c, vec3(2.2));
-}
-`;
-
-const COLOR_TRONCO = `
-vec3 colorProcedural(vec3 p, vec3 n, vec3 l) {
-    vec3 c = vec3(0.56, 0.48, 0.38);
-    float veta = sin(atan(l.y, l.x) * 26.0 + fbm(l.xz * vec2(6.0, 2.0)) * 5.0) * 0.5 + 0.5;
-    c *= 0.78 + 0.22 * veta;
-    float tapa = step(0.205, abs(l.z));
-    float anillos = sin(length(l.xy) * 140.0) * 0.5 + 0.5;
-    c = mix(c, vec3(0.7, 0.6, 0.45) * (0.82 + 0.18 * anillos), tapa);
+    vec3 nl = normalize(vNormalLocal);
+    float r = length(l.yz);
+    float ang = atan(l.z, l.y);
+    vec3 corteza = mix(vec3(0.42, 0.37, 0.31), vec3(0.62, 0.57, 0.5), ruido(vec2(ang * 5.0, l.x * 2.5)));
+    float surcos = smoothstep(0.25, 0.8, ruido(vec2(ang * 30.0, l.x * 0.9)));
+    corteza *= 0.6 + 0.4 * surcos;
+    corteza = mix(corteza, vec3(0.5, 0.52, 0.4), smoothstep(0.6, 0.85, ruido(vec2(ang * 3.0, l.x * 2.0))) * 0.3);
+    vec3 madera = vec3(0.78, 0.73, 0.64);
+    float veta = sin(l.z * 130.0 + fbm(l.xz * vec2(1.2, 18.0)) * 8.0) * 0.5 + 0.5;
+    madera *= 0.82 + 0.18 * veta;
+    float grieta = smoothstep(0.78, 0.86, ruido(vec2(l.x * 0.9, l.z * 45.0)));
+    madera = mix(madera, vec3(0.25, 0.22, 0.19), grieta * 0.8);
+    madera *= 0.86 + 0.18 * fbm(l.xz * 5.0);
+    float anillos = smoothstep(0.35, 0.65, sin(r * 230.0 + ruido(l.yz * 18.0) * 3.0) * 0.5 + 0.5);
+    vec3 testa = mix(vec3(0.72, 0.64, 0.52), vec3(0.56, 0.47, 0.36), anillos * 0.7);
+    testa *= 1.0 - smoothstep(0.93, 0.97, ruido(vec2(ang * 2.5, 3.0))) * smoothstep(0.02, 0.08, r) * 0.6;
+    testa = mix(testa, vec3(0.3, 0.26, 0.22), smoothstep(RADIO * 0.88, RADIO * 0.96, r));
+    float esTesta = smoothstep(0.75, 0.92, abs(nl.x));
+    float esPlano = smoothstep(0.75, 0.95, nl.y) * PLANO;
+    vec3 c = mix(corteza, madera, esPlano);
+    c = mix(c, testa, esTesta);
     return pow(c, vec3(2.2));
 }
 `;
@@ -330,14 +344,14 @@ function crearTerreno() {
         const u = pos.getX(i) * 2;
         const v = pos.getZ(i) + 0.5;
         const x = 1 + Math.sign(u) * Math.pow(Math.abs(u), 1.6) * 60;
-        const z = 9 - Math.pow(1 - v, 1.7) * 160;
+        const z = 12 - Math.pow(1 - v, 1.7) * 163;
         const h = altura(x, z);
         pos.setXYZ(i, x, h, z);
         zona.set(zonas(x, z, h), i * 2);
     }
     geometria.setAttribute("aZona", new THREE.BufferAttribute(zona, 2));
     geometria.computeVertexNormals();
-    const suelo = new THREE.Mesh(geometria, materialProcedural(COLOR_TERRENO, { zona: true }));
+    const suelo = new THREE.Mesh(geometria, materialProcedural(`#define BANCO_X ${BANCO.x.toFixed(3)}\n#define BANCO_Z ${BANCO.z.toFixed(3)}\n#define BANCO_G ${BANCO.giro.toFixed(3)}\n` + COLOR_TERRENO, { zona: true }));
     suelo.receiveShadow = true;
     escena.add(suelo);
 }
@@ -350,20 +364,29 @@ function piedraBlanda(detalle, fuerza, frecuencia) {
     const pos = geometria.attributes.position;
     const v = new THREE.Vector3();
     const semillaPiedra = azar() * 100;
+    const factores = new Float32Array(pos.count);
     for (let i = 0; i < pos.count; i++) {
         v.fromBufferAttribute(pos, i);
         let k = 1 + ruido.noise3d(v.x * frecuencia + semillaPiedra, v.y * frecuencia, v.z * frecuencia) * fuerza;
         k += ruido.noise3d(v.x * 2.4, v.y * 2.4 + semillaPiedra, v.z * 2.4) * fuerza * 0.18;
+        factores[i] = k;
         v.multiplyScalar(k);
         if (v.y < -0.2) v.y = -0.2 + (v.y + 0.2) * 0.4;
         pos.setXYZ(i, v.x, v.y, v.z);
     }
+    const media = factores.reduce((a, b) => a + b, 0) / factores.length;
+    const colores = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+        const ao = Math.max(0.62, Math.min(1.0, 0.9 + (factores[i] - media) * 1.8));
+        colores.set([ao, ao, ao], i * 3);
+    }
+    geometria.setAttribute("color", new THREE.BufferAttribute(colores, 3));
     geometria.computeVertexNormals();
     return geometria;
 }
 
 function crearRocas() {
-    const material = materialProcedural(COLOR_CALIZA, { rugosidad: 0.85 });
+    const material = materialProcedural(COLOR_CALIZA, { rugosidad: 0.85, coloresVertice: true });
     const rocas = [
         [-5.5, -0.7, 1.8, 1.4, 1.5, 0.3],
         [-7.4, -0.9, 2.2, 1.9, 1.9, 1.1],
@@ -407,24 +430,52 @@ function crearPenon() {
     escena.add(penon);
 }
 
+function troncoBanco(radio, largo, plano) {
+    const geometria = new THREE.CylinderGeometry(radio, radio, largo, 56, 30, false);
+    geometria.rotateZ(Math.PI / 2);
+    const pos = geometria.attributes.position;
+    const v = new THREE.Vector3();
+    const semillaTronco = azar() * 50;
+    for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i);
+        const r = Math.hypot(v.y, v.z);
+        if (r > 0.001) {
+            const ang = Math.atan2(v.z, v.y);
+            const k = 1 + ruido.noise(v.x * 3 + semillaTronco, ang * 1.5) * 0.04 + ruido.noise(v.x * 14, ang * 7 + semillaTronco) * 0.012;
+            v.y *= k;
+            v.z *= k;
+        }
+        if (plano !== undefined && v.y > plano) v.y = plano + ruido.noise(v.x * 9, v.z * 9) * 0.002;
+        v.x += ruido.noise(v.y * 6 + semillaTronco, v.z * 6) * 0.012 * Math.sign(v.x) * (Math.abs(v.x) > largo * 0.49 ? 1 : 0);
+        pos.setXYZ(i, v.x, v.y, v.z);
+    }
+    geometria.computeVertexNormals();
+    return geometria;
+}
+
+let banco = null;
+const BANCO = { x: 0.7, z: 2.35, giro: 0.36 };
+
 function crearBanco() {
-    const banco = new THREE.Group();
-    const tabla = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.13, 0.38, 12, 2, 4), materialProcedural(COLOR_TABLA, { rugosidad: 0.9 }));
-    tabla.position.y = 0.44;
-    const pie = new THREE.CylinderGeometry(0.17, 0.17, 0.42, 20);
-    pie.rotateX(Math.PI / 2);
-    const materialPie = materialProcedural(COLOR_TRONCO, { rugosidad: 0.95 });
-    [-0.55, 0.55].forEach((x) => {
-        const p = new THREE.Mesh(pie, materialPie);
-        p.position.set(x, 0.2, 0);
-        p.rotation.z = (azar() - 0.5) * 0.4;
-        p.castShadow = p.receiveShadow = true;
-        banco.add(p);
+    banco = new THREE.Group();
+    const asiento = new THREE.Mesh(
+        troncoBanco(0.2, 1.6, 0.05),
+        materialProcedural("#define RADIO 0.2\n#define PLANO 1.0\n" + COLOR_BANCO, { rugosidad: 0.88 })
+    );
+    asiento.position.y = 0.47;
+    asiento.rotation.x = 0.03;
+    asiento.castShadow = asiento.receiveShadow = true;
+    banco.add(asiento);
+    const materialPie = materialProcedural("#define RADIO 0.16\n#define PLANO 0.0\n" + COLOR_BANCO, { rugosidad: 0.95 });
+    [[-0.55, 0.05], [0.56, -0.08]].forEach(([x, giro]) => {
+        const pie = new THREE.Mesh(troncoBanco(0.16, 0.46), materialPie);
+        pie.rotation.y = Math.PI / 2 + giro;
+        pie.position.set(x, 0.14, 0);
+        pie.castShadow = pie.receiveShadow = true;
+        banco.add(pie);
     });
-    tabla.castShadow = tabla.receiveShadow = true;
-    banco.add(tabla);
-    banco.position.set(0.75, altura(0.75, 2.3) - 0.02, 2.3);
-    banco.rotation.y = 0.38;
+    banco.position.set(BANCO.x, altura(BANCO.x, BANCO.z) - 0.02, BANCO.z);
+    banco.rotation.y = BANCO.giro;
     escena.add(banco);
 }
 
@@ -437,30 +488,42 @@ function crearBanco() {
 // =====================================================================
 
 function texturaHojas() {
-    const lado = 512;
+    const lado = 1024;
     const lienzo = document.createElement("canvas");
     lienzo.width = lienzo.height = lado;
     const g = lienzo.getContext("2d");
+    const mitad = lado / 2;
     for (let cuadro = 0; cuadro < 4; cuadro++) {
-        const ox = (cuadro % 2) * 256 + 128;
-        const oy = Math.floor(cuadro / 2) * 256 + 128;
-        const n = 210;
+        const ox = (cuadro % 2) * mitad + mitad / 2;
+        const oy = Math.floor(cuadro / 2) * mitad + mitad / 2;
+        const n = 300;
         for (let i = 0; i < n; i++) {
-            const r = Math.pow(azar(), 0.6) * 108;
+            const r = Math.pow(azar(), 0.6) * mitad * 0.42;
             const a = azar() * Math.PI * 2;
-            const largo = 6 + azar() * 6;
-            const tono = 0.55 + (i / n) * 0.45 + (azar() - 0.5) * 0.15;
+            const largo = 10 + azar() * 12;
+            const ancho = largo * (0.36 + azar() * 0.14);
+            const capa = i / n;
+            const luz = 0.5 + capa * 0.5 + (azar() - 0.5) * 0.12;
+            const matiz = (azar() - 0.5) * 0.18;
+            const rojo = Math.round(Math.min(255, (165 + matiz * 220) * luz));
+            const verde = Math.round(Math.min(255, 215 * luz));
+            const azul = Math.round(Math.min(255, (110 - matiz * 160) * luz));
             g.save();
             g.translate(ox + Math.cos(a) * r, oy + Math.sin(a) * r);
             g.rotate(azar() * Math.PI * 2);
-            g.fillStyle = `rgb(${Math.round(175 * tono)}, ${Math.round(215 * tono)}, ${Math.round(120 * tono)})`;
+            const degradado = g.createLinearGradient(0, -ancho, 0, ancho);
+            degradado.addColorStop(0, `rgb(${Math.min(255, rojo + 25)}, ${Math.min(255, verde + 25)}, ${azul + 10})`);
+            degradado.addColorStop(1, `rgb(${Math.round(rojo * 0.72)}, ${Math.round(verde * 0.72)}, ${Math.round(azul * 0.72)})`);
+            g.fillStyle = degradado;
             g.beginPath();
-            g.ellipse(0, 0, largo, largo * 0.5, 0, 0, Math.PI * 2);
+            g.moveTo(-largo, 0);
+            g.quadraticCurveTo(-largo * 0.2, -ancho * 1.5, largo, 0);
+            g.quadraticCurveTo(-largo * 0.2, ancho * 1.5, -largo, 0);
             g.fill();
-            g.strokeStyle = "rgba(70, 90, 40, 0.45)";
-            g.lineWidth = 1.2;
+            g.strokeStyle = `rgba(60, 80, 30, 0.35)`;
+            g.lineWidth = 1;
             g.beginPath();
-            g.moveTo(-largo * 0.9, 0);
+            g.moveTo(-largo, 0);
             g.lineTo(largo * 0.9, 0);
             g.stroke();
             g.restore();
@@ -468,7 +531,7 @@ function texturaHojas() {
     }
     const textura = new THREE.CanvasTexture(lienzo);
     textura.colorSpace = THREE.SRGBColorSpace;
-    textura.anisotropy = 4;
+    textura.anisotropy = renderizador.capabilities.getMaxAnisotropy();
     return textura;
 }
 
@@ -534,43 +597,87 @@ function repartirArboles() {
     arbol(10.2, -6.4, 9, 2.4, 0.7, { estirado: 1.4 });
 }
 
-const ramas = [];
+function rama(puntos, r0, r1, material) {
+    const curva = new THREE.CatmullRomCurve3(puntos);
+    const tramos = 18;
+    const lados = 10;
+    const geometria = new THREE.TubeGeometry(curva, tramos, 1, lados, false);
+    const pos = geometria.attributes.position;
+    const centro = new THREE.Vector3();
+    const v = new THREE.Vector3();
+    for (let i = 0; i <= tramos; i++) {
+        const t = i / tramos;
+        curva.getPointAt(t, centro);
+        const radio = THREE.MathUtils.lerp(r0, r1, Math.pow(t, 0.8)) * (1 + ruido.noise(t * 9, r0 * 50) * 0.08);
+        for (let k = 0; k <= lados; k++) {
+            const indice = i * (lados + 1) + k;
+            v.fromBufferAttribute(pos, indice).sub(centro).multiplyScalar(radio).add(centro);
+            pos.setXYZ(indice, v.x, v.y, v.z);
+        }
+    }
+    geometria.computeVertexNormals();
+    const malla = new THREE.Mesh(geometria, material);
+    malla.castShadow = true;
+    malla.receiveShadow = true;
+    escena.add(malla);
+    return curva;
+}
+
+function mataEn(p, tam, tono, exterior, copa) {
+    matas.centros.push(p.x, p.y, p.z);
+    matas.datos.push(tam, azar(), tono, exterior);
+    matas.copas.push(copa.x, copa.y, copa.z);
+}
+
+const hojasDelante = { desde: 0, hasta: 0 };
 
 function arbolDelante() {
-    const base = new THREE.Vector3(-1.05, altura(-1.05, 2.45) - 0.1, 2.45);
-    const punta = new THREE.Vector3(-1.6, 7.2, 1.7);
-    ramas.push({ desde: base, hasta: punta, r0: 0.075, r1: 0.035 });
-    const brazos = [
-        [0.42, new THREE.Vector3(1.9, 4.1, 0.1)],
-        [0.55, new THREE.Vector3(0.7, 4.9, -0.9)],
-        [0.62, new THREE.Vector3(-2.2, 5.0, 0.4)],
-        [0.75, new THREE.Vector3(0.2, 6.6, 0.2)]
-    ];
-    brazos.forEach(([t, fin]) => {
-        const inicio = base.clone().lerp(punta, t);
-        ramas.push({ desde: inicio, hasta: fin, r0: 0.045, r1: 0.015 });
-        for (let i = 0; i < (movil ? 11 : 20); i++) {
-            const k = 0.12 + azar() * 0.95;
-            const p = inicio.clone().lerp(fin, Math.min(1.05, k));
-            p.x += (azar() - 0.5) * 0.9;
-            p.y += (azar() - 0.3) * 0.7;
-            p.z += (azar() - 0.5) * 0.9;
-            matas.centros.push(p.x, p.y, p.z);
-            matas.datos.push(0.55 + azar() * 0.4, azar(), 0.95 + azar() * 0.05, 0.55 + azar() * 0.45);
-            matas.copas.push(p.x - 0.2, p.y - 0.6, p.z + 0.2);
-        }
-    });
+    hojasDelante.desde = matas.centros.length / 3;
     const material = materialProcedural(COLOR_CORTEZA, { rugosidad: 0.9 });
-    ramas.forEach((r) => {
-        const largo = r.desde.distanceTo(r.hasta);
-        const geo = new THREE.CylinderGeometry(r.r1, r.r0, largo, 10, 4);
-        geo.translate(0, largo / 2, 0);
-        const malla = new THREE.Mesh(geo, material);
-        malla.position.copy(r.desde);
-        malla.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), r.hasta.clone().sub(r.desde).normalize());
-        malla.castShadow = true;
-        escena.add(malla);
-    });
+    const y0 = altura(-1.05, 2.45);
+    const tronco = rama([
+        new THREE.Vector3(-1.05, y0 - 0.15, 2.45),
+        new THREE.Vector3(-0.98, y0 + 1.6, 2.38),
+        new THREE.Vector3(-1.16, y0 + 3.2, 2.25),
+        new THREE.Vector3(-1.08, y0 + 4.7, 2.05),
+        new THREE.Vector3(-1.32, y0 + 6.2, 1.85),
+        new THREE.Vector3(-1.45, y0 + 7.6, 1.7)
+    ], 0.085, 0.025, material);
+    const copa = new THREE.Vector3(-0.4, y0 + 5.2, 1.2);
+    const n = movil ? 7 : 9;
+    for (let b = 0; b < n; b++) {
+        const t = 0.32 + (b / n) * 0.6 + azar() * 0.05;
+        const inicio = tronco.getPointAt(t);
+        const giro = -0.6 + (b / n) * 4.2 + (azar() - 0.5) * 0.6;
+        const subida = 0.35 + azar() * 0.5;
+        const largo = (2.6 - t * 1.4) * (0.8 + azar() * 0.4);
+        const dir = new THREE.Vector3(Math.cos(giro) * Math.cos(subida), Math.sin(subida), -Math.sin(giro) * Math.cos(subida));
+        const medio = inicio.clone().addScaledVector(dir, largo * 0.5).add(new THREE.Vector3(0, -0.12, 0));
+        const fin = inicio.clone().addScaledVector(dir, largo).add(new THREE.Vector3(0, 0.35, 0));
+        const curva = rama([inicio, medio, fin], 0.03 * (1.2 - t * 0.5), 0.006, material);
+        const hojas = movil ? 8 : 12;
+        for (let k = 0; k < hojas; k++) {
+            const u = 0.35 + azar() * 0.7;
+            const p = curva.getPointAt(Math.min(1, u)).add(new THREE.Vector3((azar() - 0.5) * 0.7, (azar() - 0.2) * 0.5, (azar() - 0.5) * 0.7));
+            mataEn(p, 0.5 + azar() * 0.35, 0.82 + azar() * 0.18, 0.55 + azar() * 0.45, copa);
+        }
+        for (let r = 0; r < 2; r++) {
+            const u = 0.45 + azar() * 0.4;
+            const desde = curva.getPointAt(u);
+            const ramita = dir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), (azar() - 0.5) * 1.6).add(new THREE.Vector3(0, 0.6, 0)).normalize();
+            const hasta = desde.clone().addScaledVector(ramita, 0.5 + azar() * 0.5);
+            rama([desde, desde.clone().lerp(hasta, 0.5).add(new THREE.Vector3(0, 0.05, 0)), hasta], 0.009, 0.003, material);
+            for (let k = 0; k < (movil ? 2 : 3); k++) {
+                const p = hasta.clone().add(new THREE.Vector3((azar() - 0.5) * 0.5, (azar() - 0.3) * 0.4, (azar() - 0.5) * 0.5));
+                mataEn(p, 0.45 + azar() * 0.3, 0.85 + azar() * 0.15, 0.7 + azar() * 0.3, copa);
+            }
+        }
+    }
+    for (let k = 0; k < (movil ? 8 : 12); k++) {
+        const p = tronco.getPointAt(0.8 + azar() * 0.2).add(new THREE.Vector3((azar() - 0.5) * 1.4, azar() * 0.8, (azar() - 0.5) * 1.4));
+        mataEn(p, 0.55 + azar() * 0.35, 0.8 + azar() * 0.2, 0.6 + azar() * 0.4, copa);
+    }
+    hojasDelante.hasta = matas.centros.length / 3;
 }
 
 let materialMatas = null;
@@ -633,11 +740,11 @@ function crearCopas() {
             void main() {
                 if (uRecorte > 0.5 && vMundo.y < 0.0) discard;
                 vec4 t = texture2D(tHojas, vUv);
-                float nivel = log2(max(max(fwidth(vUv.x), fwidth(vUv.y)) * 512.0, 1.0));
+                float nivel = log2(max(max(fwidth(vUv.x), fwidth(vUv.y)) * 1024.0, 1.0));
                 if (t.a * (1.0 + 0.45 * nivel) < 0.5) discard;
                 vec3 oscuro = vec3(0.05, 0.09, 0.035);
                 vec3 medio = vec3(0.13, 0.22, 0.06);
-                vec3 claro = vec3(0.32, 0.46, 0.12);
+                vec3 claro = vec3(0.27, 0.39, 0.12);
                 vec3 tinte = vDatos.z < 0.5 ? mix(oscuro, medio, vDatos.z * 2.0) : mix(medio, claro, vDatos.z * 2.0 - 1.0);
                 vec3 base = t.rgb * tinte * 2.2;
                 vec3 n = normalize(vNormal);
@@ -678,6 +785,17 @@ function crearJuncos() {
         [4.0, -2.4, 16, 0.6], [-0.35, 2.15, 14, 0.35], [-1.25, 2.7, 12, 0.3], [3.3, 2.6, 10, 0.3],
         [-3.0, -13.5, 20, 0.8], [2.0, -18.6, 26, 0.9], [-1.5, -19.2, 22, 0.8], [4.4, -15.8, 18, 0.7]
     ];
+    for (let x = -5; x <= 6; x += 0.45 + azar() * 0.5) {
+        const z = orillaCerca(x) + 0.05 + azar() * 0.35;
+        if (Math.abs(x - 0.4) < 0.5) continue;
+        matas.push([x, z, 6 + Math.floor(azar() * 10), 0.25 + azar() * 0.35]);
+    }
+    for (let i = 0; i < 26; i++) {
+        const x = -4 + azar() * 9;
+        const z = 2.8 + azar() * 5;
+        if (Math.abs(x - BANCO.x) < 1.1 && Math.abs(z - BANCO.z) < 0.7) continue;
+        matas.push([x, z, 5 + Math.floor(azar() * 7), 0.12 + azar() * 0.18]);
+    }
     const posiciones = [];
     const datos = [];
     matas.forEach(([x, z, n, alto]) => {
@@ -1007,7 +1125,8 @@ const materialAgua = new THREE.ShaderMaterial({
         uColorAgua: { value: new THREE.Color(0.2, 0.46, 0.4) },
         uExposicion: { value: 1 },
         uFundido: { value: 0 },
-        uSalida: { value: 1 }
+        uSalida: { value: 1 },
+        uPixel: { value: new THREE.Vector2(1, 1) }
     },
     vertexShader: VERTICE_PANTALLA,
     fragmentShader: `
@@ -1038,7 +1157,37 @@ const materialAgua = new THREE.ShaderMaterial({
         uniform float uExposicion;
         uniform float uFundido;
         uniform float uSalida;
+        uniform vec2 uPixel;
         varying vec2 vUv;
+
+        float brillo(vec3 c) {
+            float l = dot(c, vec3(0.299, 0.587, 0.114));
+            return l / (1.0 + l);
+        }
+
+        vec3 suavizado(vec2 uv) {
+            vec3 m = texture2D(tColor, uv).rgb;
+            vec3 no = texture2D(tColor, uv + vec2(-1.0, 1.0) * uPixel).rgb;
+            vec3 ne = texture2D(tColor, uv + vec2(1.0, 1.0) * uPixel).rgb;
+            vec3 so = texture2D(tColor, uv + vec2(-1.0, -1.0) * uPixel).rgb;
+            vec3 se = texture2D(tColor, uv + vec2(1.0, -1.0) * uPixel).rgb;
+            float lm = brillo(m);
+            float lno = brillo(no);
+            float lne = brillo(ne);
+            float lso = brillo(so);
+            float lse = brillo(se);
+            float minimo = min(lm, min(min(lno, lne), min(lso, lse)));
+            float maximo = max(lm, max(max(lno, lne), max(lso, lse)));
+            if (maximo - minimo < 0.04) return m;
+            vec2 dir = vec2(-((lno + lne) - (lso + lse)), (lno + lso) - (lne + lse));
+            float reduce = max((lno + lne + lso + lse) * 0.03125, 0.0078);
+            float inverso = 1.0 / (min(abs(dir.x), abs(dir.y)) + reduce);
+            dir = clamp(dir * inverso, -8.0, 8.0) * uPixel;
+            vec3 a = 0.5 * (texture2D(tColor, uv - dir / 6.0).rgb + texture2D(tColor, uv + dir / 6.0).rgb);
+            vec3 b = a * 0.5 + 0.25 * (texture2D(tColor, uv - dir * 0.5).rgb + texture2D(tColor, uv + dir * 0.5).rgb);
+            float lb = brillo(b);
+            return (lb < minimo || lb > maximo) ? a : b;
+        }
 
         vec3 rayo(vec2 uv) {
             vec4 p = uProyeccionInversa * vec4(uv * 2.0 - 1.0, 1.0, 1.0);
@@ -1069,7 +1218,7 @@ const materialAgua = new THREE.ShaderMaterial({
         }
 
         void main() {
-            vec3 color = texture2D(tColor, vUv).rgb / uSalida;
+            vec3 color = suavizado(vUv) / uSalida;
             vec3 dir = rayo(vUv);
             if (dir.y < -0.0005 && uCamaraPos.y > 0.0) {
                 float t = -uCamaraPos.y / dir.y;
@@ -1119,14 +1268,20 @@ const materialAgua = new THREE.ShaderMaterial({
                     vec3 medio = normalize(uSol - dir);
                     agua += uColorSol * (pow(max(dot(n, medio), 0.0), 900.0) * 6.0 + pow(max(dot(n, medio), 0.0), 120.0) * 0.15);
 
-                    float orilla = smoothstep(0.0, 0.07, max(0.0, profundidadEscena - profundidadAgua));
+                    float grosor = max(0.0, profundidadEscena - profundidadAgua);
+                    float linea = smoothstep(0.015, 0.05, grosor) * smoothstep(0.22, 0.07, grosor) * lejania;
+                    agua += (uCieloLuz * 0.25 + uColorSol * 0.15) * linea * (0.6 + 0.4 * sin(P.x * 7.0 + P.z * 5.0 + uTiempo * 1.5));
+                    float orilla = smoothstep(0.0, 0.05, grosor);
                     float niebla = 1.0 - exp(-pow(uDensidad * t, 2.0));
                     agua = mix(agua, uNiebla, niebla);
                     color = mix(color, agua, orilla);
                 }
             }
             color = aces(color * uExposicion);
-            color = pow(color, vec3(1.0 / 2.2));
+            float gris = dot(color, vec3(0.299, 0.587, 0.114));
+            color = mix(vec3(gris), color, 1.08);
+            color = mix(color, color * color * (3.0 - 2.0 * color), 0.18);
+            color = pow(max(color, 0.0), vec3(1.0 / 2.2));
             vec2 d = vUv - 0.5;
             color *= 1.0 - dot(d, d) * 0.35;
             gl_FragColor = vec4(color * uFundido, 1.0);
@@ -1193,11 +1348,8 @@ function moverHojasCayendo(delta) {
             h.espera -= delta;
             auxEscala.setScalar(0.0001);
             if (h.espera <= 0) {
-                const k = Math.floor(azar() * (matas.centros.length / 3));
+                const k = hojasDelante.desde + Math.floor(azar() * (hojasDelante.hasta - hojasDelante.desde));
                 h.p.set(matas.centros[k * 3], matas.centros[k * 3 + 1], matas.centros[k * 3 + 2]);
-                if (h.p.z > 3.2 || h.p.y < 2) {
-                    h.p.set(-0.5 + azar() * 2.2, 4 + azar(), 0.5 - azar() * 1.5);
-                }
                 h.estado = "cae";
             }
         } else if (h.estado === "cae") {
@@ -1682,6 +1834,7 @@ function ajustarTamano() {
     materialAgua.uniforms.tColor.value = objetivoOpaco.texture;
     materialAgua.uniforms.tProfundidad.value = objetivoOpaco.depthTexture;
     materialAgua.uniforms.tReflejo.value = objetivoReflejo.texture;
+    materialAgua.uniforms.uPixel.value.set(1 / ancho, 1 / alto);
 }
 
 let tamanoPendiente = null;
@@ -1762,7 +1915,7 @@ function colocarCamara(delta) {
     camara.position.copy(POSICION_BASE);
     camara.position.x += mirada.x * 0.45 + Math.sin(t * 0.21) * 0.04;
     camara.position.y += -mirada.y * 0.18 + Math.sin(t * 0.33) * 0.02;
-    objetivoVista.set(0.6 + mirada.x * 1.5, aspecto < 1 ? -0.6 : 0.9, -12);
+    objetivoVista.set(0.5 + mirada.x * 1.5, aspecto < 1 ? -0.45 : 0.75, -12);
     objetivoVista.y -= mirada.y * 0.8;
     camara.lookAt(objetivoVista);
     camara.updateMatrixWorld();
