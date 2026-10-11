@@ -16,15 +16,15 @@ const parametros = new URLSearchParams(location.search);
 const movil = window.innerWidth < 760 || window.matchMedia("(pointer: coarse)").matches;
 const movimientoReducido = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const tocarHierba = parametros.get("tocar") !== "no";
-const factorCalidad = (parametros.get("calidad") === "baja" ? 0.4 : 1) * (movil ? 0.4 : 1);
+const factorCalidad = (parametros.get("calidad") === "baja" ? 0.4 : 1) * (movil ? 0.45 : 1);
 
 // Largo de cada trozo del mundo (en metros)
 const LARGO_TROZO = 25;
 
 const ajustes = {
-    hierba: Math.floor(100000 * factorCalidad),
-    largoHierba: 58,
-    anchoHierba: 22,
+    hierba: Math.floor(150000 * factorCalidad),
+    largoHierba: 70,
+    anchoHierba: 26,
     tamanoPixel: movil ? 2.5 : 3,
     largoTrozo: LARGO_TROZO,
     trozosDelante: 5,
@@ -1054,13 +1054,19 @@ function crearHierba() {
 
             void main() {
                 float d = length(vMundo - cameraPosition);
-                if (smoothstep(32.0, 54.0, d) > tramado(gl_FragCoord.xy)) discard;
+                if (smoothstep(40.0, 66.0, d) > tramado(gl_FragCoord.xy)) discard;
                 vec3 punta = uPunta * (0.7 + vAzar * 0.55);
                 if (vAzar > 0.93) punta *= vec3(1.35, 1.1, 0.6);
                 punta = mix(punta, punta * vec3(1.18, 1.08, 0.72), smoothstep(0.6, 0.85, vMancha));
                 punta = mix(punta, punta * vec3(0.78, 0.9, 1.0), 1.0 - smoothstep(0.15, 0.35, vMancha));
                 vec3 color = mix(uBase, punta, vAltura);
+                // Florecillas sueltas en la punta de algunas briznas
+                if (vAzar > 0.984 && vAltura > 0.8) {
+                    color = vMancha > 0.66 ? vec3(1.0, 0.86, 0.45) : (vMancha > 0.33 ? vec3(0.95, 0.62, 0.8) : vec3(0.92, 0.92, 1.0));
+                }
                 color *= uAmbiente * 1.3 + uLuz * (0.3 + 0.5 * vAltura);
+                // Las puntas brillan con la luz del sol (a contraluz, al atardecer)
+                color += uLuz * pow(vAltura, 4.0) * 0.16 * (1.0 - uNoche);
                 color += vec3(1.0, 0.55, 0.22) * luzFarolas(vMundo) * uNoche * (0.03 + vAltura * 0.13);
                 color = mix(color, uNiebla, smoothstep(14.0, 95.0, d) * 0.88);
                 gl_FragColor = vec4(color, 1.0);
