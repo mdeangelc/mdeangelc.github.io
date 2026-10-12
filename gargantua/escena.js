@@ -20,6 +20,7 @@ const parametros = new URLSearchParams(location.search);
 const movil = matchMedia("(pointer: coarse)").matches || Math.min(innerWidth, innerHeight) < 600;
 const ajustes = {
     resolucionMax: movil ? 1.5 : 1.75,
+    resolucionMin: movil ? 0.75 : 1,
     sombra: movil ? 1024 : 2048,
     polvo: movil ? 70 : 120,
     estrellas: movil ? 500 : 900,
@@ -225,19 +226,25 @@ const gasGlsl = `
         float ang = (phi - uTiempo * omega) / 6.2832 + uDesfase;
         float n = texture2D(tRuido, vec2(ang, r * 0.16 + uDesfase)).r;
         float fino = texture2D(tRuido, vec2(ang * 3.0, r * 0.6 + 0.37)).r;
+        #ifdef GAS_SENCILLO
+        float hebras = 0.5;
+        #else
         float hebras = texture2D(tRuido, vec2(ang * 9.0, r * 2.2 + 0.11)).r;
+        #endif
         float polvo = smoothstep(0.55, 0.8, texture2D(tRuido, vec2(ang + 0.5, r * 0.09 + 0.61)).r) * smoothstep(0.12, 0.6, x);
         float perfil = smoothstep(-0.02, 0.05, x) * pow(clamp(1.0 - x, 0.0, 1.0), 1.15);
         float anillos = 0.6 + 0.4 * sin(r * 14.0 - uTiempo * 1.1 + n * 4.0) * sin(r * 4.6 + uTiempo * 0.4);
         float densidad = smoothstep(0.22, 0.75, n) * (0.45 + 0.75 * fino) * (0.7 + 0.6 * hebras) * anillos;
         densidad = mix(densidad, 1.0, smoothstep(0.14, 0.0, x));
         float manchas = 0.0;
+        #ifndef GAS_SENCILLO
         for (int i = 0; i < 6; i++) {
             float ri = 1.6 + float(i) * 0.5;
             float ai = uTiempo * 1.5 * pow(ri / DENTRO, -1.5) + float(i) * 2.3;
             float da = atan(sin(phi - ai), cos(phi - ai)) * ri;
             manchas += exp(-pow(da / (0.35 + float(i) * 0.12), 2.0) - pow((r - ri) / 0.1, 2.0)) * (0.6 + 0.4 * sin(uTiempo * 2.0 + float(i)));
         }
+        #endif
         float temperatura = pow(DENTRO / r, 1.4);
         vec3 col = mix(vec3(0.38, 0.13, 0.05), vec3(1.0, 0.46, 0.16), smoothstep(0.1, 0.42, temperatura));
         col = mix(col, vec3(1.0, 0.78, 0.5), smoothstep(0.42, 0.75, temperatura));
@@ -273,7 +280,7 @@ function materialGas(modo, opciones = {}) {
             .replace("#include <common>", "#include <common>\nvarying vec3 vLocalG;")
             .replace("#include <begin_vertex>", "#include <begin_vertex>\nvLocalG = position;");
         shader.fragmentShader = shader.fragmentShader
-            .replace("#include <common>", "#include <common>\nvarying vec3 vLocalG;\nuniform float uFuerzaCapa;\n" + gasGlsl)
+            .replace("#include <common>", "#include <common>\nvarying vec3 vLocalG;\n" + (fuerza < 0.5 ? "#define GAS_SENCILLO\n" : "") + gasGlsl)
             .replace(
                 "#include <color_fragment>",
                 `#include <color_fragment>
@@ -318,7 +325,7 @@ const brillar = (o) => {
 };
 
 const sombra = brillar(new THREE.Mesh(
-    new THREE.SphereGeometry(1, 128, 96),
+    new THREE.SphereGeometry(1, 64, 48),
     new THREE.MeshPhysicalMaterial({ color: 0x010102, roughness: 0.18, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.08, envMapIntensity: 0.12 })
 ));
 sombra.castShadow = true;
@@ -329,7 +336,7 @@ function discoConVolumen(grosorMax) {
     const dentro = 1.3;
     const fuera = 4.85;
     const grosor = (r) => grosorMax * Math.pow(1 - (r - dentro) / (fuera - dentro), 0.8) + 0.006;
-    const n = 80;
+    const n = 28;
     for (let i = 0; i <= n; i++) {
         const r = dentro + ((fuera - dentro) * i) / n;
         perfil.push(new THREE.Vector2(r, -grosor(r)));
@@ -339,7 +346,7 @@ function discoConVolumen(grosorMax) {
         perfil.push(new THREE.Vector2(r, grosor(r)));
     }
     perfil.push(perfil[0].clone());
-    return new THREE.LatheGeometry(perfil, 256);
+    return new THREE.LatheGeometry(perfil, 144);
 }
 
 [[0.06, 1, 0], [0.16, 0.3, 0.37], [0.28, 0.14, 0.71]].forEach(([grosor, fuerza, desfase], i) => {
@@ -352,7 +359,7 @@ function arco(dentro, fuera, desde, largo, grosor) {
     const forma = new THREE.Shape();
     forma.absarc(0, 0, fuera, desde, desde + largo, false);
     forma.absarc(0, 0, dentro, desde + largo, desde, true);
-    const geo = new THREE.ExtrudeGeometry(forma, { depth: grosor, bevelEnabled: true, bevelThickness: grosor * 0.6, bevelSize: grosor * 0.6, bevelSegments: 3, curveSegments: 160 });
+    const geo = new THREE.ExtrudeGeometry(forma, { depth: grosor, bevelEnabled: true, bevelThickness: grosor * 0.6, bevelSize: grosor * 0.6, bevelSegments: 2, curveSegments: 72 });
     geo.translate(0, 0, -grosor / 2);
     return geo;
 }
@@ -370,7 +377,10 @@ anillo2.renderOrder = 9;
 arcos.add(arcoArriba2, arcoArriba, arcoAbajo, anillo, anillo2);
 agujero.add(arcos);
 
+let texturaHaloHecha = null;
+
 function texturaHalo() {
+    if (texturaHaloHecha) return texturaHaloHecha;
     const lienzo = document.createElement("canvas");
     lienzo.width = lienzo.height = 128;
     const g = lienzo.getContext("2d");
@@ -381,7 +391,8 @@ function texturaHalo() {
     d.addColorStop(1, "rgba(255, 255, 255, 0)");
     g.fillStyle = d;
     g.fillRect(0, 0, 128, 128);
-    return new THREE.CanvasTexture(lienzo);
+    texturaHaloHecha = new THREE.CanvasTexture(lienzo);
+    return texturaHaloHecha;
 }
 
 const halos = [];
@@ -432,8 +443,10 @@ const estrellas = (() => {
 class PaseBrillo extends Pass {
     constructor() {
         super();
-        const op = { type: THREE.HalfFloatType };
-        this.a = new THREE.WebGLRenderTarget(1, 1, op);
+        const gl = renderizador.getContext();
+        const flotante = renderizador.capabilities.isWebGL2 && !!(gl.getExtension("EXT_color_buffer_float") || gl.getExtension("EXT_color_buffer_half_float"));
+        const op = { type: flotante ? THREE.HalfFloatType : THREE.UnsignedByteType, depthBuffer: false };
+        this.a = new THREE.WebGLRenderTarget(1, 1, { ...op, depthBuffer: true });
         this.b = new THREE.WebGLRenderTarget(1, 1, op);
         this.c = new THREE.WebGLRenderTarget(1, 1, op);
         this.d = new THREE.WebGLRenderTarget(1, 1, op);
@@ -500,6 +513,7 @@ class PaseBrillo extends Pass {
         });
         this.cuadro = new FullScreenQuad();
         this.negro = new THREE.Color(0, 0, 0);
+        this.bolaNegra = new THREE.MeshBasicMaterial({ color: 0x000000 });
         this.antes = new THREE.Color();
     }
 
@@ -533,11 +547,14 @@ class PaseBrillo extends Pass {
             renderizador.getClearColor(this.antes);
         const alfaAntes = renderizador.getClearAlpha();
         camara.layers.set(CAPA_BRILLO);
+        const materialBola = sombra.material;
+        sombra.material = this.bolaNegra;
         renderizador.setClearColor(this.negro, 1);
         renderizador.setRenderTarget(this.a);
         renderizador.clear();
         renderizador.render(escena, camara);
         camara.layers.mask = mascara;
+        sombra.material = materialBola;
         renderizador.setClearColor(this.antes, alfaAntes);
         this.recortar.uniforms.tEntrada.value = this.a.texture;
         this.pasada(renderizador, this.recortar, this.b);
@@ -617,6 +634,8 @@ function aplicarModo() {
     comunes.uTinta.value = m.tinta;
     halos.forEach((h) => (h.userData.modo = m.halo));
     estrellas.material.opacity = m.estrellas * 0.85;
+    estrellas.visible = m.estrellas > 0;
+    halos.forEach((h) => (h.visible = m.halo > 0));
     brillo.mezclar.uniforms.uFuerza.value = m.brillo;
     document.body.classList.toggle("oscuro", modo === "oscuro");
     botonModo.textContent = modo === "oscuro" ? "Claro" : "Oscuro";
@@ -708,13 +727,52 @@ function ajustarTamano() {
     enfoque.uniforms.uTexel.value.set(1 / innerWidth, 1 / innerHeight);
 }
 
-window.addEventListener("resize", ajustarTamano);
+// Aleja la cámara lo justo para que el disco quepa a lo ancho, sobre
+// todo con el móvil en vertical
+function encuadrar() {
+    const mitad = Math.atan(Math.tan(THREE.MathUtils.degToRad(camara.fov / 2)) * camara.aspect);
+    const lejos = Math.min(controles.maxDistance, Math.max(16, 4.2 / Math.tan(mitad)));
+    auxV.subVectors(camara.position, controles.target).setLength(lejos);
+    camara.position.copy(controles.target).add(auxV);
+}
+
+window.addEventListener("resize", () => {
+    ajustarTamano();
+    encuadrar();
+});
+
+// Si el aparato no llega a unos 28 fotogramas por segundo se baja un
+// poco la resolución, y si va sobrado se vuelve a subir
+const ritmo = { suma: 0, cuenta: 0, espera: 2, actual: renderizador.getPixelRatio(), fija: parametros.has("fijo") };
+
+function adaptarResolucion(delta) {
+    if (ritmo.fija) return;
+    ritmo.espera -= delta;
+    ritmo.suma += delta;
+    ritmo.cuenta++;
+    if (ritmo.cuenta < 40 || ritmo.espera > 0) return;
+    const media = (ritmo.suma / ritmo.cuenta) * 1000;
+    ritmo.suma = 0;
+    ritmo.cuenta = 0;
+    const tope = Math.min(devicePixelRatio || 1, ajustes.resolucionMax);
+    let nueva = ritmo.actual;
+    if (media > 36) nueva = Math.max(ajustes.resolucionMin, ritmo.actual - 0.25);
+    else if (media < 20) nueva = Math.min(tope, ritmo.actual + 0.125);
+    if (nueva === ritmo.actual) return;
+    ritmo.actual = nueva;
+    ritmo.espera = 1.5;
+    renderizador.setPixelRatio(nueva);
+    compositor.setPixelRatio(nueva);
+    ajustarTamano();
+}
 
 function animar() {
     requestAnimationFrame(animar);
     if (!listo) return;
-    const delta = Math.min(reloj.getDelta(), 0.1);
+    const real = reloj.getDelta();
+    const delta = Math.min(real, 0.1);
     const t = (comunes.uTiempo.value += delta);
+    if (real < 0.5) adaptarResolucion(real);
     controles.update();
     orientarAgujero();
     const pulso = (comunes.uPulso.value *= Math.exp(-delta * 1.1));
@@ -731,7 +789,7 @@ function animar() {
 requestAnimationFrame(() => {
     ajustarTamano();
     aplicarModo();
-    if (camara.aspect < 1) camara.position.set(1.6, 6.3, 16.5);
+    encuadrar();
     controles.update();
     orientarAgujero();
     moverPolvo(0);
