@@ -75,7 +75,7 @@ escena.add(sol);
 const relleno = new THREE.HemisphereLight(0xf2f4ff, 0xd8d2cc, 0.45);
 escena.add(relleno);
 
-const comunes = { uTiempo: { value: 0 }, uVista: { value: new THREE.Vector3(0, 0, 1) }, uLuzGas: { value: 1 }, uTinta: { value: 0 } };
+const comunes = { uTiempo: { value: 0 }, uVista: { value: new THREE.Vector3(0, 0, 1) }, uLuzGas: { value: 1 }, uTinta: { value: 0 }, uPulso: { value: 0 }, uOnda: { value: 9 } };
 
 
 // =====================================================================
@@ -86,7 +86,7 @@ const comunes = { uTiempo: { value: 0 }, uVista: { value: new THREE.Vector3(0, 0
 // =====================================================================
 
 const MODOS = {
-    claro: { arriba: [0.66, 0.66, 0.69], horizonte: [0.8, 0.8, 0.82], abajo: [0.72, 0.72, 0.74], sombra: 0.22, sol: 1.4, relleno: 0.45, gas: 0.8, tinta: 1, reflejo: 0.6, halo: 0.25, brillo: 0.3, estrellas: 0 },
+    claro: { arriba: [0.66, 0.66, 0.69], horizonte: [0.8, 0.8, 0.82], abajo: [0.72, 0.72, 0.74], sombra: 0.22, sol: 1.4, relleno: 0.45, gas: 0.8, tinta: 1, reflejo: 1.1, halo: 0.25, brillo: 0.3, estrellas: 0 },
     oscuro: { arriba: [0.004, 0.005, 0.01], horizonte: [0.02, 0.022, 0.035], abajo: [0.008, 0.009, 0.015], sombra: 0.5, sol: 0.35, relleno: 0.12, gas: 1, tinta: 0, reflejo: 0.55, halo: 1, brillo: 0.55, estrellas: 1 }
 };
 
@@ -124,25 +124,42 @@ const suelo = new THREE.Mesh(new THREE.CircleGeometry(40, 64).rotateX(-Math.PI /
 suelo.receiveShadow = true;
 escena.add(suelo);
 
-const reflejo = (() => {
-    const lienzo = document.createElement("canvas");
-    lienzo.width = lienzo.height = 256;
-    const g = lienzo.getContext("2d");
-    const d = g.createRadialGradient(128, 128, 0, 128, 128, 128);
-    d.addColorStop(0, "rgba(255, 170, 110, 1)");
-    d.addColorStop(0.3, "rgba(255, 130, 80, 0.45)");
-    d.addColorStop(0.65, "rgba(220, 100, 70, 0.1)");
-    d.addColorStop(1, "rgba(200, 90, 60, 0)");
-    g.fillStyle = d;
-    g.fillRect(0, 0, 256, 256);
-    const t = new THREE.CanvasTexture(lienzo);
-    t.colorSpace = THREE.SRGBColorSpace;
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(13, 13).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.5 }));
-    m.position.y = 0.01;
-    m.renderOrder = 1;
-    escena.add(m);
-    return m;
-})();
+const reflejo = new THREE.Mesh(
+    new THREE.PlaneGeometry(14, 14).rotateX(-Math.PI / 2),
+    new THREE.ShaderMaterial({
+        uniforms: { uTiempo: comunes.uTiempo, uPulso: comunes.uPulso, uFuerza: { value: 0.5 }, tRuido: { value: null } },
+        vertexShader: `
+            varying vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `,
+        fragmentShader: `
+            uniform float uTiempo;
+            uniform float uPulso;
+            uniform float uFuerza;
+            uniform sampler2D tRuido;
+            varying vec2 vUv;
+            void main() {
+                vec2 p = (vUv - 0.5) * 2.0;
+                float r = length(p);
+                float ang = atan(p.y, p.x) / 6.2832;
+                float n = texture2D(tRuido, vec2(ang - uTiempo * 0.05, r * 0.4)).r;
+                float luz = exp(-r * r * 6.0) * (0.7 + 0.6 * n) * 0.55 + exp(-r * r * 26.0) * 0.25;
+                luz *= uFuerza * (1.0 + uPulso * 0.9);
+                vec3 c = mix(vec3(0.7, 0.2, 0.08), vec3(1.0, 0.5, 0.24), exp(-r * r * 12.0));
+                gl_FragColor = vec4(c * luz, 1.0);
+            }
+        `,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+    })
+);
+reflejo.position.y = 0.01;
+reflejo.renderOrder = 1;
+escena.add(reflejo);
 
 
 // =====================================================================
@@ -189,6 +206,7 @@ function texturaRuido() {
 
 
 const tRuido = { value: texturaRuido() };
+reflejo.material.uniforms.tRuido.value = tRuido.value;
 
 const gasGlsl = `
     uniform sampler2D tRuido;
@@ -197,6 +215,8 @@ const gasGlsl = `
     uniform float uDesfase;
     uniform float uLuzGas;
     uniform float uTinta;
+    uniform float uPulso;
+    uniform float uOnda;
     const float DENTRO = 1.35;
     const float FUERA = 4.8;
     vec4 gas(float r, float phi) {
@@ -225,10 +245,12 @@ const gasGlsl = `
         vec3 vel = vec3(-sin(phi), 0.0, cos(phi));
         float v = 0.45 * pow(DENTRO / r, 0.5);
         float doppler = 1.0 / (inversesqrt(1.0 - v * v) * (1.0 - v * dot(vel, uVista)));
-        float haz = mix(1.0, pow(doppler, 3.0), 0.5);
+        float haz = mix(1.0, pow(doppler, 3.0), 0.8);
         float brillo = temperatura * 2.0 * haz * (1.0 + 0.12 * sin(uTiempo * 1.3 + r * 2.5));
         col *= brillo * (1.0 - polvo * 0.75) * (1.0 + manchas * 1.5);
-        col = mix(col, col * vec3(1.1, 0.88, 0.75), smoothstep(1.0, 0.6, doppler) * 0.5);
+        col = mix(col, col * vec3(1.1, 0.8, 0.62), smoothstep(1.0, 0.6, doppler) * 0.6);
+        col = mix(col, col * vec3(0.95, 1.0, 1.1) + 0.06, smoothstep(1.0, 1.45, doppler) * 0.5);
+        col *= 1.0 + uPulso * 0.45 + uPulso * 2.2 * exp(-pow((r - uOnda) / 0.3, 2.0));
         float alfa = clamp((densidad + manchas * 0.4) * perfil * 1.6, 0.0, 1.0);
         return vec4(col, alfa);
     }
@@ -245,6 +267,8 @@ function materialGas(modo, opciones = {}) {
         shader.uniforms.uDesfase = desfase;
         shader.uniforms.uLuzGas = comunes.uLuzGas;
         shader.uniforms.uTinta = comunes.uTinta;
+        shader.uniforms.uPulso = comunes.uPulso;
+        shader.uniforms.uOnda = comunes.uOnda;
         shader.vertexShader = shader.vertexShader
             .replace("#include <common>", "#include <common>\nvarying vec3 vLocalG;")
             .replace("#include <begin_vertex>", "#include <begin_vertex>\nvLocalG = position;");
@@ -392,7 +416,7 @@ const estrellas = (() => {
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    const puntos = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: false, transparent: true, opacity: 0, depthWrite: false, fog: false }));
+    const puntos = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, map: texturaHalo(), size: 3.2, sizeAttenuation: false, transparent: true, opacity: 0, depthWrite: false, fog: false }));
     escena.add(puntos);
     return puntos;
 })();
@@ -435,7 +459,7 @@ class PaseBrillo extends Pass {
             `
         });
         this.mezclar = new THREE.ShaderMaterial({
-            uniforms: { tBase: { value: null }, tCerca: { value: null }, tLejos: { value: null }, uFuerza: { value: 1 } },
+            uniforms: { tBase: { value: null }, tCerca: { value: null }, tLejos: { value: null }, uFuerza: { value: 1 }, uCentro: { value: new THREE.Vector2(0.5, 0.5) }, uRadio: { value: new THREE.Vector2(0.1, 0.1) } },
             vertexShader: `
                 varying vec2 vUv;
                 void main() {
@@ -448,10 +472,14 @@ class PaseBrillo extends Pass {
                 uniform sampler2D tCerca;
                 uniform sampler2D tLejos;
                 uniform float uFuerza;
+                uniform vec2 uCentro;
+                uniform vec2 uRadio;
                 varying vec2 vUv;
                 void main() {
                     vec4 base = texture2D(tBase, vUv);
                     vec3 brillo = texture2D(tCerca, vUv).rgb * 0.35 + texture2D(tLejos, vUv).rgb;
+                    float bola = 1.0 - smoothstep(0.78, 1.0, length((vUv - uCentro) / uRadio));
+                    brillo *= 1.0 - bola * 0.8;
                     gl_FragColor = vec4(base.rgb + brillo * uFuerza, base.a);
                 }
             `
@@ -555,7 +583,7 @@ const enfoque = new ShaderPass({
             if (d > 0.001) {
                 vec4 s = vec4(0.0);
                 for (int i = 0; i < 12; i++) {
-                    float a = float(i) * 2.399;
+                    float a = float(i) * 2.399 + fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2832;
                     float r = sqrt(float(i) + 0.5) / 3.5;
                     s += texture2D(tDiffuse, vUv + vec2(cos(a), sin(a)) * r * uTexel * 4.0 * d);
                 }
@@ -613,9 +641,24 @@ const auxE = new THREE.Vector3();
 const pista = document.getElementById("pista");
 let listo = false;
 
-renderizador.domElement.addEventListener("pointerdown", () => {
+const toque = { x: 0, y: 0, t: 0 };
+
+// Tocar sin arrastrar despierta al agujero: el gas se enciende, una onda
+// cae hacia dentro y el polvo se precipita
+function despertar() {
+    comunes.uPulso.value = 1;
+    comunes.uOnda.value = 5.2;
+    motas.forEach((m) => (m.caida = 0.6 + Math.random() * 1.4));
+}
+
+renderizador.domElement.addEventListener("pointerdown", (e) => {
     controles.autoRotate = false;
     pista.classList.add("oculta");
+    Object.assign(toque, { x: e.clientX, y: e.clientY, t: performance.now() });
+});
+
+renderizador.domElement.addEventListener("pointerup", (e) => {
+    if (Math.hypot(e.clientX - toque.x, e.clientY - toque.y) < 8 && performance.now() - toque.t < 350) despertar();
 });
 
 function orientarAgujero() {
@@ -631,12 +674,29 @@ function orientarAgujero() {
 
 function moverPolvo(delta) {
     motas.forEach((m, i) => {
-        m.ang += delta * 1.5 * Math.pow(m.r / 1.35, -1.5);
+        m.ang += delta * 1.5 * Math.pow(m.r / 1.35, -1.5) * (1 + comunes.uPulso.value * 1.5);
+        if (m.caida) {
+            m.r -= delta * m.caida * comunes.uPulso.value * 2.2;
+            m.caida *= Math.exp(-delta * 0.6);
+            if (m.caida < 0.02) m.caida = 0;
+        }
+        if (m.r < 1.15) {
+            m.r = 3.8 + Math.random() * 0.9;
+            m.caida = 0;
+        }
         auxV.set(Math.cos(m.ang) * m.r, m.y, Math.sin(m.ang) * m.r);
         auxM.compose(auxV, auxQ, auxE.setScalar(m.tam));
         polvo.setMatrixAt(i, auxM);
     });
     polvo.instanceMatrix.needsUpdate = true;
+}
+
+function marcarBola() {
+    auxV.copy(CENTRO).project(camara);
+    const u = brillo.mezclar.uniforms;
+    u.uCentro.value.set(auxV.x * 0.5 + 0.5, auxV.y * 0.5 + 0.5);
+    const ry = (Math.tan(Math.asin(1 / camara.position.distanceTo(CENTRO))) / Math.tan(THREE.MathUtils.degToRad(camara.fov / 2))) * 0.5;
+    u.uRadio.value.set(ry / camara.aspect, ry);
 }
 
 function ajustarTamano() {
@@ -657,9 +717,13 @@ function animar() {
     const t = (comunes.uTiempo.value += delta);
     controles.update();
     orientarAgujero();
-    anillo.material.color.setRGB(1, 0.86, 0.66).multiplyScalar((2 + Math.sin(t * 2.2) * 0.35) * comunes.uLuzGas.value);
-    reflejo.material.opacity = MODOS[modo].reflejo * 0.5 * (0.9 + 0.1 * Math.sin(t * 1.3));
-    halos.forEach((h, i) => (h.material.opacity = h.userData.fuerza * h.userData.modo * (0.85 + 0.15 * Math.sin(t * (1.1 + i * 0.7)))));
+    const pulso = (comunes.uPulso.value *= Math.exp(-delta * 1.1));
+    comunes.uOnda.value = Math.max(0.6, comunes.uOnda.value - delta * 2.6);
+    anillo.material.color.setRGB(1, 0.86, 0.66).multiplyScalar((2 + Math.sin(t * 2.2) * 0.35 + pulso * 2.5) * comunes.uLuzGas.value);
+    reflejo.material.uniforms.uFuerza.value = MODOS[modo].reflejo * 0.5 * (0.9 + 0.1 * Math.sin(t * 1.3));
+    halos.forEach((h, i) => (h.material.opacity = h.userData.fuerza * h.userData.modo * (0.85 + 0.15 * Math.sin(t * (1.1 + i * 0.7)) + pulso * 0.8)));
+    brillo.mezclar.uniforms.uFuerza.value = MODOS[modo].brillo * (1 + pulso * 0.6);
+    marcarBola();
     moverPolvo(delta);
     compositor.render();
 }
@@ -676,6 +740,7 @@ requestAnimationFrame(() => {
     listo = true;
     document.getElementById("cargando").classList.add("oculta");
     setTimeout(() => pista.classList.add("oculta"), 6000);
+    if (parametros.has("pulso")) despertar();
     reloj.getDelta();
     animar();
 });
