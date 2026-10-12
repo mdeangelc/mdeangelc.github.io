@@ -12,7 +12,8 @@ import { PaseBrillo, crearAcabado, crearZumbido } from "./cine.js";
 // aspecto de película. Una luna baja a un lado alumbra el camino y deja
 // sombras largas de los árboles y las farolas. Hay charcos que reflejan
 // la luna y las farolas, bancos de niebla, luciérnagas, polillas, hojas
-// que caen, murciélagos y, de vez en cuando, un ciervo que cruza.
+// que caen, murciélagos y, de vez en cuando, un ciervo que cruza. A lo
+// lejos, a la izquierda, asoma Gargantua tras las montañas.
 // Opciones en la dirección:
 //   ?sinentrada      -> sin la entrada (la luna ya arriba)
 //   ?ciervo=si       -> el ciervo cruza enseguida
@@ -22,9 +23,14 @@ import { PaseBrillo, crearAcabado, crearZumbido } from "./cine.js";
 //   ?fps=si          -> contador de fotogramas
 //   ?tocar=no        -> la hierba no reacciona al ratón
 //   ?fondo=solo      -> solo el fondo, sin la escena 3D (para ajustarlo)
+//   ?desde=gargantua -> se llega desde Gargantua: se abre desde negro
 // =====================================================================
 
 const parametros = new URLSearchParams(location.search);
+
+// Si se llega volando desde Gargantua, la pantalla sigue en negro y se
+// abre despacio, como si se saliera del planeta
+if (parametros.get("desde") === "gargantua") document.body.classList.add("desde-gargantua");
 const movil = window.innerWidth < 760 || window.matchMedia("(pointer: coarse)").matches;
 const movimientoReducido = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const tocarHierba = parametros.get("tocar") !== "no";
@@ -328,6 +334,8 @@ const HORIZONTE_EN_MARCO = 0.6;
 // dirección de su luz (ver ajustarEncuadre)
 const luna = new THREE.Vector3(1.4, 0.58, 0.05);
 const DIR_LUNA = new THREE.Vector3(0.5, 0.3, -0.8).normalize();
+// Gargantua, el agujero negro de la portada, a lo lejos a la izquierda
+const gargantua = new THREE.Vector3(0.6, 0.66, 0.026);
 
 const escenaFondo = new THREE.Scene();
 const camaraFondo = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -344,6 +352,7 @@ const uniformesFondo = {
     uAspectoMarco: { value: aspectoMarco },
     uLinea: { value: 1 - HORIZONTE_EN_MARCO },
     uLuna: { value: luna },
+    uGargantua: { value: gargantua },
     uSubida: { value: 1 },
     uFugaz: { value: new THREE.Vector4(0, 0, 0, 0) },
     uFugazT: { value: -1 }
@@ -373,6 +382,7 @@ const fragmentFondo = `
     uniform vec3 uBosqueLejos;
     uniform vec3 uBosqueCerca;
     uniform vec3 uLuna;
+    uniform vec3 uGargantua;
     uniform float uSubida;
     uniform vec4 uFugaz;
     uniform float uFugazT;
@@ -607,6 +617,43 @@ const fragmentFondo = `
         return c + color * fuerza * 0.11;
     }
 
+    // Gargantua a lo lejos, a la izquierda: el agujero negro de la
+    // portada, pequeño y medio escondido tras las montañas. Se ve su
+    // sombra negra, el anillo de luz, el arco del disco que se curva por
+    // encima y el disco plano cruzando por delante
+    float luzGargantua(vec2 f) {
+        vec2 g = (f - uGargantua.xy) * vec2(0.55, 1.0);
+        return exp(-length(g) / 0.16);
+    }
+
+    vec3 gargantuaLejos(vec3 c, vec2 f) {
+        vec2 d = (f - uGargantua.xy) / uGargantua.z;
+        if (abs(d.x) > 14.0 || abs(d.y) > 9.0) return c;
+        float r = length(d);
+        vec3 calido = vec3(1.0, 0.68, 0.36);
+        float px = fwidth(r) * 1.2;
+        // Halo que aclara el cielo de alrededor
+        c += calido * (exp(-max(r - 1.0, 0.0) * 0.45) * 0.05 + exp(-max(r - 1.0, 0.0) * 1.6) * 0.12);
+        // La sombra tapa estrellas y halo
+        c = mix(c, vec3(0.0), smoothstep(1.0 + px, 1.0 - px, r));
+        // Anillo de fotones, fino y muy brillante
+        c += vec3(1.0, 0.86, 0.66) * exp(-pow((r - 1.07) / max(0.05, px), 2.0)) * 0.7;
+        // Arco del disco curvado por la gravedad: rodea la sombra por arriba
+        float ang = atan(d.y, d.x);
+        float arco = exp(-pow((r - 1.45) / 0.32, 2.0)) * smoothstep(-0.55, 0.35, d.y / r);
+        float vetas = 0.75 + 0.25 * sin(r * 26.0 + ang * 2.0);
+        float lado = 1.0 + 0.45 * clamp(-d.x / 1.6, -1.0, 1.0);
+        c += calido * arco * vetas * lado * 0.65;
+        // Disco plano por delante, un poco inclinado
+        vec2 e = vec2(d.x, (d.y + d.x * 0.08 + 0.12) * 7.5);
+        float re = length(e);
+        float disco = smoothstep(1.25, 1.8, re) * exp(-max(re - 2.0, 0.0) * 0.35) * smoothstep(13.0, 8.0, re);
+        float brillo = (0.7 + 0.3 * sin(re * 3.4)) * (1.0 + 0.5 * clamp(-d.x / 6.0, -1.0, 1.0));
+        float delante = step(0.0, -(d.y + d.x * 0.08 + 0.12)) + step(1.0, r);
+        c += calido * disco * brillo * 0.55 * min(delante, 1.0);
+        return c;
+    }
+
     void main() {
         float t = tramado();
         vec2 marco = (vUv - 0.5) * uVisible + 0.5;
@@ -622,6 +669,8 @@ const fragmentFondo = `
         c = viaLactea(c, fc, clamp((fc.y - uLinea) / (1.0 - uLinea), 0.0, 1.0));
         vec2 fl = enCapa(marco, 0.006, 0.015);
         c = estrellaFugaz(c, fc);
+        vec2 fg = enCapa(marco, 0.005, 0.01);
+        c = gargantuaLejos(c, fg);
         c = dibujarLuna(c, fl);
         c = nubesLuna(c, fl);
         float luz = luzLuna(fl);
@@ -630,7 +679,7 @@ const fragmentFondo = `
         c = mix(c, capa.rgb, capa.a);
 
         capa = nubes(enCapa(marco, 0.012, 0.04), t, 7.0, uLinea + 0.1, uLinea + 0.3, 0.52, 2.2);
-        c = mix(c, capa.rgb + vec3(0.6, 0.66, 0.85) * luz * 0.35, capa.a);
+        c = mix(c, capa.rgb + vec3(0.6, 0.66, 0.85) * luz * 0.35 + vec3(1.0, 0.6, 0.3) * luzGargantua(fg) * 0.22, capa.a);
 
         capa = montana(enCapa(marco, 0.014, 0.05), t, 11.0, 0.0, 0.36, 2.0, uMontanaCerca, 0.05, 0.19);
         c = mix(c, capa.rgb, capa.a);
@@ -642,6 +691,7 @@ const fragmentFondo = `
         c = mix(c, capa.rgb, capa.a);
 
         c += vec3(0.5, 0.56, 0.75) * luz * 0.04;
+        c += vec3(1.0, 0.62, 0.32) * luzGargantua(fg) * 0.035;
 
         float sobre = marco.y - uLinea;
         float franjas = ruido(vec2(marco.x * 7.0 + uTiempo * 0.012, marco.y * 34.0)) * 0.7 + ruido(vec2(marco.x * 20.0 - uTiempo * 0.02, marco.y * 70.0)) * 0.3;
@@ -790,6 +840,8 @@ function ajustarEncuadre() {
     const lunaX = aspecto < 0.8 ? 0.7 : 0.8;
     const lunaY = Math.min(0.88, (0.79 - 0.5) / visible.y + 0.5);
     luna.set(((lunaX - 0.5) * visible.x + 0.5) * aspectoMarco, (lunaY - 0.5) * visible.y + 0.5, aspecto < 0.8 ? 0.06 : 0.055);
+    const gargantuaX = aspecto < 0.8 ? 0.3 : 0.4;
+    gargantua.set(((gargantuaX - 0.5) * visible.x + 0.5) * aspectoMarco, 0.625, aspecto < 0.8 ? 0.03 : 0.026);
     const mitad = Math.tan(THREE.MathUtils.degToRad(camara.fov / 2));
     DIR_LUNA.set((lunaX * 2 - 1) * mitad * aspecto, (lunaY * 2 - 1) * mitad, -1).normalize().applyAxisAngle(new THREE.Vector3(1, 0, 0), inclinacion);
     // La luz se gira un poco más hacia el lado y se baja: así las sombras

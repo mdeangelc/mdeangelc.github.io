@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;1,9..144,400&family=Inter:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="estilo.css?v=3">
+    <link rel="stylesheet" href="estilo.css?v=4">
     <script type="importmap">
         {
             "imports": {
@@ -23,11 +23,18 @@
     <header class="cabecera">
         <p class="etiqueta">Agujero negro</p>
         <h1>Gargantua.</h1>
-        <p class="texto">Un agujero negro en la oscuridad. Elige una sección y la cámara te lleva a verlo desde otro sitio.</p>
+        <p class="texto">Un agujero negro en la oscuridad y, delante, los planetas de mi portfolio. Toca uno para entrar.</p>
         <a class="volver" href="../">Volver al portfolio</a>
     </header>
 
     <button class="sonido" id="boton-sonido" aria-pressed="false">Sonido</button>
+
+    <button class="puerta" data-puerta="camino">
+        <strong>Miguel Ángel</strong>
+        Sobre mí
+    </button>
+
+    <div class="fundido" id="fundido"></div>
 
     <nav class="menu" aria-label="Secciones">
         <button class="seccion" data-cartel="cartel-sobre-mi">Sobre mí</button>
@@ -78,9 +85,9 @@
         <a class="enlace" href="https://github.com/mdeangelc" target="_blank" rel="noopener">GitHub</a>
     </article>
 
-    <p class="pista" id="pista">Arrastra para girar, rueda o pellizca para acercarte</p>
+    <p class="pista" id="pista">Toca un planeta para entrar, arrastra para girar</p>
     <p class="cargando" id="cargando">Encendiendo el disco...</p>
 
-    <script type="module" src="escena.js?v=13"></script>
+    <script type="module" src="escena.js?v=14"></script>
 </body>
 </html>

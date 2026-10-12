@@ -107,6 +107,18 @@ canvas {
     pointer-events: none;
 }
 
+.desde-gargantua .cargando {
+    background: #000;
+    transition: opacity 1.8s ease-out;
+    animation: aparecer-texto 0.6s 1s both;
+}
+
+@keyframes aparecer-texto {
+    from {
+        color: transparent;
+    }
+}
+
 .fps {
     position: fixed;
     top: 14px;

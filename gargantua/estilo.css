@@ -159,6 +159,74 @@ body.con-seccion .cabecera {
     opacity: 0;
 }
 
+body.viajando .cabecera,
+body.viajando .menu,
+body.viajando .pista,
+body.viajando .sonido {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.5s;
+}
+
+.puerta {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    font-family: var(--fuente);
+    font-size: 0.66rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--suave);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.8s, color 0.3s;
+    touch-action: manipulation;
+    will-change: transform;
+}
+
+.puerta strong {
+    font-family: var(--titulo);
+    font-style: italic;
+    font-weight: 400;
+    font-size: 1.6rem;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--texto);
+    text-shadow: 0 1px 14px rgba(0, 0, 0, 0.9);
+}
+
+.puerta.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.puerta:hover,
+.puerta.encima {
+    color: #f3c58a;
+}
+
+.fundido {
+    position: fixed;
+    inset: 0;
+    z-index: 6;
+    background: #000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 1.4s ease-in;
+}
+
+.fundido.activo {
+    opacity: 1;
+}
+
 .menu {
     position: fixed;
     left: 38px;
@@ -173,7 +241,7 @@ body.con-seccion .cabecera {
 .seccion {
     font-family: var(--titulo);
     font-style: italic;
-    font-size: 1.15rem;
+    font-size: 0.95rem;
     color: var(--suave);
     background: transparent;
     border: none;
