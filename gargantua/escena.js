@@ -7,12 +7,12 @@ import { Pass, FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 
 // =====================================================================
 // 1. AJUSTES
-// Gargantua solo, flotando en el espacio. Alrededor del agujero se
-// calcula de verdad cómo la gravedad dobla la luz, así que el disco de
-// gas de detrás se ve por encima y por debajo de la sombra. Las
-// estrellas del fondo también se deforman, un resplandor en varias
-// capas hace brillar lo caliente y al cargar el gas se va encendiendo.
-// El ratón solo inclina un poco la vista.
+// Gargantua solo, flotando en el espacio. El disco de gas son
+// varias capas que giran (más rápido por dentro), la luz doblada son
+// dos arcos que abrazan la sombra negra, las estrellas de detrás se
+// deforman por la gravedad y un resplandor en varias capas hace brillar
+// lo caliente. Al cargar, el gas se va encendiendo en espiral. El
+// ratón solo inclina un poco la vista.
 // =====================================================================
 
 const parametros = new URLSearchParams(location.search);
@@ -46,9 +46,10 @@ camara.layers.enable(CAPA_BRILLO);
 
 const comunes = {
     uTiempo: { value: 0 },
-    uEncendido: { value: 0 },
+    uVista: { value: new THREE.Vector3(0, 0, 1) },
     uPulso: { value: 0 },
-    uOnda: { value: 9 }
+    uOnda: { value: 9 },
+    uEncendido: { value: 0 }
 };
 
 
@@ -213,39 +214,47 @@ escena.add(fondo);
 // La textura de ruido leída en coordenadas polares: gira más rápido por
 // dentro, se enrolla en espiral, con anillos que se desplazan,
 // filamentos finos, grumos calientes y un lado más brillante (el gas
-// que viene hacia ti). Al cargar se enciende de fuera hacia dentro.
+// que viene hacia ti).
 // =====================================================================
 
 const gasGlsl = `
     uniform sampler2D tRuido;
     uniform float uTiempo;
+    uniform vec3 uVista;
+    uniform float uDesfase;
+    uniform float uEncendido;
     uniform float uPulso;
     uniform float uOnda;
-    uniform float uEncendido;
-    vec3 uVista = vec3(0.0, 0.0, 1.0);
     const float DENTRO = 1.35;
     const float FUERA = 4.8;
     vec4 gas(float r, float phi) {
         float x = (r - DENTRO) / (FUERA - DENTRO);
         float omega = 1.5 * pow(r / DENTRO, -1.5);
         float espiral = log(r) * 0.55;
-        float ang = (phi - uTiempo * omega) / 6.2832;
-        float n = texture2D(tRuido, vec2(ang + espiral * 0.3, r * 0.16)).r;
+        float ang = (phi - uTiempo * omega) / 6.2832 + uDesfase;
+        float n = texture2D(tRuido, vec2(ang + espiral * 0.3, r * 0.16 + uDesfase)).r;
         float fino = texture2D(tRuido, vec2(ang * 3.0 + espiral, r * 0.6 + 0.37)).r;
+        #ifdef GAS_SENCILLO
+        float hebras = 0.5;
+        float rizo = 0.5;
+        #else
         float hebras = texture2D(tRuido, vec2(ang * 9.0 + espiral * 2.0, r * 2.2 + 0.11)).r;
         float rizo = texture2D(tRuido, vec2(ang * 22.0 + espiral * 4.0, r * 5.0 + 0.53)).r;
+        #endif
         float polvo = smoothstep(0.55, 0.8, texture2D(tRuido, vec2(ang + 0.5, r * 0.09 + 0.61)).r) * smoothstep(0.12, 0.6, x);
         float perfil = smoothstep(-0.02, 0.05, x) * pow(clamp(1.0 - x, 0.0, 1.0), 1.3);
         float anillos = 0.6 + 0.4 * sin(r * 14.0 - uTiempo * 1.1 + n * 4.0) * sin(r * 4.6 + uTiempo * 0.4);
         float densidad = smoothstep(0.25, 0.78, n) * (0.4 + 0.8 * fino) * (0.65 + 0.7 * hebras) * (0.8 + 0.4 * rizo) * anillos;
         densidad = mix(densidad, 1.0, smoothstep(0.14, 0.0, x));
         float manchas = 0.0;
+        #ifndef GAS_SENCILLO
         for (int i = 0; i < 6; i++) {
             float ri = 1.6 + float(i) * 0.5;
             float ai = uTiempo * 1.5 * pow(ri / DENTRO, -1.5) + float(i) * 2.3;
             float da = atan(sin(phi - ai), cos(phi - ai)) * ri;
             manchas += exp(-pow(da / (0.35 + float(i) * 0.12), 2.0) - pow((r - ri) / 0.1, 2.0)) * (0.6 + 0.4 * sin(uTiempo * 2.0 + float(i)));
         }
+        #endif
         float temperatura = pow(DENTRO / r, 1.4);
         vec3 col = mix(vec3(0.38, 0.13, 0.05), vec3(1.0, 0.46, 0.16), smoothstep(0.1, 0.42, temperatura));
         col = mix(col, vec3(1.0, 0.78, 0.5), smoothstep(0.42, 0.75, temperatura));
@@ -268,22 +277,46 @@ const gasGlsl = `
     }
 `;
 
+function materialGas(modo, opciones = {}) {
+    const material = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false });
+    const desfase = { value: opciones.desfase ?? 0 };
+    const fuerza = opciones.fuerza ?? 1;
+    material.onBeforeCompile = (shader) => {
+        Object.assign(shader.uniforms, comunes, { tRuido, uDesfase: desfase });
+        shader.vertexShader = shader.vertexShader
+            .replace("#include <common>", "#include <common>\nvarying vec3 vLocalG;")
+            .replace("#include <begin_vertex>", "#include <begin_vertex>\nvLocalG = position;");
+        shader.fragmentShader = shader.fragmentShader
+            .replace("#include <common>", "#include <common>\nvarying vec3 vLocalG;\n" + (fuerza < 0.5 ? "#define GAS_SENCILLO\n" : "") + gasGlsl)
+            .replace(
+                "#include <color_fragment>",
+                `#include <color_fragment>
+                ${modo === "disco" ? `
+                float rG = length(vLocalG.xz);
+                vec4 g = gas(rG, atan(vLocalG.z, vLocalG.x));` : `
+                float rho = length(vLocalG.xy);
+                float dentroArco = ${modo === "arriba" ? "1.16" : "1.12"};
+                float fueraArco = ${modo === "arriba" ? "2.55" : "1.6"};
+                float rG = DENTRO + max(0.0, rho - dentroArco) * ${modo === "arriba" ? "1.75" : "3.2"};
+                vec4 g = gas(rG, atan(vLocalG.y, vLocalG.x) * 0.9 + 1.4);
+                g.a = clamp(g.a * ${modo === "arriba" ? "2.0" : "1.4"}, 0.0, 1.0) * smoothstep(0.0, 0.22, abs(vLocalG.y) / rho) * smoothstep(dentroArco, dentroArco + 0.06, rho) * smoothstep(fueraArco, fueraArco - ${modo === "arriba" ? "0.95" : "0.4"}, rho);`}
+                g.a *= ${fuerza.toFixed(3)};
+                diffuseColor.rgb = pow(g.rgb, vec3(1.15)) * ${modo === "disco" ? "0.85" : "1.0"};
+                diffuseColor.a = clamp(g.a * 1.7, 0.0, 1.0);`
+            );
+    };
+    material.customProgramCacheKey = () => "gas" + modo + fuerza;
+    return material;
+}
+
 
 // =====================================================================
-// 6. GARGANTUA CON LA LUZ DOBLADA DE VERDAD
-// Alrededor del agujero se lanza un rayo por píxel (a menos resolución)
-// y la gravedad lo va curvando paso a paso. Donde el rayo cruza el
-// plano del disco se pinta el gas que hay ahí, así que el disco de
-// detrás aparece doblado por encima y por debajo, como en la película.
-// Si el rayo cae dentro, es negro. Si se queda sin pasos rozando el
-// agujero, también cuenta como negro: así no salen manchas raras en el
-// centro. Las unidades del cálculo son radios del horizonte; la sombra
-// mide 2,6 de esos radios y en la escena mide 1.
+// 6. GARGANTUA
+// La sombra es una bola negra sin ningún reflejo. Alrededor, el disco en
+// tres capas, los dos arcos de luz doblada, dos anillos de fotones muy
+// finos y halos de luz. El grupo mira casi siempre a
+// la cámara para verse como Gargantua.
 // =====================================================================
-
-const ESCALA_AGUJERO = 2.598;
-const LIMITE = 13.5;
-const PASOS = movil ? 80 : 110;
 
 const agujero = new THREE.Group();
 agujero.position.copy(CENTRO);
@@ -295,172 +328,54 @@ const brillar = (o) => {
     return o;
 };
 
-const VERTICE_CARTEL = `
-    uniform float uRadio;
-    varying vec3 vVista;
-    varying vec4 vRecorte;
-    void main() {
-        vec4 centro = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-        vec4 p = centro + vec4(position.xy * uRadio, 0.0, 0.0);
-        vVista = p.xyz;
-        gl_Position = projectionMatrix * p;
-        vRecorte = gl_Position;
-    }
-`;
-
-const usosRayo = {
-    ...comunes,
-    tRuido,
-    uRadio: { value: (LIMITE / ESCALA_AGUJERO) * 1.08 },
-    uVistaALocal: { value: new THREE.Matrix4() },
-    uEscala: { value: ESCALA_AGUJERO }
-};
-
-const materialRayo = new THREE.ShaderMaterial({
-    uniforms: usosRayo,
-    vertexShader: VERTICE_CARTEL,
-    fragmentShader: gasGlsl + `
-        uniform mat4 uVistaALocal;
-        uniform float uEscala;
-        varying vec3 vVista;
-        const float LIMITE = ${LIMITE.toFixed(1)};
-        void main() {
-            vec3 ro = (uVistaALocal * vec4(0.0, 0.0, 0.0, 1.0)).xyz * uEscala;
-            vec3 rd = normalize(mat3(uVistaALocal) * normalize(vVista));
-            float b = dot(ro, rd);
-            float c = dot(ro, ro) - LIMITE * LIMITE;
-            float disc = b * b - c;
-            if (disc < 0.0) discard;
-            vec3 p = ro + rd * max(-b - sqrt(disc), 0.0);
-            vec3 v = rd;
-            vec3 hv = cross(p, v);
-            float h2 = dot(hv, hv);
-            vec3 col = vec3(0.0);
-            float alfa = 0.0;
-            float bImpacto = sqrt(h2);
-            float ancho = max(fwidth(bImpacto) * 1.1, 0.02);
-            float captura = smoothstep(2.598 + ancho, 2.598 - ancho, bImpacto);
-            bool cae = captura > 0.999;
-            bool dentro = false;
-            int cruces = 0;
-            for (int i = 0; i < ${PASOS}; i++) {
-                float r = length(p);
-                if (r < 1.0) {
-                    dentro = true;
-                    break;
-                }
-                if (r > LIMITE + 0.3 && dot(p, v) > 0.0) break;
-                float paso = clamp(0.1 * r, 0.03, 1.3) * mix(0.4, 1.0, smoothstep(1.4, 3.4, r));
-                vec3 v2 = v - 1.5 * h2 * p / pow(r, 5.0) * paso;
-                vec3 p2 = p + v2 * paso;
-                if (p.y * p2.y < 0.0 && cruces < 2) {
-                    cruces++;
-                    vec3 pc = mix(p, p2, p.y / (p.y - p2.y));
-                    float rc = length(pc.xz);
-                    float rw = rc / uEscala;
-                    if (rw > DENTRO - 0.05 && rw < FUERA) {
-                        uVista = -normalize(v2);
-                        vec4 g = gas(rw, atan(pc.z, pc.x));
-                        float rojo = sqrt(max(0.0, 1.0 - 1.0 / rc));
-                        float a = clamp(g.a * 1.7, 0.0, 1.0) * (cruces == 1 ? 1.0 : smoothstep(2.63, 2.95, bImpacto));
-                        col += (1.0 - alfa) * a * pow(g.rgb, vec3(1.15)) * 0.9 * rojo;
-                        alfa += (1.0 - alfa) * a;
-                        if (alfa > 0.985) break;
-                    }
-                }
-                p = p2;
-                v = v2;
-            }
-            float anillo = exp(-pow((bImpacto - 2.598 - ancho * 1.4) / max(0.05, ancho), 2.0)) * 1.3 + exp(-pow((bImpacto - 2.72) / 0.16, 2.0)) * 0.3;
-            vec3 luzAnillo = vec3(1.0, 0.86, 0.66) * anillo * smoothstep(0.6, 1.0, uEncendido) * (1.0 + uPulso * 1.5);
-            col += luzAnillo * (1.0 - alfa) * (1.0 - captura);
-            col = min(col, vec3(14.0));
-            float tapa = dentro ? 1.0 : captura;
-            gl_FragColor = vec4(col, alfa + (1.0 - alfa) * tapa);
-        }
-    `,
-    transparent: true,
-    depthWrite: false,
-    depthTest: false,
-    blending: THREE.CustomBlending,
-    blendSrc: THREE.OneFactor,
-    blendDst: THREE.OneMinusSrcAlphaFactor,
-    blendSrcAlpha: THREE.OneFactor,
-    blendDstAlpha: THREE.OneMinusSrcAlphaFactor
-});
-
-const escenaRayo = new THREE.Scene();
-const cartelRayo = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), materialRayo);
-cartelRayo.frustumCulled = false;
-escenaRayo.add(cartelRayo);
-
-const gl = renderizador.getContext();
-const hayFlotantes = renderizador.capabilities.isWebGL2 && !!(gl.getExtension("EXT_color_buffer_float") || gl.getExtension("EXT_color_buffer_half_float"));
-const rayos = new THREE.WebGLRenderTarget(1, 1, { type: hayFlotantes ? THREE.HalfFloatType : THREE.UnsignedByteType, depthBuffer: false });
-const fraccionRayos = movil ? 0.7 : 0.62;
-
-// El cartel que se ve en la escena solo copia lo calculado, estirado a
-// pantalla completa con un filtro suave
-const cartel = brillar(new THREE.Mesh(
-    new THREE.PlaneGeometry(2, 2),
-    new THREE.ShaderMaterial({
-        uniforms: { uRadio: usosRayo.uRadio, tRayos: { value: rayos.texture }, uPaso: { value: new THREE.Vector2() } },
-        vertexShader: VERTICE_CARTEL,
-        fragmentShader: `
-            uniform sampler2D tRayos;
-            uniform vec2 uPaso;
-            varying vec4 vRecorte;
-            void main() {
-                vec2 uv = vRecorte.xy / vRecorte.w * 0.5 + 0.5;
-                vec4 c = texture2D(tRayos, uv) * 0.4;
-                c += texture2D(tRayos, uv + vec2(uPaso.x, 0.0) * 0.6) * 0.15;
-                c += texture2D(tRayos, uv - vec2(uPaso.x, 0.0) * 0.6) * 0.15;
-                c += texture2D(tRayos, uv + vec2(0.0, uPaso.y) * 0.6) * 0.15;
-                c += texture2D(tRayos, uv - vec2(0.0, uPaso.y) * 0.6) * 0.15;
-                gl_FragColor = c;
-            }
-        `,
-        transparent: true,
-        depthWrite: false,
-        depthTest: false,
-        blending: THREE.CustomBlending,
-        blendSrc: THREE.OneFactor,
-        blendDst: THREE.OneMinusSrcAlphaFactor,
-        blendSrcAlpha: THREE.OneFactor,
-        blendDstAlpha: THREE.OneMinusSrcAlphaFactor
-    })
-));
-cartel.frustumCulled = false;
-cartel.renderOrder = 3;
-agujero.add(cartel);
-
-// La bola no se ve: solo tapa los halos por detrás para que la sombra
-// siga negra
-const sombra = brillar(new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), new THREE.MeshBasicMaterial({ colorWrite: false })));
-sombra.renderOrder = 2;
+const sombra = brillar(new THREE.Mesh(new THREE.SphereGeometry(1, 64, 48), new THREE.MeshBasicMaterial({ color: 0x000000 })));
 agujero.add(sombra);
 
-function calcularRayos() {
-    auxMatriz.copy(agujero.matrixWorld).invert().multiply(camara.matrixWorld);
-    usosRayo.uVistaALocal.value.copy(auxMatriz);
-    renderizador.getClearColor(colorAntes);
-    const alfaAntes = renderizador.getClearAlpha();
-    renderizador.setRenderTarget(rayos);
-    renderizador.setClearColor(0x000000, 0);
-    renderizador.clear();
-    renderizador.render(escenaRayo, camara);
-    renderizador.setRenderTarget(null);
-    renderizador.setClearColor(colorAntes, alfaAntes);
+function discoConVolumen(grosorMax) {
+    const perfil = [];
+    const dentro = 1.3;
+    const fuera = 4.85;
+    const grosor = (r) => grosorMax * Math.pow(1 - (r - dentro) / (fuera - dentro), 0.8) + 0.006;
+    const n = 28;
+    for (let i = 0; i <= n; i++) {
+        const r = dentro + ((fuera - dentro) * i) / n;
+        perfil.push(new THREE.Vector2(r, -grosor(r)));
+    }
+    for (let i = n; i >= 0; i--) {
+        const r = dentro + ((fuera - dentro) * i) / n;
+        perfil.push(new THREE.Vector2(r, grosor(r)));
+    }
+    perfil.push(perfil[0].clone());
+    return new THREE.LatheGeometry(perfil, 144);
 }
 
-function tamanoRayos() {
-    const tam = renderizador.getDrawingBufferSize(new THREE.Vector2());
-    rayos.setSize(Math.max(1, Math.round(tam.x * fraccionRayos)), Math.max(1, Math.round(tam.y * fraccionRayos)));
-    cartel.material.uniforms.uPaso.value.set(1 / rayos.width, 1 / rayos.height);
+[[0.06, 1, 0], [0.16, 0.3, 0.37], [0.28, 0.14, 0.71]].forEach(([grosor, fuerza, desfase], i) => {
+    const capa = brillar(new THREE.Mesh(discoConVolumen(grosor), materialGas("disco", { fuerza, desfase })));
+    capa.renderOrder = 3 + i;
+    agujero.add(capa);
+});
+
+function arco(dentro, fuera, desde, largo, grosor) {
+    const forma = new THREE.Shape();
+    forma.absarc(0, 0, fuera, desde, desde + largo, false);
+    forma.absarc(0, 0, dentro, desde + largo, desde, true);
+    const geo = new THREE.ExtrudeGeometry(forma, { depth: grosor, bevelEnabled: true, bevelThickness: grosor * 0.6, bevelSize: grosor * 0.6, bevelSegments: 2, curveSegments: 72 });
+    geo.translate(0, 0, -grosor / 2);
+    return geo;
 }
 
-const auxMatriz = new THREE.Matrix4();
-const colorAntes = new THREE.Color();
+const arcos = new THREE.Group();
+const arcoArriba = brillar(new THREE.Mesh(arco(1.15, 2.6, 0.01, Math.PI - 0.02, 0.05), materialGas("arriba")));
+const arcoArriba2 = brillar(new THREE.Mesh(arco(1.15, 2.6, 0.01, Math.PI - 0.02, 0.05), materialGas("arriba", { fuerza: 0.35, desfase: 0.5 })));
+arcoArriba2.position.z = -0.12;
+const arcoAbajo = brillar(new THREE.Mesh(arco(1.11, 1.62, Math.PI + 0.04, Math.PI - 0.08, 0.04), materialGas("abajo")));
+const anillo = brillar(new THREE.Mesh(new THREE.TorusGeometry(1.028, 0.008, 8, 256), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.88, 0.7).multiplyScalar(2.6) })));
+const anillo2 = brillar(new THREE.Mesh(new THREE.TorusGeometry(1.075, 0.003, 6, 256), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.8, 0.6).multiplyScalar(0.45) })));
+[arcoArriba2, arcoArriba, arcoAbajo].forEach((m, i) => (m.renderOrder = 6 + i));
+anillo.renderOrder = 9;
+anillo2.renderOrder = 9;
+arcos.add(arcoArriba2, arcoArriba, arcoAbajo, anillo, anillo2);
+agujero.add(arcos);
 
 function texturaHalo() {
     const lienzo = document.createElement("canvas");
@@ -490,8 +405,8 @@ const halos = [[10, 0.16, [1, 0.5, 0.22]], [3.8, 0.28, [1, 0.72, 0.45]]].map(([t
 
 // =====================================================================
 // 7. RESPLANDOR EN VARIAS CAPAS
-// Se pinta aparte solo lo que brilla (el agujero con su gas y su anillo
-// de luz). Se queda con lo más
+// Se pinta aparte solo lo que brilla (el gas, los arcos, los anillos y
+// la sombra negra, que tapa lo que queda detrás). Se queda con lo más
 // fuerte, se difumina a la mitad, a un cuarto y a un octavo de tamaño
 // y se suma a la imagen: un brillo cercano y nítido y otro amplio y
 // suave. Sobre la sombra casi no se suma, para que siga negra.
@@ -707,7 +622,6 @@ function colocarCamara(delta, t) {
     const altura = Math.max(0.04, BASE_ALTURA + vista.altura + Math.sin(t * 0.09) * 0.015);
     camara.position.set(Math.sin(giro) * Math.cos(altura), Math.sin(altura), Math.cos(giro) * Math.cos(altura)).multiplyScalar(vista.radio * acercar).add(OBJETIVO);
     camara.lookAt(OBJETIVO);
-    camara.updateMatrixWorld();
 }
 
 function orientarAgujero() {
@@ -716,15 +630,18 @@ function orientarAgujero() {
     const elevacion = Math.atan2(auxV.y, Math.hypot(auxV.x, auxV.z));
     const g = BASE_GIRO + (giro - BASE_GIRO) * 0.75;
     const e = BASE_ALTURA + (elevacion - BASE_ALTURA) * 0.75;
-    agujero.rotation.set(-(e - 0.11), g, -0.32);
+    agujero.rotation.set(-(e - 0.2), g, -0.4);
     agujero.updateMatrixWorld();
+    auxV.copy(camara.position);
+    agujero.worldToLocal(auxV);
+    comunes.uVista.value.copy(auxV).normalize();
 }
 
 // Aleja la cámara lo justo para que el disco quepa a lo ancho, sobre
 // todo con el móvil en vertical
 function encuadrar() {
     const mitad = Math.atan(Math.tan(THREE.MathUtils.degToRad(camara.fov / 2)) * camara.aspect);
-    vista.radio = Math.min(30, Math.max(16, 4.9 / Math.tan(mitad)));
+    vista.radio = Math.min(30, Math.max(16, 4.2 / Math.tan(mitad)));
 }
 
 // La sombra en pantalla, para que el resplandor no la tape, y el tamaño
@@ -803,7 +720,6 @@ function ajustarTamano() {
     camara.updateProjectionMatrix();
     renderizador.setSize(innerWidth, innerHeight);
     compositor.setSize(innerWidth, innerHeight);
-    tamanoRayos();
 }
 
 window.addEventListener("resize", () => {
@@ -836,16 +752,15 @@ function adaptarResolucion(delta) {
     ajustarTamano();
 }
 
-// La entrada: primero aparecen las estrellas y después el gas se va
-// encendiendo en espiral de fuera hacia dentro mientras la cámara se
-// acerca un poco
+// La entrada: primero aparecen las estrellas y la sombra negra, y
+// después el gas se va encendiendo en espiral de fuera hacia dentro
+// mientras la cámara se acerca un poco
 const entrada = { t: parametros.has("fijo") || parametros.has("sinentrada") ? 10 : 0 };
 
 function moverEntrada(delta) {
     entrada.t += delta;
-    const estrellas = THREE.MathUtils.smoothstep(entrada.t, 0.2, 1.6);
     const gas = THREE.MathUtils.smoothstep(entrada.t, 0.9, 5.2);
-    fondo.material.uniforms.uAparece.value = estrellas;
+    fondo.material.uniforms.uAparece.value = THREE.MathUtils.smoothstep(entrada.t, 0.2, 1.6);
     comunes.uEncendido.value = gas;
     return gas;
 }
@@ -862,10 +777,12 @@ function animar() {
     const pulso = (comunes.uPulso.value *= Math.exp(-delta * 1.1));
     comunes.uOnda.value = Math.max(0.6, comunes.uOnda.value - delta * 2.6);
     const encendido = moverEntrada(delta);
+    const luzAnillo = THREE.MathUtils.smoothstep(encendido, 0.6, 1);
+    anillo.material.color.setRGB(1, 0.88, 0.7).multiplyScalar((2.4 + Math.sin(t * 2.2) * 0.4 + pulso * 3) * luzAnillo);
+    anillo2.material.color.setRGB(1, 0.8, 0.6).multiplyScalar(0.45 * luzAnillo);
     halos.forEach((h, i) => (h.material.opacity = h.userData.fuerza * encendido * (0.85 + 0.15 * Math.sin(t * (1.1 + i * 0.7)) + pulso * 0.8)));
     brillo.mezclar.uniforms.uFuerza.value = 0.55 * (1 + pulso * 0.6);
     marcarBola();
-    calcularRayos();
     compositor.render();
 }
 
