@@ -60,7 +60,8 @@ const comunes = {
     uVista: { value: new THREE.Vector3(0, 0, 1) },
     uPulso: { value: 0 },
     uOnda: { value: 9 },
-    uEncendido: { value: 0 }
+    uEncendido: { value: 0 },
+    uExpo: { value: 1 }
 };
 
 
@@ -195,8 +196,8 @@ const fondo = new THREE.Mesh(
                 vec3 e1 = normalize(cross(g, vec3(0.0, 1.0, 0.0)));
                 vec3 e2 = cross(e1, g);
                 float frente = dot(d, g);
-                if (frente < 0.9) return vec3(0.0);
-                vec2 p = vec2(dot(d, e1), dot(d, e2)) / 0.11;
+                if (frente < 0.97) return vec3(0.0);
+                vec2 p = vec2(dot(d, e1), dot(d, e2)) / 0.06;
                 p = mat2(0.8, -0.6, 0.6, 0.8) * p;
                 p.y /= 0.55;
                 float r = length(p);
@@ -207,8 +208,8 @@ const fondo = new THREE.Mesh(
                 float polvo = texture2D(tRuido, p * 0.2 + 0.5).r;
                 float nucleo = exp(-r * r * 22.0) * 2.2 + exp(-r * 5.0) * 0.5;
                 float disco = exp(-r * 2.3) * (0.25 + brazos * (0.6 + polvo * 0.8));
-                vec3 col = vec3(1.0, 0.86, 0.66) * nucleo + mix(vec3(0.5, 0.62, 1.0), vec3(0.95, 0.75, 0.9), polvo) * disco;
-                return col * 0.1;
+                vec3 col = vec3(1.0, 0.84, 0.62) * nucleo + mix(vec3(0.35, 0.55, 1.0), vec3(0.95, 0.55, 0.85), polvo) * disco * 1.3;
+                return col * 0.16;
             }
 
             void main() {
@@ -270,6 +271,7 @@ const gasGlsl = `
     uniform float uEncendido;
     uniform float uPulso;
     uniform float uOnda;
+    uniform float uExpo;
     const float DENTRO = 1.35;
     const float FUERA = 4.8;
     float manchasFijas = 0.0;
@@ -361,7 +363,9 @@ const brillar = (o) => {
     return o;
 };
 
-const sombra = brillar(new THREE.Mesh(new THREE.SphereGeometry(1, 64, 48), new THREE.MeshBasicMaterial({ color: 0x000000 })));
+// Durante la llegada la sombra aparece poco a poco con el gas, para que
+// no se vea una bola negra sola
+const sombra = brillar(new THREE.Mesh(new THREE.SphereGeometry(1, 64, 48), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0 })));
 agujero.add(sombra);
 
 
@@ -415,7 +419,7 @@ function materialDisco(fuerza, desfase) {
                 vec4 g = gas(r, fi, fi, ${desfase.toFixed(2)});
                 float a = clamp(g.a * ${fuerza.toFixed(3)} * 1.7, 0.0, 1.0);
                 if (a < 0.002) discard;
-                gl_FragColor = vec4(pow(g.rgb, vec3(1.15)) * 0.85 * a, a);
+                gl_FragColor = vec4(pow(g.rgb, vec3(1.15)) * 0.85 * a * uExpo, a);
             }
         `,
         ...MEZCLA_PREMULTIPLICADA
@@ -453,7 +457,7 @@ function materialArcos(fuerza, desfase) {
                 a *= smoothstep(fueraArco, fueraArco - (arriba ? 1.05 : 0.35), rho);
                 a = clamp(a * ${fuerza.toFixed(2)} * 1.7, 0.0, 1.0);
                 if (a < 0.002) discard;
-                gl_FragColor = vec4(pow(g.rgb, vec3(1.15)) * a, a);
+                gl_FragColor = vec4(pow(g.rgb, vec3(1.15)) * a * uExpo, a);
             }
         `,
         ...MEZCLA_PREMULTIPLICADA
@@ -563,7 +567,7 @@ const halos = [[10, 0.16, [1, 0.5, 0.22]], [3.8, 0.28, [1, 0.72, 0.45]]].map(([t
 // =====================================================================
 
 const GM = 5.4;
-const TROZOS = movil ? 500 : 900;
+const TROZOS = movil ? 600 : 1200;
 const marea = {
     estado: "nada",
     espera: parametros.get("marea") === "si" ? 7 : 40 + Math.random() * 25,
@@ -606,6 +610,36 @@ rioMarea.frustumCulled = false;
 rioMarea.renderOrder = 8;
 rioMarea.visible = false;
 agujero.add(rioMarea);
+
+// Estelas: una raya de cada trozo hasta donde estaba hace un momento
+const geometriaEstelas = new THREE.BufferGeometry();
+geometriaEstelas.setAttribute("position", new THREE.BufferAttribute(new Float32Array(TROZOS * 6), 3));
+geometriaEstelas.setAttribute("aBrillo", new THREE.BufferAttribute(new Float32Array(TROZOS * 2), 1));
+const materialEstelas = new THREE.ShaderMaterial({
+    vertexShader: `
+        attribute float aBrillo;
+        varying float vBrillo;
+        void main() {
+            vBrillo = aBrillo;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: `
+        varying float vBrillo;
+        void main() {
+            gl_FragColor = vec4(vec3(1.0, 0.62, 0.32) * vBrillo * 0.9, vBrillo);
+        }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+});
+const estelas = brillar(new THREE.LineSegments(geometriaEstelas, materialEstelas));
+estelas.frustumCulled = false;
+estelas.renderOrder = 8;
+estelas.visible = false;
+agujero.add(estelas);
+const anteriores = new Float32Array(TROZOS * 3);
 
 const estrellaMarea = brillar(new THREE.Sprite(new THREE.SpriteMaterial({ map: mapaHalo, color: new THREE.Color(0.85, 0.92, 1).multiplyScalar(3), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
 estrellaMarea.visible = false;
@@ -662,9 +696,11 @@ function romperEstrella() {
     }
     marea.estado = "rio";
     marea.t = 0;
-    estrellaMarea.visible = false;
+    for (let i = 0; i < TROZOS; i++) anteriores.set([t[i * 7], t[i * 7 + 1], t[i * 7 + 2]], i * 3);
     rioMarea.visible = true;
+    estelas.visible = true;
     despertar();
+    sonarMarea();
 }
 
 // Un paso de gravedad (y, dentro del disco, rozamiento que va metiendo
@@ -725,8 +761,16 @@ function moverMarea(delta) {
         if (r < 3.1) romperEstrella();
         return;
     }
+    // El fogonazo al romperse: la estrella se hincha y se apaga
+    if (marea.t < 1.2) {
+        estrellaMarea.visible = true;
+        estrellaMarea.scale.setScalar(2 + marea.t * 5);
+        estrellaMarea.material.opacity = Math.max(0, 1 - marea.t / 1.2);
+    } else estrellaMarea.visible = false;
     const p = marea.trozos;
     const pos = geometriaMarea.attributes.position.array;
+    const lin = geometriaEstelas.attributes.position.array;
+    const linB = geometriaEstelas.attributes.aBrillo.array;
     const brilloT = geometriaMarea.attributes.aBrillo.array;
     let vivos = 0;
     for (let i = 0; i < TROZOS; i++) {
@@ -749,15 +793,165 @@ function moverMarea(delta) {
         const junto = THREE.MathUtils.smoothstep(marea.t, 0, 1.5);
         brilloT[i] = Math.max(0, p[k + 6]) * (0.25 + 0.75 * junto) * (0.55 + 0.9 * Math.exp(-marea.t * 0.3) + 0.5 / Math.max(r - 0.8, 0.6));
         if (p[k + 6] > 0) vivos++;
+        // La estela va de la posición de hace un momento a la de ahora
+        const q = i * 3;
+        anteriores[q] += (p[k] - anteriores[q]) * Math.min(1, delta * 7);
+        anteriores[q + 1] += (p[k + 1] - anteriores[q + 1]) * Math.min(1, delta * 7);
+        anteriores[q + 2] += (p[k + 2] - anteriores[q + 2]) * Math.min(1, delta * 7);
+        lin.set([anteriores[q], anteriores[q + 1], anteriores[q + 2], p[k], p[k + 1], p[k + 2]], i * 6);
+        linB[i * 2] = 0;
+        linB[i * 2 + 1] = brilloT[i] * 0.35;
     }
     geometriaMarea.attributes.position.needsUpdate = true;
     geometriaMarea.attributes.aBrillo.needsUpdate = true;
+    geometriaEstelas.attributes.position.needsUpdate = true;
+    geometriaEstelas.attributes.aBrillo.needsUpdate = true;
     if (!vivos || marea.t > 30) {
         marea.estado = "nada";
         marea.ultima = comunes.uTiempo.value;
         rioMarea.visible = false;
+        estelas.visible = false;
     }
 }
+
+// =====================================================================
+// 6c. LOS CUATRO MUNDOS
+// Cuatro planetas pequeños dan vueltas alrededor del agujero, cada uno
+// con el nombre de una parte del portfolio. Los ilumina el disco (luz
+// cálida por el lado que mira al agujero) y tienen un filo azulado al
+// otro lado. Al tocar el planeta o su nombre se abre el cartel.
+// =====================================================================
+
+const botonesMundo = [...document.querySelectorAll(".luna")];
+const carteles = [...document.querySelectorAll(".cartel")];
+const mundos = [];
+
+function crearMundos() {
+    const tipos = [
+        { radio: 6.6, tam: 0.26, inclinacion: 0.16, nodo: 0.3, velocidad: 0.052, fase: 0.4, claro: [0.62, 0.6, 0.58], oscuro: [0.2, 0.19, 0.18] },
+        { radio: 7.7, tam: 0.21, inclinacion: -0.22, nodo: 1.7, velocidad: 0.047, fase: 2.0, claro: [0.78, 0.88, 1.0], oscuro: [0.25, 0.34, 0.48] },
+        { radio: 8.8, tam: 0.3, inclinacion: 0.1, nodo: 2.9, velocidad: 0.042, fase: 3.6, claro: [0.75, 0.42, 0.28], oscuro: [0.22, 0.1, 0.07] },
+        { radio: 9.9, tam: 0.23, inclinacion: -0.14, nodo: 4.4, velocidad: 0.038, fase: 5.2, claro: [0.85, 0.72, 0.5], oscuro: [0.32, 0.24, 0.15] }
+    ];
+    botonesMundo.forEach((boton, i) => {
+        const tipo = tipos[i];
+        const material = new THREE.ShaderMaterial({
+            uniforms: {
+                tRuido,
+                uCentro: { value: CENTRO },
+                uClaro: { value: new THREE.Color(...tipo.claro) },
+                uOscuro: { value: new THREE.Color(...tipo.oscuro) },
+                uSemilla: { value: i * 0.27 }
+            },
+            vertexShader: `
+                varying vec3 vNormal;
+                varying vec3 vMundo;
+                varying vec3 vLocal;
+                void main() {
+                    vLocal = normalize(position);
+                    vNormal = normalize(mat3(modelMatrix) * normal);
+                    vec4 m = modelMatrix * vec4(position, 1.0);
+                    vMundo = m.xyz;
+                    gl_Position = projectionMatrix * viewMatrix * m;
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D tRuido;
+                uniform vec3 uCentro;
+                uniform vec3 uClaro;
+                uniform vec3 uOscuro;
+                uniform float uSemilla;
+                varying vec3 vNormal;
+                varying vec3 vMundo;
+                varying vec3 vLocal;
+                void main() {
+                    vec3 n = normalize(vNormal);
+                    vec3 haciaDisco = normalize(uCentro - vMundo);
+                    vec3 haciaOjo = normalize(cameraPosition - vMundo);
+                    vec2 uv = vec2(atan(vLocal.z, vLocal.x) / 6.2832, vLocal.y * 0.5 + 0.5);
+                    float superficie = texture2D(tRuido, uv * vec2(2.0, 1.0) + uSemilla).r * 0.65 + texture2D(tRuido, uv * vec2(6.0, 3.0) + uSemilla).r * 0.35;
+                    vec3 base = mix(uOscuro, uClaro, smoothstep(0.3, 0.75, superficie));
+                    float luz = max(dot(n, haciaDisco), 0.0);
+                    vec3 color = base * (vec3(1.0, 0.62, 0.32) * luz * 1.6 + vec3(0.03, 0.035, 0.05));
+                    float filo = pow(1.0 - max(dot(n, haciaOjo), 0.0), 3.0);
+                    color += vec3(0.35, 0.45, 0.8) * filo * 0.35;
+                    gl_FragColor = vec4(color, 1.0);
+                }
+            `
+        });
+        const mundo = brillar(new THREE.Mesh(new THREE.SphereGeometry(tipo.tam, 40, 28), material));
+        const orbita = new THREE.Group();
+        orbita.position.copy(CENTRO);
+        orbita.rotation.set(tipo.inclinacion, tipo.nodo, 0);
+        orbita.add(mundo);
+        escena.add(orbita);
+        mundos.push({ mundo, boton, ...tipo, angulo: tipo.fase });
+        boton.addEventListener("click", () => abrirCartel(boton.dataset.cartel));
+    });
+}
+
+function moverMundos(delta) {
+    mundos.forEach((m) => {
+        m.angulo += delta * m.velocidad;
+        m.mundo.position.set(Math.cos(m.angulo) * m.radio, 0, Math.sin(m.angulo) * m.radio);
+        m.mundo.rotation.y += delta * 0.2;
+    });
+}
+
+const auxMundo = new THREE.Vector3();
+const auxPantalla = new THREE.Vector3();
+const auxRayo = new THREE.Vector3();
+
+// Los nombres siguen a su planeta y se esconden detrás del agujero, fuera
+// de la pantalla o encima del título
+const cabecera = document.querySelector(".cabecera");
+
+function colocarNombres() {
+    camara.updateMatrixWorld();
+    const titulo = cabecera.getBoundingClientRect();
+    mundos.forEach((m) => {
+        m.mundo.getWorldPosition(auxMundo);
+        auxPantalla.copy(auxMundo).project(camara);
+        const x = (auxPantalla.x * 0.5 + 0.5) * innerWidth;
+        const y = (-auxPantalla.y * 0.5 + 0.5) * innerHeight;
+        auxRayo.subVectors(auxMundo, camara.position);
+        const largo = auxRayo.length();
+        auxRayo.normalize();
+        const hastaCentro = auxV.subVectors(CENTRO, camara.position);
+        const t = hastaCentro.dot(auxRayo);
+        const lejos = Math.sqrt(Math.max(0, hastaCentro.lengthSq() - t * t));
+        const tapado = t > 0 && t < largo && lejos < 1.6;
+        const dentro = auxPantalla.z < 1 && x > 20 && x < innerWidth - 20 && y > 20 && y < innerHeight - 20;
+        if (!m.ancho) m.ancho = m.boton.offsetWidth;
+        const bx = Math.max(8, Math.min(innerWidth - (m.ancho || 90) - 8, x + 14));
+        const sobreTitulo = bx < titulo.right && bx + (m.ancho || 90) > titulo.left && y - 30 < titulo.bottom && y > titulo.top;
+        m.boton.classList.toggle("visible", listo && comunes.uEncendido.value > 0.9 && dentro && !tapado && !sobreTitulo);
+        m.boton.style.transform = `translate(${Math.round(bx)}px, ${Math.round(y - 30)}px)`;
+    });
+}
+
+const rayoMundos = new THREE.Raycaster();
+const punteroMundos = new THREE.Vector2();
+
+function mundoBajo(e) {
+    punteroMundos.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+    rayoMundos.setFromCamera(punteroMundos, camara);
+    const corte = rayoMundos.intersectObjects(mundos.map((m) => m.mundo), false)[0];
+    return corte ? mundos.find((m) => m.mundo === corte.object) : null;
+}
+
+function abrirCartel(id) {
+    carteles.forEach((c) => c.classList.toggle("visible", c.id === id));
+    botonesMundo.forEach((b) => b.classList.toggle("elegida", b.dataset.cartel === id));
+    document.getElementById("pista").classList.add("oculta");
+}
+
+carteles.forEach((c) => {
+    c.querySelector(".cerrar").addEventListener("click", () => {
+        c.classList.remove("visible");
+        botonesMundo.forEach((b) => b.classList.remove("elegida"));
+    });
+});
 
 
 // =====================================================================
@@ -1018,12 +1212,15 @@ function colocarCamara(delta, t) {
         vista.velGiro *= freno;
         vista.velAltura *= freno;
     }
-    vista.orbitaAltura = THREE.MathUtils.clamp(vista.orbitaAltura, -0.14, 0.4);
+    vista.orbitaAltura = THREE.MathUtils.clamp(vista.orbitaAltura, -0.1, 0.12);
     vista.zoom += (vista.objZoom - vista.zoom) * Math.min(1, delta * 3);
-    const acercar = 1 + 0.22 * Math.pow(1 - comunes.uEncendido.value, 2);
+    // La llegada: se empieza lejos y algo más arriba, y la cámara se
+    // acerca despacio mientras el gas se enciende
+    const llegada = 1 - THREE.MathUtils.smoothstep(entrada.t, 0, 7.5);
+    const acercar = 1 + 1.5 * llegada * llegada;
     const balanceo = pocoMovimiento ? 0 : 1;
     const giro = BASE_GIRO + vista.orbita + vista.giro + Math.sin(t * 0.12) * 0.05 * balanceo;
-    const altura = Math.max(0.04, BASE_ALTURA + vista.orbitaAltura + vista.altura + Math.sin(t * 0.09) * 0.015 * balanceo);
+    const altura = Math.max(0.04, BASE_ALTURA + vista.orbitaAltura + vista.altura + Math.sin(t * 0.09) * 0.015 * balanceo + llegada * llegada * 0.12);
     vista.giroActual = giro;
     camara.position.set(Math.sin(giro) * Math.cos(altura), Math.sin(altura), Math.cos(giro) * Math.cos(altura)).multiplyScalar(vista.radio * acercar * vista.zoom).add(OBJETIVO);
     camara.lookAt(OBJETIVO);
@@ -1035,8 +1232,11 @@ function orientarAgujero() {
     let giro = Math.atan2(auxV.x, auxV.z);
     giro += Math.round((vista.giroActual - giro) / (Math.PI * 2)) * Math.PI * 2;
     const elevacion = Math.atan2(auxV.y, Math.hypot(auxV.x, auxV.z));
-    const g = BASE_GIRO + (giro - BASE_GIRO) * 0.75;
-    const e = BASE_ALTURA + (elevacion - BASE_ALTURA) * 0.75;
+    // El disco sigue del todo a la cámara al girar alrededor (así nunca se
+    // ve la bola negra sola); solo la pequeña inclinación del ratón y el
+    // balanceo cambian un poco el ángulo, y eso está acotado
+    const g = giro - vista.giro * 0.25;
+    const e = elevacion - (vista.altura + vista.orbitaAltura) * 0.25;
     agujero.rotation.set(-(e - 0.2), g, -0.4);
     agujero.updateMatrixWorld();
     arcos.rotation.set(-(elevacion - 0.2), giro, -0.4);
@@ -1141,6 +1341,38 @@ function cambiarSonido() {
     botonSonido.classList.toggle("activo", sonido.activo);
 }
 
+// Al romperse la estrella: un rugido de ruido que sube y se apaga
+function sonarMarea() {
+    if (!sonido.activo) return;
+    const ctx = sonido.ctx;
+    const t = ctx.currentTime;
+    const largo = ctx.sampleRate * 3;
+    const buffer = ctx.createBuffer(1, largo, ctx.sampleRate);
+    const datos = buffer.getChannelData(0);
+    let ultimo = 0;
+    for (let i = 0; i < largo; i++) {
+        ultimo = (ultimo + 0.04 * (Math.random() * 2 - 1)) / 1.04;
+        datos[i] = ultimo * 3;
+    }
+    const fuente = ctx.createBufferSource();
+    fuente.buffer = buffer;
+    const filtro = ctx.createBiquadFilter();
+    filtro.type = "lowpass";
+    filtro.frequency.setValueAtTime(120, t);
+    filtro.frequency.exponentialRampToValueAtTime(900, t + 0.6);
+    filtro.frequency.exponentialRampToValueAtTime(80, t + 3);
+    const vol = ctx.createGain();
+    vol.gain.setValueAtTime(0, t);
+    vol.gain.linearRampToValueAtTime(0.5, t + 0.3);
+    vol.gain.exponentialRampToValueAtTime(0.001, t + 3);
+    fuente.connect(filtro).connect(vol).connect(sonido.maestro);
+    fuente.onended = () => {
+        fuente.disconnect();
+        vol.disconnect();
+    };
+    fuente.start(t);
+}
+
 // Cerca del agujero el zumbido baja de tono y se apaga lo agudo
 function sonidoCercania() {
     if (!sonido.ctx || !sonido.activo) return;
@@ -1215,6 +1447,7 @@ lienzo.addEventListener("pointermove", (e) => {
     if (!vista.arrastrando) {
         // Ratón sin pulsar: solo inclina un poco la vista
         if (e.pointerType === "mouse") {
+            if (listo) lienzo.style.cursor = mundoBajo(e) ? "pointer" : "";
             vista.objGiro = -(e.clientX / innerWidth - 0.5) * 0.3;
             vista.objAltura = (e.clientY / innerHeight - 0.5) * 0.1;
         }
@@ -1249,6 +1482,11 @@ const soltar = (e) => {
         vista.velAltura = 0;
     }
     if (e.type === "pointerup" && Math.hypot(e.clientX - toque.x, e.clientY - toque.y) < 8 && performance.now() - toque.t < 350) {
+        const mundo = mundoBajo(e);
+        if (mundo) {
+            abrirCartel(mundo.boton.dataset.cartel);
+            return;
+        }
         despertar();
         lanzarEstrella();
     }
@@ -1314,9 +1552,10 @@ const entrada = { t: parametros.has("fijo") || parametros.has("sinentrada") || p
 
 function moverEntrada(delta) {
     entrada.t += delta;
-    const gas = THREE.MathUtils.smoothstep(entrada.t, 0.9, 5.2);
+    const gas = THREE.MathUtils.smoothstep(entrada.t, 0.9, 6);
     fondo.material.uniforms.uAparece.value = THREE.MathUtils.smoothstep(entrada.t, 0.2, 1.6);
     comunes.uEncendido.value = gas;
+    sombra.material.opacity = THREE.MathUtils.smoothstep(gas, 0.05, 0.45);
     return gas;
 }
 
@@ -1338,9 +1577,14 @@ function animar() {
     anillo.material.color.setRGB(1, 0.88, 0.7).multiplyScalar((2.4 + Math.sin(t * 2.2) * 0.4 + pulso * 3) * luzAnillo * (1 + c * 0.8));
     anillo2.material.color.setRGB(1, 0.8, 0.6).multiplyScalar(0.45 * luzAnillo);
     halos.forEach((h, i) => (h.material.opacity = h.userData.fuerza * encendido * (0.85 + 0.15 * Math.sin(t * (1.1 + i * 0.7)) + pulso * 0.8)));
-    brillo.mezclar.uniforms.uFuerza.value = 0.55 * (1 + pulso * 0.6) * (1 - c * 0.35);
+    brillo.mezclar.uniforms.uFuerza.value = 0.55 * (1 + pulso * 0.6) * (1 - c * 0.3);
+    // Al acercarte el disco ocupa más pantalla: se baja la exposición para
+    // que no se queme de blanco
+    comunes.uExpo.value = 1 - c * 0.38;
     marcarBola();
     moverMarea(delta);
+    moverMundos(delta);
+    colocarNombres();
     sonidoCercania();
     destellos.forEach((d) => (d.material.opacity = d.userData.fuerza * fondo.material.uniforms.uAparece.value * (0.8 + 0.2 * Math.sin(t * 1.3 + d.userData.fase))));
     compositor.render();
@@ -1353,6 +1597,8 @@ requestAnimationFrame(() => {
     orientarAgujero();
     marcarBola();
     moverEntrada(0);
+    crearMundos();
+    moverMundos(0);
     if (parametros.has("pulso")) despertar();
     renderizador.compile(escena, camara);
     listo = true;
