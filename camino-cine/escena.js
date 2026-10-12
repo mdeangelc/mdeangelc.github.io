@@ -8,7 +8,7 @@ import { PaseBrillo, crearAcabado, crearZumbido } from "./cine.js";
 
 // =====================================================================
 // 1. AJUSTES GENERALES
-// El camino rehecho al estilo de Gargantua: sin píxeles, de noche y con
+// El camino rehecho al estilo de Gargantua: de noche y con
 // aspecto de película. Una luna baja a un lado alumbra el camino y deja
 // sombras largas de los árboles y las farolas. Hay charcos que reflejan
 // la luna y las farolas, bancos de niebla, luciérnagas, polillas, hojas
@@ -16,6 +16,7 @@ import { PaseBrillo, crearAcabado, crearZumbido } from "./cine.js";
 // Opciones en la dirección:
 //   ?sinentrada      -> sin la entrada (la luna ya arriba)
 //   ?ciervo=si       -> el ciervo cruza enseguida
+//   ?entrada=2       -> congela la entrada en ese segundo (para ajustarla)
 //   ?calidad=baja    -> menos hierba
 //   ?fps=si          -> contador de fotogramas
 //   ?tocar=no        -> la hierba no reacciona al ratón
@@ -157,8 +158,7 @@ const terrenoGLSL = `
         return fract((q.x + q.y) * q.z);
     }
 
-    // Ruido fino por píxel (sin la rejilla de 4x4 del pixel art) para
-    // desvanecer lo que está lejos
+    // Ruido fino por píxel para desvanecer lo que está lejos
     float tramado(vec2 pixel) {
         return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
     }
@@ -222,94 +222,22 @@ function aplicarResolucion() {
 aplicarResolucion();
 
 // =====================================================================
-// 4. MOMENTOS DEL DÍA
-// Cada momento es una paleta de colores y unos números (dónde está el
-// sol, cuánta luz hay...). Al cambiar de momento se mezclan poco a poco,
-// así el sol se pone de verdad y las estrellas van saliendo.
+// 4. LA PALETA DE LA NOCHE
+// Todos los colores de la escena y la fuerza de las luces. Los números
+// se quedan como están y los textos se convierten en colores.
 // =====================================================================
 
-const momentos = {
-    dia: {
-        noche: 0, dia: 1, solX: 1.22, solY: 0.9, luzX: 30, luzY: 80, fuerzaSol: 2.2, fuerzaCielo: 2.3,
-        niebla: "#a3b9dc", tierra: "#2c5230", tierraClara: "#4b7838",
-        hierbaBase: "#1b4020", hierbaPunta: "#86b84a", luz: "#fff1d6", ambiente: "#7f93c8",
-        piedra: "#a09a98", juntas: "#3a3640", barro: "#6b5848", musgo: "#4c7a34",
-        reflejoAlto: "#4f86d8", reflejoBajo: "#d4e8ff",
-        cieloAlto: "#2f6fd6", cieloMedio: "#6fa8ee", cieloBajo: "#d8ecff", colorSol: "#fff7dc",
-        nubeLuz: "#ffffff", nubeMedia: "#e3ebf8", nubeSombra: "#a6b6dc",
-        montanaLejos: "#93a9d8", montanaCerca: "#6181bb", nieve: "#f5f9ff",
-        bosqueLejos: "#3f6e5e", bosqueCerca: "#29503c"
-    },
-    atardecer: {
-        noche: 0, dia: 0, solX: 1.42, solY: 0.62, luzX: 60, luzY: 30, fuerzaSol: 1.6, fuerzaCielo: 2.0,
-        niebla: "#4a4677", tierra: "#22392b", tierraClara: "#3c5a33",
-        hierbaBase: "#14281a", hierbaPunta: "#5c8a3c", luz: "#ffc9a0", ambiente: "#6a5f99",
-        piedra: "#8e8a8e", juntas: "#2b2436", barro: "#4a3a40", musgo: "#3f5a2e",
-        reflejoAlto: "#6c5aa8", reflejoBajo: "#f2a07c",
-        cieloAlto: "#23287a", cieloMedio: "#9a4fa0", cieloBajo: "#ff9f6e", colorSol: "#ffd47e",
-        nubeLuz: "#ffbf8f", nubeMedia: "#e0708c", nubeSombra: "#5c3d8e",
-        montanaLejos: "#7a68b4", montanaCerca: "#4a3c86", nieve: "#ffd2dc",
-        bosqueLejos: "#3b3c6e", bosqueCerca: "#252a50"
-    },
-    luna: {
-        noche: 1, dia: 0, solX: 1.3, solY: 0.6, luzX: 10, luzY: 40, fuerzaSol: 1.25, fuerzaCielo: 0.55,
-        niebla: "#141a2e", tierra: "#0c1416", tierraClara: "#16242a",
-        hierbaBase: "#060c0e", hierbaPunta: "#34505a", luz: "#b4c6ee", ambiente: "#222c50",
-        piedra: "#5c6278", juntas: "#0c0e16", barro: "#161a20", musgo: "#16282a",
-        reflejoAlto: "#0a1024", reflejoBajo: "#3a4a78",
-        cieloAlto: "#02040c", cieloMedio: "#081026", cieloBajo: "#1a2646", colorSol: "#dfe8ff",
-        nubeLuz: "#8a98c0", nubeMedia: "#3a466e", nubeSombra: "#141a34",
-        montanaLejos: "#151c3a", montanaCerca: "#0e1428", nieve: "#3a4262",
-        bosqueLejos: "#0a0f1e", bosqueCerca: "#060912"
-    },
-    noche: {
-        noche: 1, dia: 0, solX: 1.34, solY: 0.22, luzX: -60, luzY: 45, fuerzaSol: 0.22, fuerzaCielo: 0.6,
-        niebla: "#141834", tierra: "#0d1520", tierraClara: "#18283a",
-        hierbaBase: "#081018", hierbaPunta: "#2a4a66", luz: "#8aa0e0", ambiente: "#2e3668",
-        piedra: "#46507a", juntas: "#0d0f1e", barro: "#151824", musgo: "#142636",
-        reflejoAlto: "#0c1230", reflejoBajo: "#3a4c96",
-        cieloAlto: "#04071a", cieloMedio: "#0e1840", cieloBajo: "#26346a", colorSol: "#ff9a5a",
-        nubeLuz: "#5a6aa8", nubeMedia: "#2c3770", nubeSombra: "#151b3e",
-        montanaLejos: "#2b3466", montanaCerca: "#1b2150", nieve: "#8f9fd6",
-        bosqueLejos: "#151d38", bosqueCerca: "#0d1328"
-    }
-};
-
-const nombresNumero = ["noche", "dia", "solX", "solY", "luzX", "luzY", "fuerzaSol", "fuerzaCielo"];
-const nombresColor = Object.keys(momentos.dia).filter((n) => !nombresNumero.includes(n));
-
-function prepararMomento(datos) {
-    const m = {};
-    nombresNumero.forEach((n) => (m[n] = datos[n]));
-    nombresColor.forEach((n) => (m[n] = new THREE.Color(datos[n])));
-    return m;
-}
-
-Object.keys(momentos).forEach((k) => (momentos[k] = prepararMomento(momentos[k])));
-const momentoVacio = {
-    ...Object.fromEntries(nombresNumero.map((n) => [n, 0])),
-    ...Object.fromEntries(nombresColor.map((n) => [n, "#000000"]))
-};
-const actual = prepararMomento(momentoVacio);
-
-function suavizar(t) {
-    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-}
-
-// Al anochecer primero baja el sol y después salen las estrellas y se
-// encienden las luces; al amanecer, al revés.
-function mezclarMomentos(destino, a, b, t) {
-    const pronto = suavizar(Math.min(1, t * 1.6));
-    const tarde = suavizar(Math.max(0, (t - 0.35) / 0.65));
-    const anocheciendo = b.noche > a.noche || (b.noche === a.noche && b.solY < a.solY);
-    nombresNumero.forEach((n) => {
-        let tt = suavizar(t);
-        if (n === "solX" || n === "solY") tt = anocheciendo ? pronto : tarde;
-        if (n === "noche") tt = anocheciendo ? tarde : pronto;
-        destino[n] = a[n] + (b[n] - a[n]) * tt;
-    });
-    nombresColor.forEach((n) => destino[n].lerpColors(a[n], b[n], suavizar(t)));
-}
+const actual = Object.fromEntries(Object.entries({
+    noche: 1, fuerzaLuna: 1.25, fuerzaCielo: 0.55,
+    niebla: "#141a2e", tierra: "#0c1416", tierraClara: "#16242a",
+    hierbaBase: "#060c0e", hierbaPunta: "#34505a", luz: "#b4c6ee", ambiente: "#222c50",
+    piedra: "#5c6278", juntas: "#0c0e16", barro: "#161a20", musgo: "#16282a",
+    reflejoAlto: "#0a1024", reflejoBajo: "#3a4a78",
+    cieloAlto: "#02040c", cieloMedio: "#081026", cieloBajo: "#1a2646",
+    nubeLuz: "#8a98c0", nubeMedia: "#3a466e", nubeSombra: "#141a34",
+    montanaLejos: "#151c3a", montanaCerca: "#0e1428", nieve: "#3a4262",
+    bosqueLejos: "#0a0f1e", bosqueCerca: "#060912"
+}).map(([n, v]) => [n, typeof v === "number" ? v : new THREE.Color(v)]));
 
 const comunes = {
     uTiempo: { value: 0 },
@@ -317,8 +245,7 @@ const comunes = {
     uNiebla: { value: actual.niebla },
     uLuz: { value: actual.luz },
     uAmbiente: { value: actual.ambiente },
-    uNoche: { value: 0 },
-    uDia: { value: 0 },
+    uNoche: { value: actual.noche },
     uRaton: { value: new THREE.Vector2(999, 999) },
     uFuerzaRaton: { value: 0 },
     uViento: { value: movimientoReducido ? 0.25 : 1 },
@@ -412,15 +339,13 @@ const uniformesFondo = {
     uProgreso: { value: 0 },
     uTiempo: comunes.uTiempo,
     uNoche: comunes.uNoche,
-    uDia: comunes.uDia,
     uNiebla: comunes.uNiebla,
-    uSol: { value: new THREE.Vector2(1.28, 0.5) },
     uAspectoMarco: { value: aspectoMarco },
     uLinea: { value: 1 - HORIZONTE_EN_MARCO },
     uLuna: { value: luna },
     uSubida: { value: 1 }
 };
-["cieloAlto", "cieloMedio", "cieloBajo", "colorSol", "nubeLuz", "nubeMedia", "nubeSombra", "montanaLejos", "montanaCerca", "nieve", "bosqueLejos", "bosqueCerca"].forEach((n) => {
+["cieloAlto", "cieloMedio", "cieloBajo", "nubeLuz", "nubeMedia", "nubeSombra", "montanaLejos", "montanaCerca", "nieve", "bosqueLejos", "bosqueCerca"].forEach((n) => {
     uniformesFondo["u" + n[0].toUpperCase() + n.slice(1)] = { value: actual[n] };
 });
 
@@ -430,15 +355,12 @@ const fragmentFondo = `
     uniform float uProgreso;
     uniform float uTiempo;
     uniform float uNoche;
-    uniform float uDia;
     uniform vec3 uNiebla;
-    uniform vec2 uSol;
     uniform float uAspectoMarco;
     uniform float uLinea;
     uniform vec3 uCieloAlto;
     uniform vec3 uCieloMedio;
     uniform vec3 uCieloBajo;
-    uniform vec3 uColorSol;
     uniform vec3 uNubeLuz;
     uniform vec3 uNubeMedia;
     uniform vec3 uNubeSombra;
@@ -479,16 +401,6 @@ const fragmentFondo = `
         return fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     }
 
-    // Antes reducía el valor a escalones (pixel art); ahora lo deja suave
-    float escalones(float v, float cuantos, float t) {
-        return clamp(v, 0.0, 1.0);
-    }
-
-    // Igual, suave
-    float escalonesSuaves(float v, float cuantos, float t) {
-        return smoothstep(0.0, 1.0, clamp(v, 0.0, 1.0));
-    }
-
     // Coordenadas del marco para una capa con su paralaje y su zoom al caminar
     vec2 enCapa(vec2 marco, float paralaje, float zoom) {
         marco += uRatonFondo * vec2(paralaje, paralaje * 0.5);
@@ -510,16 +422,7 @@ const fragmentFondo = `
 
     vec3 cielo(vec2 f, float t) {
         float alto = clamp((f.y - uLinea) / (1.0 - uLinea), 0.0, 1.0);
-        float b = escalones(alto, 16.0, t);
-        vec3 c = b < 0.3 ? mix(uCieloBajo, uCieloMedio, b / 0.3) : mix(uCieloMedio, uCieloAlto, (b - 0.3) / 0.7);
-
-        float visibleSol = 1.0 - uNoche;
-        vec2 aSol = (f - uSol) * vec2(1.0, 1.25);
-        float d = length(aSol);
-        float halo = escalones(exp(-d * 3.2), 7.0, t);
-        c = mix(c, uColorSol, halo * 0.5 * visibleSol);
-        if (d < 0.05) c = mix(c, mix(uColorSol, vec3(1.0), 0.55), visibleSol);
-        else if (d < 0.062) c = mix(c, uColorSol, visibleSol * 0.8);
+        vec3 c = alto < 0.3 ? mix(uCieloBajo, uCieloMedio, alto / 0.3) : mix(uCieloMedio, uCieloAlto, (alto - 0.3) / 0.7);
 
         // Estrellas: puntos redondos y suaves que titilan
         vec2 rejilla = f * 260.0;
@@ -529,22 +432,22 @@ const fragmentFondo = `
         float punto = smoothstep(0.32, 0.0, length(fract(rejilla) - centro));
         float estrella = step(0.993, h) * punto * (0.55 + 0.45 * sin(uTiempo * 2.0 + hash(celda + 3.0) * 30.0)) * (0.5 + 2.0 * pow(hash(celda + 9.0), 6.0));
         estrella *= smoothstep(0.1, 0.45, alto);
-        c += vec3(0.85, 0.9, 1.0) * estrella * uNoche;
+        c += vec3(0.85, 0.9, 1.0) * estrella * (1.0 - luzLuna(f) * 0.7);
 
         return c;
     }
 
-    // Nubes: ruido estirado en horizontal; la luz depende de hacia dónde está el sol
+    // Nubes: ruido estirado en horizontal; la luz depende de hacia dónde está la luna
     vec4 nubes(vec2 f, float t, float semilla, float desde, float hasta, float umbral, float estirar) {
         vec2 p = vec2(f.x * estirar + uTiempo * 0.004 + semilla, f.y * estirar * 3.2 + semilla * 3.0);
         float banda = smoothstep(desde, desde + 0.08, f.y) * (1.0 - smoothstep(hasta - 0.1, hasta, f.y));
         float n = fbm(p) * banda;
         if (n < umbral) return vec4(0.0);
-        vec2 haciaSol = normalize(uSol - f + 0.0001) * 0.02;
-        float n2 = fbm(p + vec2(haciaSol.x * estirar, haciaSol.y * estirar * 3.2)) * banda;
+        vec2 haciaLuna = normalize(centroLuna() - f + 0.0001) * 0.02;
+        float n2 = fbm(p + vec2(haciaLuna.x * estirar, haciaLuna.y * estirar * 3.2)) * banda;
         float abajo = fbm(p - vec2(0.0, 0.035 * estirar * 3.2)) * banda;
         float luz = clamp((n - n2) * 14.0 + 0.62, 0.0, 1.0);
-        luz = max(luz, (1.0 - smoothstep(umbral - 0.02, umbral + 0.03, abajo)) * (0.95 - uDia * 0.4));
+        luz = max(luz, (1.0 - smoothstep(umbral - 0.02, umbral + 0.03, abajo)) * 0.95);
         luz = mix(luz, 0.55, smoothstep(umbral + 0.08, umbral + 0.2, n) * 0.5);
         float q = clamp(luz, 0.0, 1.0);
         vec3 c = q < 0.5 ? mix(uNubeSombra, uNubeMedia, q * 2.0) : mix(uNubeMedia, uNubeLuz, q * 2.0 - 1.0);
@@ -584,15 +487,15 @@ const fragmentFondo = `
         if (f.y > h) return vec4(0.0);
         float e = 0.004;
         float pendiente = (cresta(f.x + e, semilla, frecuencia) - (h - uLinea - base) / altura) * altura / e;
-        float ladoLuz = mix(sign(uSol.x - 0.89), -1.0, uNoche);
+        float ladoLuz = 1.0;
         vec2 pr = vec2(f.x * frecuencia * 7.0 + f.y * 9.0, f.y * frecuencia * 4.0 + semilla);
         float gx = relieve(pr + vec2(0.04, 0.0)) - relieve(pr - vec2(0.04, 0.0));
         float porRelieve = clamp(-gx * ladoLuz * 5.0 + 0.5, 0.0, 1.0);
         float porCresta = clamp(-pendiente * ladoLuz * 0.8 + 0.5, 0.0, 1.0);
         float iluminada = mix(porCresta, porRelieve, smoothstep(0.0, 0.05, h - f.y));
-        float q = escalonesSuaves(iluminada, 2.0, t);
+        float q = smoothstep(0.0, 1.0, iluminada);
         vec3 sombra = mix(color * 0.72, uCieloAlto, 0.2);
-        vec3 luz = mix(color * 1.12, uColorSol, 0.18 * (1.0 - uNoche));
+        vec3 luz = color * 1.12;
         vec3 c = mix(sombra, luz, q);
         float nieve = smoothstep(0.0, 0.004, f.y - (uLinea + nieveDesde + (ruido(vec2(f.x * 40.0, semilla)) - 0.5) * 0.03));
         vec3 colorNieve = mix(uNieve * 0.72, uNieve, q);
@@ -617,10 +520,8 @@ const fragmentFondo = `
             if (pico > arriba) { arriba = pico; ladoPino = dx; }
         }
         if (f.y > arriba) return vec4(0.0);
-        float ladoLuz = mix(sign(uSol.x - 0.89), -1.0, uNoche);
-        float luz = escalones(clamp(ladoPino * ladoLuz * 0.9 + 0.45, 0.0, 1.0), 2.0, t);
-        vec3 c = mix(color * 0.8, mix(color * 1.25, uColorSol, 0.12 * (1.0 - uNoche)), luz);
-        if (arriba - f.y < 0.003) c = mix(c, uColorSol, 0.25 * (1.0 - uNoche) * step(0.0, ladoPino * ladoLuz));
+        float luz = clamp(ladoPino * 0.9 + 0.45, 0.0, 1.0);
+        vec3 c = mix(color * 0.8, color * 1.25, luz);
         float casa = step(0.965, hash(vec2(floor(f.x * 140.0), semilla + 9.0))) * step(0.006, arriba - f.y) * step(f.y, suelo - 0.004) * step(suelo - 0.012, f.y);
         c = mix(c, vec3(1.0, 0.72, 0.38), casa * uNoche);
         c = mix(c, uCieloBajo, aire);
@@ -702,7 +603,7 @@ const fragmentFondo = `
 
         float sobre = marco.y - uLinea;
         float franjas = ruido(vec2(marco.x * 7.0 + uTiempo * 0.012, marco.y * 34.0)) * 0.7 + ruido(vec2(marco.x * 20.0 - uTiempo * 0.02, marco.y * 70.0)) * 0.3;
-        float bruma = escalones(1.0 - smoothstep(0.0, 0.07 + franjas * 0.08, sobre), 5.0, t) * 0.85;
+        float bruma = (1.0 - smoothstep(0.0, 0.07 + franjas * 0.08, sobre)) * 0.85;
         c = mix(c, uNiebla, bruma);
 
         gl_FragColor = vec4(c, 1.0);
@@ -733,7 +634,6 @@ function crearFondo() {
 
 function actualizarFondo(metros) {
     uniformesFondo.uProgreso.value = 1 - Math.exp(-metros / 700);
-    uniformesFondo.uSol.value.set(actual.solX, actual.solY);
 }
 
 // =====================================================================
@@ -749,6 +649,7 @@ const entrada = { t: movimientoReducido || parametros.has("sinentrada") ? 10 : 0
 
 function moverEntrada() {
     entrada.t = entrada.t >= 10 ? 10 : (performance.now() - entrada.inicio) / 1000;
+    if (parametros.has("entrada")) entrada.t = parseFloat(parametros.get("entrada"));
     uniformesFondo.uSubida.value = THREE.MathUtils.smoothstep(entrada.t, 0.2, 6);
 }
 
@@ -758,9 +659,11 @@ const auxLuna = new THREE.Vector3();
 function luzDeLaLuna() {
     camara.updateMatrixWorld();
     const subida = uniformesFondo.uSubida.value;
+    // Mientras sale la luna la escena ya se ve un poco, no a oscuras
+    const luz = 0.35 + 0.65 * subida;
     comunes.uDirLuna.value.copy(DIR_LUNA);
     comunes.uDirLunaVista.value.copy(DIR_LUNA).transformDirection(camara.matrixWorldInverse);
-    comunes.uLuzLuna.value.setRGB(0.62, 0.72, 1.0).multiplyScalar(subida);
+    comunes.uLuzLuna.value.setRGB(0.62, 0.72, 1.0).multiplyScalar(luz);
     pantallaLuna.copy(camara.position).addScaledVector(DIR_LUNA, 100).project(camara);
     paseCine.uniforms.uCentro.value.set(pantallaLuna.x * 0.5 + 0.5, pantallaLuna.y * 0.5 + 0.5 - (1 - subida) * 0.3);
     paseCine.uniforms.uHorizonte.value = (1 - HORIZONTE_EN_MARCO - 0.5) / visible.y + 0.5;
@@ -768,7 +671,7 @@ function luzDeLaLuna() {
     const adelante = auxLuna.set(0, 0, -1).transformDirection(camara.matrixWorld);
     hierba.material.uniforms.uAdelante.value.set(adelante.x, adelante.z).normalize();
     hierba.material.uniforms.uTanMedio.value = Math.tan(THREE.MathUtils.degToRad(camara.fov / 2)) * camara.aspect * 1.08;
-    luzSol.intensity = actual.fuerzaSol * subida;
+    luzLunar.intensity = actual.fuerzaLuna * luz;
 
     // La caja de sombras, delante de la cámara y pegada a una rejilla
     // para que los bordes de las sombras no tiemblen al andar
@@ -776,10 +679,10 @@ function luzDeLaLuna() {
     centro.x = Math.round(centro.x / 0.25) * 0.25;
     centro.z = Math.round(centro.z / 0.25) * 0.25;
     centro.y = alturaTerreno(centro.x, centro.z);
-    luzSol.target.position.copy(centro);
-    luzSol.position.copy(centro).addScaledVector(DIR_LUNA, 80);
-    if (luzSol.shadow.map && luzSol.castShadow) {
-        comunes.uMapaSombra.value = luzSol.shadow.map.texture;
+    luzLunar.target.position.copy(centro);
+    luzLunar.position.copy(centro).addScaledVector(DIR_LUNA, 80);
+    if (luzLunar.shadow.map && luzLunar.castShadow) {
+        comunes.uMapaSombra.value = luzLunar.shadow.map.texture;
         comunes.uConSombra.value = 1;
     }
 }
@@ -813,10 +716,11 @@ function ajustarEncuadre() {
     const ndcY = pantallaY * 2 - 1;
     inclinacion = -Math.atan(ndcY * Math.tan(THREE.MathUtils.degToRad(camara.fov / 2)));
 
-    // La luna: a la derecha y un poco por encima del horizonte, siempre
-    // dentro de la pantalla (en el móvil en vertical, más al centro)
+    // La luna: a la derecha, a una altura fija del fondo para que quede
+    // por encima de las montañas, y siempre dentro de la pantalla (en el
+    // móvil en vertical, más al centro)
     const lunaX = aspecto < 0.8 ? 0.7 : 0.8;
-    const lunaY = pantallaY + (aspecto < 0.8 ? 0.36 : 0.33);
+    const lunaY = Math.min(0.88, (0.79 - 0.5) / visible.y + 0.5);
     luna.set(((lunaX - 0.5) * visible.x + 0.5) * aspectoMarco, (lunaY - 0.5) * visible.y + 0.5, aspecto < 0.8 ? 0.06 : 0.055);
     const mitad = Math.tan(THREE.MathUtils.degToRad(camara.fov / 2));
     DIR_LUNA.set((lunaX * 2 - 1) * mitad * aspecto, (lunaY * 2 - 1) * mitad, -1).normalize().applyAxisAngle(new THREE.Vector3(1, 0, 0), inclinacion);
@@ -829,17 +733,17 @@ function ajustarEncuadre() {
 
 // La luna da sombras: su cámara de sombras es una caja que sigue a la
 // cámara y cubre lo que hay delante
-const luzSol = new THREE.DirectionalLight("#ffc9a0", 1.6);
-luzSol.castShadow = true;
-luzSol.shadow.mapSize.set(movil ? 1024 : 2048, movil ? 1024 : 2048);
-Object.assign(luzSol.shadow.camera, { left: -26, right: 26, top: 26, bottom: -26, near: 1, far: 160 });
-luzSol.shadow.bias = -0.0006;
-luzSol.shadow.normalBias = 0.05;
-escena.add(luzSol.target);
-comunes.uMatrizSombra.value = luzSol.shadow.matrix;
-comunes.uTamSombra.value.setScalar(1 / luzSol.shadow.mapSize.x);
+const luzLunar = new THREE.DirectionalLight("#b4c6ee", 1.25);
+luzLunar.castShadow = true;
+luzLunar.shadow.mapSize.set(movil ? 1024 : 2048, movil ? 1024 : 2048);
+Object.assign(luzLunar.shadow.camera, { left: -26, right: 26, top: 26, bottom: -26, near: 1, far: 160 });
+luzLunar.shadow.bias = -0.0006;
+luzLunar.shadow.normalBias = 0.05;
+escena.add(luzLunar.target);
+comunes.uMatrizSombra.value = luzLunar.shadow.matrix;
+comunes.uTamSombra.value.setScalar(1 / luzLunar.shadow.mapSize.x);
 const luzCielo = new THREE.HemisphereLight("#9a88d8", "#2a3a2a", 2.0);
-escena.add(luzSol, luzCielo);
+escena.add(luzLunar, luzCielo);
 
 // =====================================================================
 // 7. SUELO, CAMINO DE ADOQUINES Y ARROYO
@@ -1043,9 +947,15 @@ const fragmentSuelo = `
             vec3 R = reflect(rayoVista, normalize(vec3(ondas.x * 0.05, 1.0, ondas.y * 0.05)));
             float alaLunaR = max(dot(R, uDirLuna), 0.0);
             cielo += uLuzLuna * (pow(alaLunaR, 1500.0) * 8.0 + pow(alaLunaR, 80.0) * 0.6 + pow(alaLunaR, 8.0) * 0.06);
-            vec3 hastaFarol = normalize(posFarola(vMundo) - vMundo);
-            float alFarol = max(dot(R, hastaFarol), 0.0);
-            cielo += vec3(1.0, 0.62, 0.3) * (pow(alFarol, 600.0) * 6.0 + pow(alFarol, 120.0) * 0.08) * uNoche * uParpadeo;
+            // Las farolas de este tramo y de los dos de al lado, para que el
+            // reflejo no salte al pasar de un tramo a otro
+            float alFarol = 0.0;
+            for (int k = -1; k <= 1; k++) {
+                vec3 farol = posFarola(vMundo + vec3(0.0, 0.0, float(k) * ${LARGO_TROZO.toFixed(1)}));
+                float r = max(dot(R, normalize(farol - vMundo)), 0.0);
+                alFarol += pow(r, 600.0) * 6.0 + pow(r, 120.0) * 0.08;
+            }
+            cielo += vec3(1.0, 0.62, 0.3) * alFarol * uNoche * uParpadeo;
             color = mix(color, cielo, charco * 0.92);
         }
 
@@ -1280,8 +1190,6 @@ function crearHierba() {
                 vec3 rayoVista = normalize(vMundo - cameraPosition);
                 float delante = max(dot(normalize(rayoVista.xz), normalize(uDirLuna.xz)), 0.0);
                 color += uLuzLuna * pow(vAltura, 4.0) * pow(delante, 10.0) * vSol * 0.16;
-                // Las puntas brillan con la luz del sol (a contraluz, al atardecer)
-                color += uLuz * pow(vAltura, 4.0) * 0.16 * (1.0 - uNoche);
                 color += vec3(1.0, 0.55, 0.22) * luzFarolas(vMundo) * uNoche * uParpadeo * (0.03 + vAltura * 0.13);
                 color = mix(color, uNiebla, smoothstep(14.0, 95.0, d) * 0.88);
                 gl_FragColor = vec4(color, 1.0);
@@ -1424,6 +1332,7 @@ function crearObra(aleatorio) {
     const luces = [];
     const halos = [];
     const claros = [];
+    const obstaculos = [];
     const flores = { puntos: [], colores: [] };
     const matriz = new THREE.Matrix4();
     const giro = new THREE.Matrix4();
@@ -1447,11 +1356,14 @@ function crearObra(aleatorio) {
         luces,
         halos,
         claros,
+        obstaculos,
         flores,
         aleatorio,
-        // Coloca el sistema de coordenadas del siguiente objeto
+        // Coloca el sistema de coordenadas del siguiente objeto (y apunta
+        // dónde está, para que el ciervo no lo atraviese)
         en(x, y, z, angulo = 0) {
             matriz.makeTranslation(x, y, z).multiply(giro.makeRotationY(angulo));
+            obstaculos.push(x, z);
             return this;
         },
         poner(geometria, color, variacion = 0.1) {
@@ -1695,6 +1607,24 @@ materialPlantas.onBeforeCompile = (shader) => {
     contraluzLuna(shader);
 };
 materialPlantas.customProgramCacheKey = () => "plantas";
+
+// Para la sombra se usa el mismo vaivén: así la sombra de cada árbol se
+// mece con él en vez de quedarse quieta
+const profundidadPlantas = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+profundidadPlantas.onBeforeCompile = (shader) => {
+    shader.uniforms.uTiempo = comunes.uTiempo;
+    shader.uniforms.uViento = comunes.uViento;
+    shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", "#include <common>\nattribute float aVaiven;\nuniform float uTiempo;\nuniform float uViento;")
+        .replace(
+            "#include <begin_vertex>",
+            `#include <begin_vertex>
+            float vaiven = sin(uTiempo * 1.3 + position.x * 0.4 + position.z * 0.3) + 0.4 * sin(uTiempo * 2.7 + position.x);
+            transformed.x += vaiven * 0.12 * aVaiven * uViento;
+            transformed.z += vaiven * 0.05 * aVaiven * uViento;`
+        );
+};
+profundidadPlantas.customProgramCacheKey = () => "profundidadPlantas";
 
 // =====================================================================
 // 10. ÁRBOLES, ROCAS Y PLANTAS
@@ -2092,6 +2022,7 @@ function crearTrozo(indice) {
     if (o.plantas.length) {
         const malla = new THREE.Mesh(mergeGeometries(o.plantas), materialPlantas);
         malla.castShadow = malla.receiveShadow = true;
+        malla.customDepthMaterial = profundidadPlantas;
         grupo.add(malla);
     }
     if (o.empedrado.length) grupo.add(new THREE.Mesh(mergeGeometries(o.empedrado), materialPuente));
@@ -2110,6 +2041,7 @@ function crearTrozo(indice) {
     }
 
     grupo.userData.claros = o.claros;
+    grupo.userData.obstaculos = o.obstaculos;
     escena.add(grupo);
     return grupo;
 }
@@ -2177,7 +2109,7 @@ function moverLuciernagas(tiempo) {
         p.setXYZ(i, x, alturaTerreno(x, z) + l.y + Math.sin(t) * 0.3, z + Math.cos(t * 0.4) * 1.2);
     });
     p.needsUpdate = true;
-    materialLuciernagas.opacity = actual.noche * (0.7 + Math.sin(tiempo * 3) * 0.3);
+    materialLuciernagas.opacity = 0.7 + Math.sin(tiempo * 3) * 0.3;
 }
 
 // =====================================================================
@@ -2265,83 +2197,49 @@ function moverPetalos(delta, tiempo) {
         p.setXYZ(i, caminoX(z) + d.x, alturaTerreno(caminoX(z) + d.x, z) + d.y + Math.sin(tiempo * 2 * d.v + d.fase) * 0.15, z + Math.cos(tiempo * d.v + d.fase) * 0.4);
     });
     p.needsUpdate = true;
-    materialPetalos.color.setScalar(1 - actual.noche * 0.55);
 }
 
 // =====================================================================
-// 13c. PÁJAROS
-// Una bandada pequeña cruza a lo lejos de vez en cuando. Cada pájaro son
-// dos líneas en V: con el efecto píxel quedan como pájaros dibujados.
+// 13c. MURCIÉLAGOS
+// Cuatro murciélagos dan vueltas sin orden cerca de la luna. Cada uno son
+// dos alas (dos triángulos) que aletean muy rápido; se ven recortados
+// contra el cielo.
 // =====================================================================
 
-const cuantosPajaros = 7;
-const geometriaPajaros = new THREE.BufferGeometry();
-geometriaPajaros.setAttribute("position", new THREE.BufferAttribute(new Float32Array(cuantosPajaros * 4 * 3), 3));
-const materialPajaros = new THREE.LineBasicMaterial({ color: "#20142e", transparent: true, opacity: 1, fog: false });
-const pajaros = new THREE.LineSegments(geometriaPajaros, materialPajaros);
-pajaros.frustumCulled = false;
-escena.add(pajaros);
-const formacion = Array.from({ length: cuantosPajaros }, (_, i) => ({
-    x: -Math.abs(i - 3) * 2.4 + entre(-0.5, 0.5),
-    y: (i - 3) * 0.9 + entre(-0.4, 0.4),
-    fase: entre(0, 6.28)
-}));
+const cuantosMurcielagos = 4;
+const geometriaMurcielagos = new THREE.BufferGeometry();
+geometriaMurcielagos.setAttribute("position", new THREE.BufferAttribute(new Float32Array(cuantosMurcielagos * 6 * 3), 3));
+const materialMurcielagos = new THREE.MeshBasicMaterial({ color: "#04040a", side: THREE.DoubleSide, fog: false });
+const murcielagos = new THREE.Mesh(geometriaMurcielagos, materialMurcielagos);
+murcielagos.frustumCulled = false;
+murcielagos.visible = !movimientoReducido;
+escena.add(murcielagos);
+const auxMurcielago = new THREE.Vector3();
+const derechaVista = new THREE.Vector3();
 
-// De noche, en vez de la bandada, unos murciélagos dan vueltas sin orden
-// cerca de la luna, aleteando muy rápido
 function moverMurcielagos(tiempo) {
-    const p = geometriaPajaros.attributes.position;
-    const a = p.array;
+    if (!murcielagos.visible) return;
+    const a = geometriaMurcielagos.attributes.position.array;
     const centro = auxMurcielago.copy(camara.position).addScaledVector(DIR_LUNA, 26);
-    for (let i = 0; i < cuantosPajaros; i++) {
-        const k = i * 12;
-        if (i >= 4) {
-            a.fill(0, k, k + 12);
-            continue;
-        }
+    derechaVista.set(1, 0, 0).applyQuaternion(camara.quaternion);
+    for (let i = 0; i < cuantosMurcielagos; i++) {
         const t = tiempo * (0.7 + i * 0.13) + i * 2.1;
         const x = centro.x + Math.sin(t) * 7 + Math.sin(t * 2.7 + i) * 2;
         const y = centro.y - 4 + Math.sin(t * 1.3 + i) * 3 + Math.sin(t * 4.1) * 0.6;
         const z = centro.z + Math.cos(t * 0.8) * 6;
-        const aleteo = Math.sin(tiempo * 24 + i * 3) * 0.35;
-        const ala = 0.6;
-        a[k] = x - ala; a[k + 1] = y + aleteo; a[k + 2] = z;
-        a[k + 3] = x; a[k + 4] = y; a[k + 5] = z;
-        a[k + 6] = x; a[k + 7] = y; a[k + 8] = z;
-        a[k + 9] = x + ala; a[k + 10] = y + aleteo; a[k + 11] = z;
+        const aleteo = Math.sin(tiempo * 24 + i * 3) * 0.32;
+        const ala = 0.42;
+        const k = i * 18;
+        // Ala izquierda: delante y detrás del cuerpo y la punta
+        const dx = derechaVista.x * ala;
+        const dz = derechaVista.z * ala;
+        const puntos = [
+            [x, y + 0.06, z], [x, y - 0.06, z], [x - dx, y + aleteo, z - dz],
+            [x, y + 0.06, z], [x, y - 0.06, z], [x + dx, y + aleteo, z + dz]
+        ];
+        puntos.forEach((q, j) => a.set(q, k + j * 3));
     }
-    p.needsUpdate = true;
-    materialPajaros.color.set("#05050a");
-    materialPajaros.opacity = 1;
-    pajaros.visible = !movimientoReducido;
-}
-const auxMurcielago = new THREE.Vector3();
-
-function moverPajaros(tiempo) {
-    if (actual.noche > 0.5) {
-        moverMurcielagos(tiempo);
-        return;
-    }
-    const vuelta = 70;
-    const t = ((tiempo + 32) % vuelta) / vuelta;
-    const p = geometriaPajaros.attributes.position;
-    const cx = camara.position.x - 90 + t * 180;
-    const cz = camara.position.z - 75;
-    formacion.forEach((b, i) => {
-        const x = cx + b.x;
-        const y = 26 + b.y + Math.sin(t * 9 + b.fase) * 0.6;
-        const z = cz + b.y * 1.5;
-        const aleteo = Math.sin(tiempo * 8 + b.fase) * 0.6;
-        const k = i * 12;
-        const a = p.array;
-        a[k] = x - 1.0; a[k + 1] = y + aleteo; a[k + 2] = z;
-        a[k + 3] = x; a[k + 4] = y; a[k + 5] = z;
-        a[k + 6] = x; a[k + 7] = y; a[k + 8] = z;
-        a[k + 9] = x + 1.0; a[k + 10] = y + aleteo; a[k + 11] = z;
-    });
-    p.needsUpdate = true;
-    materialPajaros.opacity = 1 - actual.noche;
-    pajaros.visible = actual.noche < 0.98;
+    geometriaMurcielagos.attributes.position.needsUpdate = true;
 }
 
 // =====================================================================
@@ -2382,7 +2280,9 @@ function moverFarolas(tiempo) {
         }
     }
     p.needsUpdate = true;
-    materialPolillas.opacity = actual.noche * parpadeo;
+    materialPolillas.opacity = parpadeo;
+    materialFarol.color.setRGB(parpadeo, 0.7 * parpadeo, 0.36 * parpadeo);
+    materialHalo.opacity = 0.75 * parpadeo;
     return parpadeo;
 }
 
@@ -2464,10 +2364,11 @@ const materialNiebla = new THREE.ShaderMaterial({
         ${terrenoGLSL}
         void main() {
             float forma = 1.0 - smoothstep(0.2, 1.0, length(vEsquina * vec2(1.0, 1.1)));
-            forma *= smoothstep(-1.0, -0.35, vEsquina.y);
+            forma *= smoothstep(-1.0, -0.6, vEsquina.y);
             vec2 q = vMundo.xz * 0.35 + vec2(vEsquina.y * 0.8, vAzar * 20.0) + vec2(uTiempo * 0.04, 0.0);
             float jirones = ruido(q) * 0.6 + ruido(q * 2.3 + 5.0) * 0.4;
-            float a = forma * smoothstep(0.25, 0.75, jirones) * vFuerza * 0.3;
+            float suelo = vMundo.y - alturaTerreno(vMundo.x, vMundo.z);
+            float a = forma * smoothstep(0.25, 0.75, jirones) * vFuerza * 0.22 * smoothstep(0.0, 0.6, suelo);
             if (a < 0.003) discard;
             vec3 color = uNiebla * 2.4 + uLuzLuna * 0.28 + vec3(1.0, 0.6, 0.3) * luzFarolas(vMundo) * uNoche * uParpadeo * 0.7;
             gl_FragColor = vec4(color, a);
@@ -2537,14 +2438,39 @@ function crearCiervo() {
 
 const ciervo = crearCiervo();
 
+// Busca una línea que cruce el camino sin árboles, rocas ni objetos en
+// medio, lejos del arroyo
+function buscarPasoCiervo() {
+    const obstaculos = [];
+    trozos.forEach((g) => obstaculos.push(g.userData.obstaculos));
+    for (let intento = 0; intento < 14; intento++) {
+        const z = camara.position.z - entre(15, 24);
+        if (Math.abs(arroyo(caminoX(z), z)) < 6) continue;
+        const centro = caminoX(z);
+        let libre = true;
+        for (const lista of obstaculos) {
+            for (let i = 0; i < lista.length && libre; i += 2) {
+                if (Math.abs(lista[i + 1] - z) < 1.6 && Math.abs(lista[i] - centro) < 15) libre = false;
+            }
+            if (!libre) break;
+        }
+        if (libre) return z;
+    }
+    return null;
+}
+
 function moverCiervo(delta, tiempo) {
     const c = ciervo;
     if (!c.activo) {
         c.espera -= delta;
         if (c.espera > 0 || entrada.t < 6 || movimientoReducido) return;
-        const z = camara.position.z - entre(15, 22);
+        const z = buscarPasoCiervo();
+        if (z === null) {
+            c.espera = 4;
+            return;
+        }
         const lado = azar() < 0.5 ? -1 : 1;
-        Object.assign(c, { activo: true, t: 0, z, desde: caminoX(z) + lado * 16, hasta: caminoX(z) - lado * 16, parada: entre(0.42, 0.55) });
+        Object.assign(c, { activo: true, t: 0, z, desde: caminoX(z) + lado * 14, hasta: caminoX(z) - lado * 14, parada: entre(0.42, 0.55) });
         c.grupo.visible = true;
     }
     const largo = Math.abs(c.hasta - c.desde);
@@ -2701,36 +2627,11 @@ function colocarCamara() {
 }
 
 // =====================================================================
-// 16. BOTONES
+// 16. COLORES Y LUCES DE LA ESCENA 3D
+// Se ponen una vez al empezar; el parpadeo de las farolas va aparte.
 // =====================================================================
 
-const botonesMomento = document.querySelectorAll("[data-momento]");
-const pedido = parametros.get("momento");
-let momentoHasta = momentos[pedido] ? momentos[pedido] : momentos.luna;
-const momentoDesde = prepararMomento(momentoVacio);
-let progresoMomento = 1;
-mezclarMomentos(actual, momentoHasta, momentoHasta, 1);
-botonesMomento.forEach((b) => {
-    b.classList.toggle("activo", momentos[b.dataset.momento] === momentoHasta);
-    b.setAttribute("aria-pressed", String(momentos[b.dataset.momento] === momentoHasta));
-});
-
-botonesMomento.forEach((boton) => {
-    boton.addEventListener("click", () => {
-        mezclarMomentos(momentoDesde, actual, actual, 1);
-        momentoHasta = momentos[boton.dataset.momento];
-        progresoMomento = 0;
-        botonesMomento.forEach((b) => {
-            b.classList.toggle("activo", b === boton);
-            b.setAttribute("aria-pressed", String(b === boton));
-        });
-    });
-});
-
-
-function aplicarMomento() {
-    comunes.uNoche.value = actual.noche;
-    comunes.uDia.value = actual.dia;
+function aplicarPaleta() {
     escena.fog.color.copy(actual.niebla);
     const u = materialSuelo.uniforms;
     u.uTierra.value = actual.tierra;
@@ -2744,21 +2645,19 @@ function aplicarMomento() {
     hierba.material.uniforms.uBase.value = actual.hierbaBase;
     hierba.material.uniforms.uPunta.value = actual.hierbaPunta;
 
-    luzSol.color.copy(actual.luz);
-    materialMundo.emissive.setRGB(0.008 + actual.noche * 0.004, 0.012 + actual.noche * 0.008, 0.02 + actual.noche * 0.022);
+    luzLunar.color.copy(actual.luz);
+    materialMundo.emissive.setRGB(0.012, 0.02, 0.042);
 
     luzCielo.color.copy(actual.ambiente);
     luzCielo.intensity = actual.fuerzaCielo;
-    const p = comunes.uParpadeo.value;
-    materialFarol.color.setRGB(0.06 + actual.noche * 0.94 * p, 0.04 + actual.noche * 0.7 * p, 0.035 + actual.noche * 0.36 * p);
-    materialHalo.opacity = actual.noche * 0.75 * p;
-    materialFlores.color.setScalar(1 - actual.noche * 0.6);
+    materialFlores.color.setScalar(0.4);
+    materialPetalos.color.setScalar(0.45);
 }
 
 // =====================================================================
 // 16b. SONIDO (apagado hasta que se pulsa el botón)
 // Todo se genera con Web Audio, sin archivos: viento (ruido filtrado),
-// el arroyo cuando estás cerca, pájaros de día y grillos de noche.
+// el arroyo cuando estás cerca, grillos y algún búho.
 // =====================================================================
 
 let audio = null;
@@ -2792,31 +2691,30 @@ function crearSonido() {
         fuente.start(0, Math.random() * 2);
         return { volumen, filtro, fuente };
     };
-    return { ctx, general, viento: canal("lowpass", 420, 0.5), agua: canal("bandpass", 1100, 0.7), proximo: 0 };
+    return { ctx, general, viento: canal("lowpass", 420, 0.5), agua: canal("bandpass", 1100, 0.7), proximo: 0, buho: ctx.currentTime + 8 };
 }
 
-// Un pájaro: dos o tres silbidos cortos que suben o bajan de tono
-function pajaro(a) {
+// Un búho a lo lejos: "uu... u-uuu", dos notas graves y suaves
+function buho(a) {
     const t = a.ctx.currentTime;
-    const base = 2200 + Math.random() * 1800;
-    const notas = 2 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < notas; i++) {
+    [[0, 0.5, 1], [0.75, 0.22, 0.85], [1.05, 0.7, 0.92]].forEach(([inicio, largo, tono]) => {
         const osc = a.ctx.createOscillator();
         const vol = a.ctx.createGain();
-        const inicio = t + i * 0.13;
-        osc.frequency.setValueAtTime(base * (1 + i * 0.08), inicio);
-        osc.frequency.exponentialRampToValueAtTime(base * (Math.random() < 0.5 ? 1.35 : 0.75), inicio + 0.09);
-        vol.gain.setValueAtTime(0, inicio);
-        vol.gain.linearRampToValueAtTime(0.035, inicio + 0.015);
-        vol.gain.exponentialRampToValueAtTime(0.0005, inicio + 0.11);
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(390 * tono, t + inicio);
+        osc.frequency.linearRampToValueAtTime(360 * tono, t + inicio + largo);
+        vol.gain.setValueAtTime(0, t + inicio);
+        vol.gain.linearRampToValueAtTime(0.03, t + inicio + 0.06);
+        vol.gain.setValueAtTime(0.03, t + inicio + largo - 0.12);
+        vol.gain.linearRampToValueAtTime(0, t + inicio + largo);
         osc.connect(vol).connect(a.general);
         osc.onended = () => {
             osc.disconnect();
             vol.disconnect();
         };
-        osc.start(inicio);
-        osc.stop(inicio + 0.12);
-    }
+        osc.start(t + inicio);
+        osc.stop(t + inicio + largo + 0.05);
+    });
 }
 
 // Un grillo: un tono agudo que se corta muy rápido varias veces
@@ -2849,13 +2747,12 @@ function actualizarSonido() {
     const cercaAgua = Math.max(0, 1 - Math.abs(arroyo(caminoX(z), z)) / 30);
     audio.agua.volumen.gain.setTargetAtTime(cercaAgua * cercaAgua * 0.22, ahora, 0.3);
     if (ahora > audio.proximo) {
-        if (actual.noche > 0.5) {
-            grillo(audio);
-            audio.proximo = ahora + 0.4 + Math.random() * 1.2;
-        } else {
-            pajaro(audio);
-            audio.proximo = ahora + 2 + Math.random() * 5;
-        }
+        grillo(audio);
+        audio.proximo = ahora + 0.4 + Math.random() * 1.2;
+    }
+    if (ahora > audio.buho) {
+        buho(audio);
+        audio.buho = ahora + 18 + Math.random() * 25;
     }
 }
 
@@ -2943,8 +2840,8 @@ function revisarRendimiento() {
     if ((ahora - inicioPagina) / 1000 > 2 && !limitada) {
         if (fps < 45) {
             // Último recurso: sin sombras
-            if (calidadHierba <= 0.3 && resolucion <= 0.75 && fps < 30 && luzSol.castShadow) {
-                luzSol.castShadow = false;
+            if (calidadHierba <= 0.3 && resolucion <= 0.75 && fps < 30 && luzLunar.castShadow) {
+                luzLunar.castShadow = false;
                 comunes.uConSombra.value = 0;
             }
             if (calidadHierba <= 0.3 && fps < 38 && resolucion > 0.75) {
@@ -3112,7 +3009,7 @@ materialPolvo.uniforms.uEscala.value = renderizador.getPixelRatio() * innerHeigh
 // =====================================================================
 
 const soloFondo = parametros.get("fondo") === "solo";
-if (parametros.has("depurar")) window.__camino = { comunes, luzSol, escena, camara, renderizador };
+if (parametros.has("depurar")) window.__camino = { comunes, luzLunar, escena, camara, renderizador };
 const reloj = new THREE.Clock();
 let tiempo = 0;
 
@@ -3122,23 +3019,17 @@ function animar() {
     if (!movimientoReducido) tiempo += delta;
     comunes.uTiempo.value = tiempo;
 
-    if (progresoMomento < 1) {
-        progresoMomento = Math.min(1, progresoMomento + delta / 5);
-        mezclarMomentos(actual, momentoDesde, momentoHasta, progresoMomento);
-    }
 
     if (caminandoSolo) metrosObjetivo += 1.4 * delta;
     metros += (metrosObjetivo - metros) * Math.min(1, delta * 2.5);
 
     actualizarRaton(delta);
     colocarCamara();
-    aplicarMomento();
     actualizarTrozos();
     actualizarFondo(metros);
-    if (actual.noche > 0.02) moverLuciernagas(tiempo);
-    else materialLuciernagas.opacity = 0;
+    moverLuciernagas(tiempo);
     moverPetalos(delta, tiempo);
-    moverPajaros(tiempo);
+    moverMurcielagos(tiempo);
     moverFarolas(tiempo);
     moverCiervo(delta, tiempo);
     actualizarSonido();
@@ -3155,6 +3046,7 @@ function animar() {
 Promise.resolve()
     .then(() => {
         crearFondo();
+        aplicarPaleta();
         entrada.inicio = performance.now();
         colocarCamara();
         actualizarTrozos(true);
