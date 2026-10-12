@@ -7,19 +7,22 @@ import { Pass, FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 
 // =====================================================================
 // 1. AJUSTES
-// Gargantua solo, flotando en el espacio. El disco de gas son
-// varias capas que giran (más rápido por dentro), la luz doblada son
-// dos arcos que abrazan la sombra negra, las estrellas de detrás se
-// deforman por la gravedad y un resplandor en varias capas hace brillar
-// lo caliente. Al cargar, el gas se va encendiendo en espiral. El
-// ratón solo inclina un poco la vista.
+// Gargantua solo, flotando en el espacio. El disco de gas son tres
+// capas que giran (más rápido por dentro), la luz doblada son dos arcos
+// que abrazan la sombra negra, las estrellas de detrás se deforman por
+// la gravedad y un resplandor en varias capas hace brillar lo caliente.
+// Al cargar, el gas se va encendiendo en espiral. El ratón solo inclina
+// un poco la vista. Si el sistema pide menos movimiento, no hay entrada
+// ni balanceo.
 // =====================================================================
 
 const parametros = new URLSearchParams(location.search);
 const movil = matchMedia("(pointer: coarse)").matches || Math.min(innerWidth, innerHeight) < 600;
+const pocoMovimiento = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const ajustes = {
     resolucionMax: movil ? 1.5 : 1.75,
-    resolucionMin: movil ? 0.75 : 1
+    resolucionMin: movil ? 0.75 : 1,
+    brilloEscala: movil ? 3 : 2
 };
 const ALTURA = 3.6;
 const CENTRO = new THREE.Vector3(0, ALTURA, 0);
@@ -33,12 +36,20 @@ const BASE_ALTURA = 0.19;
 // 2. RENDERIZADOR, ESCENA Y CÁMARA
 // =====================================================================
 
-const renderizador = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+let renderizador;
+try {
+    renderizador = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+} catch (error) {
+    document.getElementById("cargando").textContent = "Tu navegador no puede mostrar el agujero negro.";
+    throw error;
+}
 renderizador.setPixelRatio(Math.min(devicePixelRatio || 1, ajustes.resolucionMax));
 renderizador.setSize(innerWidth, innerHeight);
 renderizador.toneMapping = THREE.ACESFilmicToneMapping;
 renderizador.toneMappingExposure = 1.0;
 document.body.prepend(renderizador.domElement);
+renderizador.domElement.addEventListener("webglcontextlost", (e) => e.preventDefault());
+renderizador.domElement.addEventListener("webglcontextrestored", () => location.reload());
 
 const escena = new THREE.Scene();
 const camara = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.3, 400);
@@ -55,37 +66,40 @@ const comunes = {
 
 // =====================================================================
 // 3. TEXTURA DE RUIDO
-// Ruido suave que se repite, hecho una vez al cargar. Lo usan el gas,
-// la luz del suelo y la nebulosa del fondo.
+// Ruido suave que se repite, hecho una vez al cargar, octava a octava.
+// Lo usan el gas y la nebulosa del fondo.
 // =====================================================================
 
 function texturaRuido() {
     const n = 512;
     const celdas = 64;
-    const rejilla = Array.from({ length: celdas * celdas }, () => Math.random());
-    const valor = (x, y, c) => {
-        const xi = Math.floor(x);
-        const yi = Math.floor(y);
-        const fx = x - xi;
-        const fy = y - yi;
-        const sx = fx * fx * (3 - 2 * fx);
-        const sy = fy * fy * (3 - 2 * fy);
-        const v = (a, b) => rejilla[(((b % c) + c) % c) * celdas + (((a % c) + c) % c)];
-        return v(xi, yi) * (1 - sx) * (1 - sy) + v(xi + 1, yi) * sx * (1 - sy) + v(xi, yi + 1) * (1 - sx) * sy + v(xi + 1, yi + 1) * sx * sy;
-    };
-    const datos = new Uint8Array(n * n);
-    for (let y = 0; y < n; y++) {
-        for (let x = 0; x < n; x++) {
-            let s = 0;
-            let a = 0.5;
-            for (let o = 0; o < 5; o++) {
-                const c = 4 << o;
-                s += a * valor((x / n) * c, (y / n) * c, c);
-                a *= 0.5;
+    const rejilla = new Float32Array(celdas * celdas).map(() => Math.random());
+    const suma = new Float32Array(n * n);
+    let amp = 0.5;
+    for (let o = 0; o < 5; o++) {
+        const c = 4 << o;
+        const lado = n / c;
+        for (let y = 0; y < n; y++) {
+            const yi = Math.floor(y / lado);
+            const fy = (y - yi * lado) / lado;
+            const sy = fy * fy * (3 - 2 * fy);
+            const fila0 = (yi % c) * celdas;
+            const fila1 = ((yi + 1) % c) * celdas;
+            for (let x = 0; x < n; x++) {
+                const xi = Math.floor(x / lado);
+                const fx = (x - xi * lado) / lado;
+                const sx = fx * fx * (3 - 2 * fx);
+                const x0 = xi % c;
+                const x1 = (xi + 1) % c;
+                const arriba = rejilla[fila0 + x0] + (rejilla[fila0 + x1] - rejilla[fila0 + x0]) * sx;
+                const abajo = rejilla[fila1 + x0] + (rejilla[fila1 + x1] - rejilla[fila1 + x0]) * sx;
+                suma[y * n + x] += amp * (arriba + (abajo - arriba) * sy);
             }
-            datos[y * n + x] = Math.floor(Math.min(1, s / 0.97) * 255);
         }
+        amp *= 0.5;
     }
+    const datos = new Uint8Array(n * n);
+    for (let i = 0; i < n * n; i++) datos[i] = Math.floor(Math.min(1, suma[i] / 0.97) * 255);
     const t = new THREE.DataTexture(datos, n, n, THREE.RedFormat, THREE.UnsignedByteType);
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.minFilter = THREE.LinearMipmapLinearFilter;
@@ -229,6 +243,7 @@ const gasGlsl = `
     const float FUERA = 4.8;
     float manchasFijas = 0.0;
 
+
     float manchasEn(float r, float phi) {
         float m = 0.0;
         for (int i = 0; i < 6; i++) {
@@ -245,7 +260,7 @@ const gasGlsl = `
         float omega = 1.5 * pow(r / DENTRO, -1.5);
         float espiral = log(r) * 0.55;
         float ang = (phi - uTiempo * omega) / 6.2832 + desfase;
-        #ifdef GAS_VOLUMEN
+        #ifdef GAS_LIGERO
         float angT = ang;
         float rT = r;
         #else
@@ -259,7 +274,7 @@ const gasGlsl = `
         float n = texture2D(tRuido, vec2(angT + espiral * 0.3, rT * 0.16 + desfase)).r;
         float fino = texture2D(tRuido, vec2(angT * 3.0 + espiral, rT * 0.6 + 0.37)).r;
         float hebras = texture2D(tRuido, vec2(angT * 9.0 + espiral * 2.0, rT * 2.2 + 0.11)).r;
-        #ifdef GAS_VOLUMEN
+        #ifdef GAS_LIGERO
         float rizo = 0.5;
         float manchas = manchasFijas;
         #else
@@ -299,9 +314,10 @@ const gasGlsl = `
 // =====================================================================
 // 6. GARGANTUA
 // La sombra es una bola negra sin ningún reflejo. El disco son tres
-// capas de gas. Los arcos de luz doblada se pintan en un plano con la
-// misma curva de antes, sin piezas ni bordes cortados. Dos anillos de fotones muy finos
-// y halos de luz. El grupo mira casi siempre a la cámara.
+// capas de gas y sigue casi del todo a la cámara. Los arcos de luz
+// doblada se pintan en un anillo plano, sin piezas ni bordes cortados,
+// y junto a los dos anillos de fotones miran siempre del todo a la
+// cámara. Alrededor, halos de luz.
 // =====================================================================
 
 const agujero = new THREE.Group();
@@ -317,7 +333,6 @@ const brillar = (o) => {
 const sombra = brillar(new THREE.Mesh(new THREE.SphereGeometry(1, 64, 48), new THREE.MeshBasicMaterial({ color: 0x000000 })));
 agujero.add(sombra);
 
-const camaraLocal = { value: new THREE.Vector3() };
 
 function discoConVolumen(grosorMax) {
     const perfil = [];
@@ -361,12 +376,11 @@ function materialDisco(fuerza, desfase) {
     return new THREE.ShaderMaterial({
         uniforms: { ...comunes, tRuido },
         vertexShader: VERTICE_LOCAL,
-        fragmentShader: (fuerza < 0.5 ? "#define GAS_VOLUMEN\n" : "") + gasGlsl + `
+        fragmentShader: (fuerza < 0.5 ? "#define GAS_LIGERO\n" : "") + gasGlsl + `
             varying vec3 vLocal;
             void main() {
                 float r = length(vLocal.xz);
                 float fi = atan(vLocal.z, vLocal.x);
-                ${fuerza < 0.5 ? "manchasFijas = 0.0;" : ""}
                 vec4 g = gas(r, fi, fi, ${desfase.toFixed(2)});
                 float a = clamp(g.a * ${fuerza.toFixed(3)} * 1.7, 0.0, 1.0);
                 if (a < 0.002) discard;
@@ -390,13 +404,13 @@ function materialArcos(fuerza, desfase) {
     return new THREE.ShaderMaterial({
         uniforms: { ...comunes, tRuido },
         vertexShader: VERTICE_LOCAL,
-        fragmentShader: gasGlsl + `
+        fragmentShader: (fuerza < 0.5 ? "#define GAS_LIGERO\n" : "") + gasGlsl + `
             varying vec3 vLocal;
             void main() {
                 float rho = length(vLocal.xy);
                 float aG = atan(vLocal.y, vLocal.x);
                 bool arriba = vLocal.y > 0.0;
-                float dentroArco = arriba ? 1.16 : 1.12;
+                float dentroArco = arriba ? 1.1 : 1.07;
                 float fueraArco = arriba ? 2.55 : 1.5;
                 if (rho < dentroArco - 0.02 || rho > fueraArco + 0.05) discard;
                 float rG = DENTRO + max(0.0, rho - dentroArco) * (arriba ? 1.75 : 3.6);
@@ -415,19 +429,24 @@ function materialArcos(fuerza, desfase) {
     });
 }
 
+// Los arcos y los anillos van en su propio grupo, que mira siempre del
+// todo a la cámara: así rodean la sombra igual se mire como se mire y
+// no se nota que debajo hay una bola
 const arcos = new THREE.Group();
-const planoArcos = new THREE.PlaneGeometry(5.3, 5.3);
+arcos.position.copy(CENTRO);
+arcos.rotation.order = "YXZ";
+const planoArcos = new THREE.RingGeometry(1.03, 2.62, 160, 1);
 const arcoAtras = brillar(new THREE.Mesh(planoArcos, materialArcos(0.35, 0.5)));
 arcoAtras.position.z = -0.12;
 const arcoDelante = brillar(new THREE.Mesh(planoArcos, materialArcos(1, 0)));
 arcoAtras.renderOrder = 6;
 arcoDelante.renderOrder = 7;
-const anillo = brillar(new THREE.Mesh(new THREE.TorusGeometry(1.028, 0.008, 8, 256), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.88, 0.7).multiplyScalar(2.6) })));
-const anillo2 = brillar(new THREE.Mesh(new THREE.TorusGeometry(1.075, 0.003, 6, 256), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.8, 0.6).multiplyScalar(0.45) })));
+const anillo = brillar(new THREE.Mesh(new THREE.TorusGeometry(1.028, 0.01, 8, 256), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.88, 0.7).multiplyScalar(2.6) })));
+const anillo2 = brillar(new THREE.Mesh(new THREE.TorusGeometry(1.075, 0.005, 6, 256), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.8, 0.6).multiplyScalar(0.45) })));
 anillo.renderOrder = 9;
 anillo2.renderOrder = 9;
 arcos.add(arcoAtras, arcoDelante, anillo, anillo2);
-agujero.add(arcos);
+escena.add(arcos);
 
 function texturaHalo() {
     const lienzo = document.createElement("canvas");
@@ -524,9 +543,7 @@ const VERTICE_PLANO = `
 class PaseBrillo extends Pass {
     constructor() {
         super();
-        const gl = renderizador.getContext();
-        const flotante = renderizador.capabilities.isWebGL2 && !!(gl.getExtension("EXT_color_buffer_float") || gl.getExtension("EXT_color_buffer_half_float"));
-        const op = { type: flotante ? THREE.HalfFloatType : THREE.UnsignedByteType, depthBuffer: false };
+        const op = { type: hayFlotantes ? THREE.HalfFloatType : THREE.UnsignedByteType, depthBuffer: false };
         this.escena = new THREE.WebGLRenderTarget(1, 1, { ...op, depthBuffer: true });
         this.niveles = [0, 1, 2].map(() => [new THREE.WebGLRenderTarget(1, 1, op), new THREE.WebGLRenderTarget(1, 1, op)]);
         this.raya = [new THREE.WebGLRenderTarget(1, 1, op), new THREE.WebGLRenderTarget(1, 1, op)];
@@ -613,8 +630,8 @@ class PaseBrillo extends Pass {
     }
 
     setSize(ancho, alto) {
-        const m = Math.max(1, Math.round(ancho / 2));
-        const n = Math.max(1, Math.round(alto / 2));
+        const m = Math.max(1, Math.round(ancho / ajustes.brilloEscala));
+        const n = Math.max(1, Math.round(alto / ajustes.brilloEscala));
         this.escena.setSize(m, n);
         this.niveles.forEach((par, i) => {
             const f = 1 << i;
@@ -695,7 +712,9 @@ class PaseBrillo extends Pass {
 // degradados oscuros se vean a escalones.
 // =====================================================================
 
-const compositor = new EffectComposer(renderizador);
+const contexto = renderizador.getContext();
+const hayFlotantes = renderizador.capabilities.isWebGL2 && !!(contexto.getExtension("EXT_color_buffer_float") || contexto.getExtension("EXT_color_buffer_half_float"));
+const compositor = new EffectComposer(renderizador, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: hayFlotantes ? THREE.HalfFloatType : THREE.UnsignedByteType }));
 compositor.addPass(new RenderPass(escena, camara));
 const brillo = new PaseBrillo();
 compositor.addPass(brillo);
@@ -745,8 +764,9 @@ function colocarCamara(delta, t) {
     vista.giro += (vista.objGiro - vista.giro) * suave;
     vista.altura += (vista.objAltura - vista.altura) * suave;
     const acercar = 1 + 0.22 * Math.pow(1 - comunes.uEncendido.value, 2);
-    const giro = BASE_GIRO + vista.giro + Math.sin(t * 0.12) * 0.05;
-    const altura = Math.max(0.04, BASE_ALTURA + vista.altura + Math.sin(t * 0.09) * 0.015);
+    const balanceo = pocoMovimiento ? 0 : 1;
+    const giro = BASE_GIRO + vista.giro + Math.sin(t * 0.12) * 0.05 * balanceo;
+    const altura = Math.max(0.04, BASE_ALTURA + vista.altura + Math.sin(t * 0.09) * 0.015 * balanceo);
     camara.position.set(Math.sin(giro) * Math.cos(altura), Math.sin(altura), Math.cos(giro) * Math.cos(altura)).multiplyScalar(vista.radio * acercar).add(OBJETIVO);
     camara.lookAt(OBJETIVO);
 }
@@ -759,9 +779,10 @@ function orientarAgujero() {
     const e = BASE_ALTURA + (elevacion - BASE_ALTURA) * 0.75;
     agujero.rotation.set(-(e - 0.2), g, -0.4);
     agujero.updateMatrixWorld();
+    arcos.rotation.set(-(elevacion - 0.2), giro, -0.4);
+    arcos.updateMatrixWorld();
     auxV.copy(camara.position);
     agujero.worldToLocal(auxV);
-    camaraLocal.value.copy(auxV);
     comunes.uVista.value.copy(auxV).normalize();
 }
 
@@ -967,7 +988,7 @@ function adaptarResolucion(delta) {
 // La entrada: primero aparecen las estrellas y la sombra negra, y
 // después el gas se va encendiendo en espiral de fuera hacia dentro
 // mientras la cámara se acerca un poco
-const entrada = { t: parametros.has("fijo") || parametros.has("sinentrada") ? 10 : 0 };
+const entrada = { t: parametros.has("fijo") || parametros.has("sinentrada") || pocoMovimiento ? 10 : 0 };
 
 function moverEntrada(delta) {
     entrada.t += delta;
