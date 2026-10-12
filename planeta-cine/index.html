@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#05060a">
+    <title>El planeta pequeño | Miguel Ángel Calvente Medina</title>
+    <meta name="description" content="Un planeta pequeño visto desde el espacio, con un castillo en lo alto y un camino que lo rodea: amanecer, atmósfera, nubes, lagos y luces de noche, hecho con three.js por Miguel Ángel Calvente Medina.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;1,9..144,400&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="estilo.css?v=1">
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <header class="cabecera">
+        <p class="etiqueta">Planeta</p>
+        <h1>El planeta pequeño.</h1>
+        <p class="texto">Un castillo en lo alto y un camino que le da vueltas. Amanece por un lado y por el otro se encienden las farolas del camino.</p>
+        <a class="volver" href="../">Volver al portfolio</a>
+    </header>
+
+    <button class="sonido" id="boton-sonido" aria-pressed="false">Sonido</button>
+
+    <p class="pista" id="pista">Mueve para mirar, toca el planeta para encender el camino</p>
+    <p class="cargando" id="cargando">Formando el planeta...</p>
+
+    <script type="module" src="escena.js?v=1"></script>
+</body>
+</html>
