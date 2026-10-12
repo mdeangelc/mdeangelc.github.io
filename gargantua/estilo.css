@@ -23,6 +23,34 @@ body {
 
 
 
+.sonido {
+    position: fixed;
+    top: 30px;
+    right: 32px;
+    z-index: 2;
+    font-family: var(--fuente);
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--texto);
+    background: transparent;
+    border: 1px solid var(--suave);
+    border-radius: 999px;
+    padding: 8px 16px;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: background 0.2s, color 0.2s;
+}
+
+.sonido:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.sonido.activo {
+    background: var(--texto);
+    color: var(--fondo);
+}
+
 canvas {
     position: fixed;
     inset: 0;
@@ -147,5 +175,15 @@ canvas {
 
     .volver {
         margin-top: 10px;
+    }
+
+    .sonido {
+        top: auto;
+        bottom: 22px;
+        right: 20px;
+    }
+
+    .pista {
+        bottom: 76px;
     }
 }

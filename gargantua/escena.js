@@ -212,59 +212,65 @@ escena.add(fondo);
 // =====================================================================
 // 5. EL GAS
 // La textura de ruido leída en coordenadas polares: gira más rápido por
-// dentro, se enrolla en espiral, con anillos que se desplazan,
-// filamentos finos, grumos calientes y un lado más brillante (el gas
-// que viene hacia ti).
+// dentro, se enrolla en espiral, se retuerce despacio, con anillos que
+// se desplazan, filamentos finos, vetas oscuras de polvo, grumos
+// calientes, un borde interior al rojo blanco donde el gas cae y un
+// lado más brillante (el gas que viene hacia ti).
 // =====================================================================
 
 const gasGlsl = `
     uniform sampler2D tRuido;
     uniform float uTiempo;
     uniform vec3 uVista;
-    uniform float uDesfase;
     uniform float uEncendido;
     uniform float uPulso;
     uniform float uOnda;
     const float DENTRO = 1.35;
     const float FUERA = 4.8;
-    vec4 gas(float r, float phi, float phiLuz) {
+    float manchasFijas = 0.0;
+
+    float manchasEn(float r, float phi) {
+        float m = 0.0;
+        for (int i = 0; i < 6; i++) {
+            float ri = 1.6 + float(i) * 0.5;
+            float ai = uTiempo * 1.5 * pow(ri / DENTRO, -1.5) + float(i) * 2.3;
+            float da = atan(sin(phi - ai), cos(phi - ai)) * ri;
+            m += exp(-pow(da / (0.35 + float(i) * 0.12), 2.0) - pow((r - ri) / 0.1, 2.0)) * (0.6 + 0.4 * sin(uTiempo * 2.0 + float(i)));
+        }
+        return m;
+    }
+
+    vec4 gas(float r, float phi, float phiLuz, float desfase) {
         float x = (r - DENTRO) / (FUERA - DENTRO);
         float omega = 1.5 * pow(r / DENTRO, -1.5);
         float espiral = log(r) * 0.55;
-        float ang = (phi - uTiempo * omega) / 6.2832 + uDesfase;
-        #ifdef GAS_SENCILLO
-        vec2 torcer = vec2(0.0);
+        float ang = (phi - uTiempo * omega) / 6.2832 + desfase;
+        #ifdef GAS_VOLUMEN
+        float angT = ang;
+        float rT = r;
         #else
         vec2 torcer = vec2(
             texture2D(tRuido, vec2(ang * 2.0 + uTiempo * 0.013, r * 0.3 - uTiempo * 0.021)).r,
             texture2D(tRuido, vec2(ang * 2.0 + 0.5 - uTiempo * 0.017, r * 0.3 + 0.4 + uTiempo * 0.015)).r
         ) - 0.5;
-        #endif
         float angT = ang + torcer.x * 0.018;
         float rT = r + torcer.y * 0.1;
-        float n = texture2D(tRuido, vec2(angT + espiral * 0.3, rT * 0.16 + uDesfase)).r;
+        #endif
+        float n = texture2D(tRuido, vec2(angT + espiral * 0.3, rT * 0.16 + desfase)).r;
         float fino = texture2D(tRuido, vec2(angT * 3.0 + espiral, rT * 0.6 + 0.37)).r;
-        #ifdef GAS_SENCILLO
-        float hebras = 0.5;
-        float rizo = 0.5;
-        #else
         float hebras = texture2D(tRuido, vec2(angT * 9.0 + espiral * 2.0, rT * 2.2 + 0.11)).r;
+        #ifdef GAS_VOLUMEN
+        float rizo = 0.5;
+        float manchas = manchasFijas;
+        #else
         float rizo = texture2D(tRuido, vec2(angT * 22.0 + espiral * 4.0, rT * 5.0 + 0.53)).r;
+        float manchas = manchasEn(r, phi);
         #endif
         float polvo = smoothstep(0.55, 0.8, texture2D(tRuido, vec2(angT + 0.5, rT * 0.09 + 0.61)).r) * smoothstep(0.12, 0.6, x);
         float perfil = smoothstep(-0.02, 0.05, x) * pow(clamp(1.0 - x, 0.0, 1.0), 1.3);
         float anillos = 0.6 + 0.4 * sin(rT * 14.0 - uTiempo * 1.1 + n * 4.0) * sin(rT * 4.6 + uTiempo * 0.4);
         float densidad = smoothstep(0.3, 0.75, n) * (0.4 + 0.8 * fino) * (0.65 + 0.7 * hebras) * (0.8 + 0.4 * rizo) * anillos;
         densidad = mix(densidad, 1.0, smoothstep(0.14, 0.0, x));
-        float manchas = 0.0;
-        #ifndef GAS_SENCILLO
-        for (int i = 0; i < 6; i++) {
-            float ri = 1.6 + float(i) * 0.5;
-            float ai = uTiempo * 1.5 * pow(ri / DENTRO, -1.5) + float(i) * 2.3;
-            float da = atan(sin(phi - ai), cos(phi - ai)) * ri;
-            manchas += exp(-pow(da / (0.35 + float(i) * 0.12), 2.0) - pow((r - ri) / 0.1, 2.0)) * (0.6 + 0.4 * sin(uTiempo * 2.0 + float(i)));
-        }
-        #endif
         float temperatura = pow(DENTRO / r, 1.4);
         vec3 col = mix(vec3(0.38, 0.13, 0.05), vec3(1.0, 0.46, 0.16), smoothstep(0.1, 0.42, temperatura));
         col = mix(col, vec3(1.0, 0.78, 0.5), smoothstep(0.42, 0.75, temperatura));
@@ -277,59 +283,25 @@ const gasGlsl = `
         col *= brillo * (1.0 - polvo * 0.85) * (1.0 + manchas * 1.5);
         col = mix(col, col * vec3(1.1, 0.8, 0.62), smoothstep(1.0, 0.6, doppler) * 0.6);
         col = mix(col, col * vec3(0.95, 1.0, 1.1) + 0.06, smoothstep(1.0, 1.45, doppler) * 0.5);
+        float borde = exp(-pow((r - DENTRO - 0.025) / 0.032, 2.0)) * (0.7 + 0.3 * sin(phi * 7.0 + uTiempo * 3.1) * sin(phi * 3.0 - uTiempo * 1.7));
+        col += vec3(1.0, 0.95, 0.88) * borde * 2.2 * haz;
         col *= 1.0 + uPulso * 0.45 + uPulso * 2.2 * exp(-pow((r - uOnda) / 0.3, 2.0));
-        float alfa = clamp((densidad + manchas * 0.4) * perfil * 1.6, 0.0, 1.0);
+        float alfa = clamp((densidad + manchas * 0.4) * perfil * 1.6 + borde * 0.5, 0.0, 1.0);
         float frente = mix(FUERA + 0.9, DENTRO - 1.0, uEncendido);
-        float borde = r + 0.45 * sin(phi * 2.0 - log(r) * 5.0 - uTiempo * 0.8);
-        alfa *= smoothstep(frente - 0.2, frente + 0.6, borde);
-        col *= 1.0 + 2.0 * exp(-pow((borde - frente - 0.3) / 0.35, 2.0)) * (1.0 - uEncendido);
+        float filo = r + 0.45 * sin(phi * 2.0 - log(r) * 5.0 - uTiempo * 0.8);
+        alfa *= smoothstep(frente - 0.2, frente + 0.6, filo);
+        col *= 1.0 + 2.0 * exp(-pow((filo - frente - 0.3) / 0.35, 2.0)) * (1.0 - uEncendido);
         return vec4(col, alfa);
     }
 `;
 
-function materialGas(modo, opciones = {}) {
-    const material = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false });
-    const desfase = { value: opciones.desfase ?? 0 };
-    const fuerza = opciones.fuerza ?? 1;
-    material.onBeforeCompile = (shader) => {
-        Object.assign(shader.uniforms, comunes, { tRuido, uDesfase: desfase });
-        shader.vertexShader = shader.vertexShader
-            .replace("#include <common>", "#include <common>\nvarying vec3 vLocalG;")
-            .replace("#include <begin_vertex>", "#include <begin_vertex>\nvLocalG = position;");
-        shader.fragmentShader = shader.fragmentShader
-            .replace("#include <common>", "#include <common>\nvarying vec3 vLocalG;\n" + (fuerza < 0.5 ? "#define GAS_SENCILLO\n" : "") + gasGlsl)
-            .replace(
-                "#include <color_fragment>",
-                `#include <color_fragment>
-                ${modo === "disco" ? `
-                float rG = length(vLocalG.xz);
-                float fiG = atan(vLocalG.z, vLocalG.x);
-                vec4 g = gas(rG, fiG, fiG);` : `
-                float rho = length(vLocalG.xy);
-                float aG = atan(vLocalG.y, vLocalG.x);
-                float dentroArco = ${modo === "arriba" ? "1.16" : "1.12"};
-                float fueraArco = ${modo === "arriba" ? "2.55" : "1.5"};
-                float rG = DENTRO + max(0.0, rho - dentroArco) * ${modo === "arriba" ? "1.75" : "3.6"};
-                vec4 g = gas(rG, ${modo === "arriba" ? "-aG" : "aG"} * 0.9 + 1.4, aG * 0.9 + 1.4);
-                g.rgb *= 1.0 + 0.5 * exp(-(rho - dentroArco) / ${modo === "arriba" ? "0.08" : "0.05"});
-                g.a = clamp(g.a * ${modo === "arriba" ? "2.0" : "1.5"}, 0.0, 1.0) * smoothstep(0.0, 0.22, abs(vLocalG.y) / rho) * smoothstep(dentroArco, dentroArco + 0.05, rho) * smoothstep(fueraArco, fueraArco - ${modo === "arriba" ? "1.05" : "0.35"}, rho);`}
-                g.a *= ${fuerza.toFixed(3)};
-                diffuseColor.rgb = pow(g.rgb, vec3(1.15)) * ${modo === "disco" ? "0.85" : "1.0"};
-                diffuseColor.a = clamp(g.a * 1.7, 0.0, 1.0);`
-            );
-    };
-    material.customProgramCacheKey = () => "gas" + modo + fuerza;
-    return material;
-}
-
 
 // =====================================================================
 // 6. GARGANTUA
-// La sombra es una bola negra sin ningún reflejo. Alrededor, el disco en
-// tres capas, los dos
-// arcos de luz doblada, que fluyen en el mismo sentido que el disco de
-// detrás, dos anillos de fotones muy finos y halos de luz. El grupo
-// mira casi siempre a la cámara para verse como Gargantua.
+// La sombra es una bola negra sin ningún reflejo. El disco son tres
+// capas de gas. Los arcos de luz doblada se pintan en un plano con la
+// misma curva de antes, sin piezas ni bordes cortados. Dos anillos de fotones muy finos
+// y halos de luz. El grupo mira casi siempre a la cámara.
 // =====================================================================
 
 const agujero = new THREE.Group();
@@ -344,6 +316,8 @@ const brillar = (o) => {
 
 const sombra = brillar(new THREE.Mesh(new THREE.SphereGeometry(1, 64, 48), new THREE.MeshBasicMaterial({ color: 0x000000 })));
 agujero.add(sombra);
+
+const camaraLocal = { value: new THREE.Vector3() };
 
 function discoConVolumen(grosorMax) {
     const perfil = [];
@@ -363,32 +337,96 @@ function discoConVolumen(grosorMax) {
     return new THREE.LatheGeometry(perfil, 144);
 }
 
+const VERTICE_LOCAL = `
+    varying vec3 vLocal;
+    void main() {
+        vLocal = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+`;
+
+const MEZCLA_PREMULTIPLICADA = {
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.OneFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendSrcAlpha: THREE.OneFactor,
+    blendDstAlpha: THREE.OneMinusSrcAlphaFactor
+};
+
+// El disco en tres capas: la del medio con todo el detalle y dos más
+// gruesas y suaves por encima y por debajo que le dan cuerpo
+function materialDisco(fuerza, desfase) {
+    return new THREE.ShaderMaterial({
+        uniforms: { ...comunes, tRuido },
+        vertexShader: VERTICE_LOCAL,
+        fragmentShader: (fuerza < 0.5 ? "#define GAS_VOLUMEN\n" : "") + gasGlsl + `
+            varying vec3 vLocal;
+            void main() {
+                float r = length(vLocal.xz);
+                float fi = atan(vLocal.z, vLocal.x);
+                ${fuerza < 0.5 ? "manchasFijas = 0.0;" : ""}
+                vec4 g = gas(r, fi, fi, ${desfase.toFixed(2)});
+                float a = clamp(g.a * ${fuerza.toFixed(3)} * 1.7, 0.0, 1.0);
+                if (a < 0.002) discard;
+                gl_FragColor = vec4(pow(g.rgb, vec3(1.15)) * 0.85 * a, a);
+            }
+        `,
+        ...MEZCLA_PREMULTIPLICADA
+    });
+}
+
 [[0.06, 1, 0], [0.16, 0.3, 0.37], [0.28, 0.14, 0.71]].forEach(([grosor, fuerza, desfase], i) => {
-    const capa = brillar(new THREE.Mesh(discoConVolumen(grosor), materialGas("disco", { fuerza, desfase })));
+    const capa = brillar(new THREE.Mesh(discoConVolumen(grosor), materialDisco(fuerza, desfase)));
     capa.renderOrder = 3 + i;
     agujero.add(capa);
 });
 
-function arco(dentro, fuera, desde, largo, grosor) {
-    const forma = new THREE.Shape();
-    forma.absarc(0, 0, fuera, desde, desde + largo, false);
-    forma.absarc(0, 0, dentro, desde + largo, desde, true);
-    const geo = new THREE.ExtrudeGeometry(forma, { depth: grosor, bevelEnabled: true, bevelThickness: grosor * 0.6, bevelSize: grosor * 0.6, bevelSegments: 2, curveSegments: 72 });
-    geo.translate(0, 0, -grosor / 2);
-    return geo;
+// Los arcos: la parte de atrás del disco doblada por encima y por
+// debajo. Fluyen en el mismo sentido que el disco de detrás y son más
+// brillantes pegados a la sombra
+function materialArcos(fuerza, desfase) {
+    return new THREE.ShaderMaterial({
+        uniforms: { ...comunes, tRuido },
+        vertexShader: VERTICE_LOCAL,
+        fragmentShader: gasGlsl + `
+            varying vec3 vLocal;
+            void main() {
+                float rho = length(vLocal.xy);
+                float aG = atan(vLocal.y, vLocal.x);
+                bool arriba = vLocal.y > 0.0;
+                float dentroArco = arriba ? 1.16 : 1.12;
+                float fueraArco = arriba ? 2.55 : 1.5;
+                if (rho < dentroArco - 0.02 || rho > fueraArco + 0.05) discard;
+                float rG = DENTRO + max(0.0, rho - dentroArco) * (arriba ? 1.75 : 3.6);
+                vec4 g = gas(rG, (arriba ? -aG : aG) * 0.9 + 1.4, aG * 0.9 + 1.4, ${desfase.toFixed(2)});
+                g.rgb *= 1.0 + 0.5 * exp(-(rho - dentroArco) / (arriba ? 0.08 : 0.05));
+                float a = clamp(g.a * (arriba ? 2.0 : 1.5), 0.0, 1.0);
+                a *= smoothstep(0.0, 0.22, abs(vLocal.y) / rho);
+                a *= smoothstep(dentroArco - 0.01, dentroArco + 0.05, rho);
+                a *= smoothstep(fueraArco, fueraArco - (arriba ? 1.05 : 0.35), rho);
+                a = clamp(a * ${fuerza.toFixed(2)} * 1.7, 0.0, 1.0);
+                if (a < 0.002) discard;
+                gl_FragColor = vec4(pow(g.rgb, vec3(1.15)) * a, a);
+            }
+        `,
+        ...MEZCLA_PREMULTIPLICADA
+    });
 }
 
 const arcos = new THREE.Group();
-const arcoArriba = brillar(new THREE.Mesh(arco(1.15, 2.6, 0.01, Math.PI - 0.02, 0.05), materialGas("arriba")));
-const arcoArriba2 = brillar(new THREE.Mesh(arco(1.15, 2.6, 0.01, Math.PI - 0.02, 0.05), materialGas("arriba", { fuerza: 0.35, desfase: 0.5 })));
-arcoArriba2.position.z = -0.12;
-const arcoAbajo = brillar(new THREE.Mesh(arco(1.11, 1.62, Math.PI + 0.04, Math.PI - 0.08, 0.04), materialGas("abajo")));
+const planoArcos = new THREE.PlaneGeometry(5.3, 5.3);
+const arcoAtras = brillar(new THREE.Mesh(planoArcos, materialArcos(0.35, 0.5)));
+arcoAtras.position.z = -0.12;
+const arcoDelante = brillar(new THREE.Mesh(planoArcos, materialArcos(1, 0)));
+arcoAtras.renderOrder = 6;
+arcoDelante.renderOrder = 7;
 const anillo = brillar(new THREE.Mesh(new THREE.TorusGeometry(1.028, 0.008, 8, 256), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.88, 0.7).multiplyScalar(2.6) })));
 const anillo2 = brillar(new THREE.Mesh(new THREE.TorusGeometry(1.075, 0.003, 6, 256), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.8, 0.6).multiplyScalar(0.45) })));
-[arcoArriba2, arcoArriba, arcoAbajo].forEach((m, i) => (m.renderOrder = 6 + i));
 anillo.renderOrder = 9;
 anillo2.renderOrder = 9;
-arcos.add(arcoArriba2, arcoArriba, arcoAbajo, anillo, anillo2);
+arcos.add(arcoAtras, arcoDelante, anillo, anillo2);
 agujero.add(arcos);
 
 function texturaHalo() {
@@ -406,6 +444,55 @@ function texturaHalo() {
 }
 
 const mapaHalo = texturaHalo();
+// Unas pocas estrellas muy brillantes con rayitos, lejos del agujero
+function texturaDestello() {
+    const lienzo = document.createElement("canvas");
+    lienzo.width = lienzo.height = 128;
+    const g = lienzo.getContext("2d");
+    const d = g.createRadialGradient(64, 64, 0, 64, 64, 14);
+    d.addColorStop(0, "rgba(255, 255, 255, 1)");
+    d.addColorStop(0.25, "rgba(255, 255, 255, 0.55)");
+    d.addColorStop(1, "rgba(255, 255, 255, 0)");
+    g.fillStyle = d;
+    g.fillRect(0, 0, 128, 128);
+    [[1, 0.025], [0.025, 1]].forEach(([sx, sy]) => {
+        const rayo = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+        rayo.addColorStop(0, "rgba(255, 255, 255, 1)");
+        rayo.addColorStop(0.35, "rgba(255, 255, 255, 0.25)");
+        rayo.addColorStop(1, "rgba(255, 255, 255, 0)");
+        g.save();
+        g.translate(64, 64);
+        g.scale(sx, sy);
+        g.fillStyle = rayo;
+        g.beginPath();
+        g.arc(0, 0, 64, 0, Math.PI * 2);
+        g.fill();
+        g.restore();
+    });
+    return new THREE.CanvasTexture(lienzo);
+}
+
+const destellos = (() => {
+    const mapa = texturaDestello();
+    const haciaAgujero = new THREE.Vector3(-Math.sin(BASE_GIRO), -Math.sin(BASE_ALTURA), -Math.cos(BASE_GIRO)).normalize();
+    const lista = [];
+    const tonos = [0xcfe0ff, 0xffffff, 0xffe2c4, 0xdde6ff];
+    while (lista.length < 8) {
+        const v = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1);
+        if (v.lengthSq() > 1 || v.lengthSq() < 0.01) continue;
+        v.normalize();
+        if (v.angleTo(haciaAgujero) < 0.16 || v.angleTo(haciaAgujero) > 0.6) continue;
+        const estrella = new THREE.Sprite(new THREE.SpriteMaterial({ map: mapa, color: tonos[lista.length % tonos.length], transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: false }));
+        estrella.position.copy(v).multiplyScalar(150).add(CENTRO);
+        estrella.scale.setScalar(0.022 + Math.random() * 0.03);
+        estrella.userData = { fase: Math.random() * 6.28, fuerza: 0.45 + Math.random() * 0.55 };
+        estrella.renderOrder = 0;
+        escena.add(estrella);
+        lista.push(estrella);
+    }
+    return lista;
+})();
+
 const halos = [[10, 0.16, [1, 0.5, 0.22]], [3.8, 0.28, [1, 0.72, 0.45]]].map(([tam, fuerza, c]) => {
     const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: mapaHalo, color: new THREE.Color(...c), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: fuerza }));
     halo.scale.setScalar(tam);
@@ -602,8 +689,10 @@ class PaseBrillo extends Pass {
 
 // =====================================================================
 // 8. EFECTOS: RESPLANDOR Y ACABADO
-// Al final, un oscurecido suave en las esquinas y un grano muy fino que
-// evita que los degradados oscuros se vean a escalones.
+// Al final, un poco más de contraste, los colores que se separan muy
+// poco hacia los bordes como en una lente de verdad, un oscurecido
+// suave en las esquinas y un grano muy fino que evita que los
+// degradados oscuros se vean a escalones.
 // =====================================================================
 
 const compositor = new EffectComposer(renderizador);
@@ -625,8 +714,12 @@ const acabado = new ShaderPass({
         uniform float uTiempo;
         varying vec2 vUv;
         void main() {
-            vec4 c = texture2D(tDiffuse, vUv);
             vec2 q = vUv - 0.5;
+            vec2 desvio = q * dot(q, q) * 0.007;
+            vec4 c = texture2D(tDiffuse, vUv);
+            c.r = texture2D(tDiffuse, vUv - desvio).r;
+            c.b = texture2D(tDiffuse, vUv + desvio).b;
+            c.rgb = mix(c.rgb, c.rgb * c.rgb * (3.0 - 2.0 * c.rgb), 0.2);
             c.rgb *= 1.0 - dot(q, q) * 0.55;
             float grano = fract(sin(dot(gl_FragCoord.xy + fract(uTiempo * 7.0) * 61.0, vec2(12.9898, 78.233))) * 43758.5453);
             c.rgb += (grano - 0.5) / 255.0 * 1.5;
@@ -668,6 +761,7 @@ function orientarAgujero() {
     agujero.updateMatrixWorld();
     auxV.copy(camara.position);
     agujero.worldToLocal(auxV);
+    camaraLocal.value.copy(auxV);
     comunes.uVista.value.copy(auxV).normalize();
 }
 
@@ -700,10 +794,94 @@ function marcarBola() {
 // =====================================================================
 
 const pista = document.getElementById("pista");
+
+// El sonido: un zumbido grave como de órgano (varias notas suaves con
+// eco) que solo empieza al pulsar el botón. Al despertar al agujero se
+// abre y sube un momento.
+const sonido = { ctx: null, activo: false, maestro: null, filtro: null };
+const botonSonido = document.getElementById("boton-sonido");
+
+function impulsoEco(ctx, segundos) {
+    const largo = Math.floor(ctx.sampleRate * segundos);
+    const buffer = ctx.createBuffer(2, largo, ctx.sampleRate);
+    for (let canal = 0; canal < 2; canal++) {
+        const datos = buffer.getChannelData(canal);
+        for (let i = 0; i < largo; i++) datos[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / largo, 2.6);
+    }
+    return buffer;
+}
+
+function crearSonido() {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const maestro = ctx.createGain();
+    maestro.gain.value = 0;
+    const filtro = ctx.createBiquadFilter();
+    filtro.type = "lowpass";
+    filtro.frequency.value = 520;
+    filtro.Q.value = 0.7;
+    const eco = ctx.createConvolver();
+    eco.buffer = impulsoEco(ctx, 4.5);
+    const seco = ctx.createGain();
+    seco.gain.value = 0.55;
+    const mojado = ctx.createGain();
+    mojado.gain.value = 0.7;
+    filtro.connect(seco).connect(maestro);
+    filtro.connect(eco).connect(mojado).connect(maestro);
+    maestro.connect(ctx.destination);
+    [[55, 0.5, "sine"], [82.41, 0.28, "sine"], [110, 0.3, "triangle"], [164.81, 0.14, "triangle"], [220, 0.08, "sine"]].forEach(([frecuencia, volumen, tipo]) => {
+        [-4, 4].forEach((desafinar) => {
+            const osc = ctx.createOscillator();
+            osc.type = tipo;
+            osc.frequency.value = frecuencia;
+            osc.detune.value = desafinar;
+            const voz = ctx.createGain();
+            voz.gain.value = volumen / 2;
+            osc.connect(voz).connect(filtro);
+            osc.start();
+        });
+    });
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 0.05;
+    const profundidad = ctx.createGain();
+    profundidad.gain.value = 160;
+    lfo.connect(profundidad).connect(filtro.frequency);
+    lfo.start();
+    Object.assign(sonido, { ctx, maestro, filtro });
+}
+
+function cambiarSonido() {
+    if (!sonido.ctx) crearSonido();
+    sonido.activo = !sonido.activo;
+    sonido.ctx.resume();
+    sonido.maestro.gain.setTargetAtTime(sonido.activo ? 0.22 : 0, sonido.ctx.currentTime, 0.8);
+    botonSonido.setAttribute("aria-pressed", sonido.activo);
+    botonSonido.classList.toggle("activo", sonido.activo);
+}
+
+function sonarDespertar() {
+    if (!sonido.activo) return;
+    const ahora = sonido.ctx.currentTime;
+    const f = sonido.filtro.frequency;
+    f.cancelScheduledValues(ahora);
+    f.setTargetAtTime(1700, ahora, 0.08);
+    f.setTargetAtTime(520, ahora + 0.7, 1.3);
+    const g = sonido.maestro.gain;
+    g.cancelScheduledValues(ahora);
+    g.setTargetAtTime(0.36, ahora, 0.1);
+    g.setTargetAtTime(0.22, ahora + 0.8, 1.5);
+}
+
+botonSonido.addEventListener("click", cambiarSonido);
+document.addEventListener("visibilitychange", () => {
+    if (!sonido.ctx || !sonido.activo) return;
+    if (document.hidden) sonido.ctx.suspend();
+    else sonido.ctx.resume();
+});
 const toque = { x: 0, y: 0, t: 0 };
 const lienzo = renderizador.domElement;
 
 function despertar() {
+    sonarDespertar();
     comunes.uPulso.value = 1;
     comunes.uOnda.value = 5.2;
 }
@@ -817,6 +995,7 @@ function animar() {
     halos.forEach((h, i) => (h.material.opacity = h.userData.fuerza * encendido * (0.85 + 0.15 * Math.sin(t * (1.1 + i * 0.7)) + pulso * 0.8)));
     brillo.mezclar.uniforms.uFuerza.value = 0.55 * (1 + pulso * 0.6);
     marcarBola();
+    destellos.forEach((d) => (d.material.opacity = d.userData.fuerza * fondo.material.uniforms.uAparece.value * (0.8 + 0.2 * Math.sin(t * 1.3 + d.userData.fase))));
     compositor.render();
 }
 
