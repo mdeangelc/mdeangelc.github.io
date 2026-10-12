@@ -10,10 +10,17 @@ import { texturaRuido, crearCielo, PaseBrillo, crearAcabado, crearZumbido } from
 // 1. AJUSTES
 // El planeta pequeño visto desde el espacio, como en una película: el
 // sol asoma por el borde y deja medio planeta de día y medio de noche.
-// En la cara de día hay bosques, prados, lagos que reflejan el sol y nubes
-// finas; en la de noche se ven las farolas del camino, las casas y el
-// castillo encendidos. Alrededor, el filo azul de la atmósfera. La
-// cámara solo se inclina un poco con el ratón, como en Gargantua.
+// En la cara de día hay bosques, prados, mares que reflejan el sol y nubes
+// finas; en la de noche se ven las farolas del camino, las casas, el
+// castillo encendidos y tormentas con relámpagos. Tiene anillos que
+// echan sombra, una aurora en el polo alrededor del castillo, cuatro
+// lunas (cada una abre una parte del portfolio) y de vez en cuando pasa
+// un cometa. La cámara solo se inclina un poco con el ratón.
+// Opciones en la dirección:
+//   ?sinentrada  -> sin la entrada
+//   ?fijo        -> sin entrada ni cambios de resolución
+//   ?ola=0.5     -> deja la ola de luz quieta en ese punto del camino
+//   ?cometa=si   -> el cometa sale enseguida
 // =====================================================================
 
 const parametros = new URLSearchParams(location.search);
@@ -78,8 +85,39 @@ const comunes = {
     uSol: { value: DIR_SOL },
     uTiempo: tiempo,
     tRuido,
-    uOla: { value: -1 }
+    uOla: { value: -1 },
+    uFuerzaSol: { value: 1 },
+    uNormalAnillo: { value: new THREE.Vector3(0, 1, 0) },
+    uTormentas: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) }
 };
+
+// Radios del anillo (en radios del planeta) y cuánto polvo hay a cada
+// distancia. Lo usan el anillo, el suelo y las nubes (para la sombra).
+const ANILLO_DENTRO = 1.42;
+const ANILLO_FUERA = 2.15;
+const anilloGlsl = `
+    uniform vec3 uNormalAnillo;
+    float densidadAnillo(float r) {
+        float x = (r - ${ANILLO_DENTRO.toFixed(2)}) / ${(ANILLO_FUERA - ANILLO_DENTRO).toFixed(2)};
+        if (x < 0.0 || x > 1.0) return 0.0;
+        float a = texture2D(tRuido, vec2(x * 0.7 + 0.05, 0.137)).r;
+        float b = texture2D(tRuido, vec2(x * 2.9 + 0.3, 0.618)).r;
+        float d = 0.12 + 0.88 * smoothstep(0.34, 0.64, a * 0.55 + b * 0.45);
+        d *= smoothstep(0.0, 0.05, x) * smoothstep(1.0, 0.88, x);
+        d *= 1.0 - 0.92 * smoothstep(0.035, 0.0, abs(x - 0.64));
+        d *= 1.0 - 0.6 * smoothstep(0.018, 0.0, abs(x - 0.85));
+        d *= mix(0.35, 1.0, smoothstep(0.04, 0.3, x));
+        return d;
+    }
+    // 1 = sin sombra; el rayo hacia el sol corta el plano del anillo
+    float sombraAnillo(vec3 p, vec3 sol) {
+        float den = dot(uNormalAnillo, sol);
+        if (abs(den) < 0.0001) return 1.0;
+        float s = -dot(uNormalAnillo, p) / den;
+        if (s <= 0.0) return 1.0;
+        return 1.0 - densidadAnillo(length(p + sol * s)) * 0.82;
+    }
+`;
 
 
 // =====================================================================
@@ -90,7 +128,7 @@ const comunes = {
 
 const camino = [];
 const PUNTOS_CAMINO = 420;
-const NIVEL_AGUA = 0.985;
+const NIVEL_AGUA = 0.991;
 
 function direccion(lat, lon, destino = new THREE.Vector3()) {
     return destino.set(Math.cos(lat) * Math.cos(lon), Math.sin(lat), -Math.cos(lat) * Math.sin(lon));
@@ -210,13 +248,19 @@ function crearSuelo() {
                 vMundo = (modelMatrix * vec4(transformed, 1.0)).xyz;`
             );
         shader.fragmentShader = shader.fragmentShader
-            .replace("#include <common>", "#include <common>\nuniform vec3 uSol;\nvarying float vAgua;\nvarying vec3 vNormalMundo;\nvarying vec3 vMundo;")
+            .replace("#include <common>", "#include <common>\nuniform vec3 uSol;\nuniform sampler2D tRuido;\nuniform float uTiempo;\nuniform float uFuerzaSol;\nvarying float vAgua;\nvarying vec3 vNormalMundo;\nvarying vec3 vMundo;\n" + anilloGlsl)
             .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.14, vAgua);")
             .replace(
                 "#include <opaque_fragment>",
                 `vec3 nM = normalize(vNormalMundo);
                 vec3 vistaM = normalize(cameraPosition - vMundo);
                 float luzM = dot(normalize(vMundo), uSol);
+                float sombraA = sombraAnillo(vMundo, uSol);
+                outgoingLight *= mix(1.0, sombraA, smoothstep(-0.1, 0.15, luzM));
+                vec2 olas = vec2(texture2D(tRuido, vMundo.xz * 5.0 + uTiempo * 0.012).r, texture2D(tRuido, vMundo.zy * 5.0 - uTiempo * 0.01).r) - 0.5;
+                vec3 nAgua = normalize(normalize(vMundo) + vec3(olas.x, 0.0, olas.y) * 0.22);
+                float rs = max(dot(reflect(-vistaM, nAgua), uSol), 0.0);
+                outgoingLight += vec3(1.0, 0.9, 0.74) * (pow(rs, 500.0) * 40.0 + pow(rs, 40.0) * 0.9 + pow(rs, 6.0) * 0.08) * vAgua * smoothstep(0.0, 0.15, luzM) * uFuerzaSol * sombraA;
                 float borde = pow(1.0 - clamp(dot(nM, vistaM), 0.0, 1.0), 3.0);
                 vec3 aire = mix(vec3(1.0, 0.45, 0.2), vec3(0.35, 0.6, 1.0), smoothstep(0.0, 0.35, luzM));
                 outgoingLight += aire * borde * smoothstep(-0.15, 0.25, luzM) * 0.55;
@@ -352,9 +396,11 @@ function crearNubes() {
             uniform sampler2D tRuido;
             uniform vec3 uSol;
             uniform float uTiempo;
+            uniform vec4 uTormentas[8];
             varying vec3 vLocal;
             varying vec3 vMundo;
             varying vec3 vNormalMundo;
+            ${anilloGlsl}
             float plano(vec3 p, float escala) {
                 vec3 w = pow(abs(p), vec3(4.0));
                 w /= w.x + w.y + w.z;
@@ -363,14 +409,22 @@ function crearNubes() {
             void main() {
                 vec3 p = vLocal;
                 float n = plano(p + vec3(uTiempo * 0.004, 0.0, 0.0), 0.55) * 0.65 + plano(p * 1.0, 1.7) * 0.35;
-                float densidad = smoothstep(0.56, 0.76, n);
+                float masa = 0.0;
+                float rayo = 0.0;
+                for (int i = 0; i < 8; i++) {
+                    float c = dot(p, uTormentas[i].xyz);
+                    masa = max(masa, smoothstep(0.975, 0.997, c));
+                    rayo += (exp(-(1.0 - c) * 160.0) + exp(-(1.0 - c) * 30.0) * 0.12) * uTormentas[i].w;
+                }
+                float densidad = smoothstep(0.56, 0.76, n + masa * 0.16);
                 densidad *= 1.0 - smoothstep(0.8, 0.95, p.y);
                 if (densidad < 0.01) discard;
                 vec3 n3 = normalize(vNormalMundo);
                 float luz = dot(n3, uSol);
                 vec3 dia = vec3(1.0, 0.98, 0.95) * smoothstep(-0.1, 0.5, luz) * 1.05;
                 vec3 amanecer = vec3(1.0, 0.55, 0.3) * exp(-pow((luz - 0.02) / 0.12, 2.0)) * 0.8;
-                vec3 color = dia + amanecer + vec3(0.01, 0.012, 0.02);
+                vec3 color = (dia + amanecer) * sombraAnillo(vMundo, uSol) + vec3(0.01, 0.012, 0.02);
+                color += vec3(0.7, 0.78, 1.0) * rayo * (0.35 + n) * 5.0;
                 float vista = abs(dot(n3, normalize(cameraPosition - vMundo)));
                 gl_FragColor = vec4(color, densidad * 0.75 * smoothstep(0.0, 0.25, vista));
                 #include <tonemapping_fragment>
@@ -381,6 +435,7 @@ function crearNubes() {
         depthWrite: false
     });
     const nubes = new THREE.Mesh(new THREE.SphereGeometry(1.06, 96, 64), material);
+    nubes.name = "nubes";
     nubes.renderOrder = 2;
     eje.add(nubes);
     return nubes;
@@ -422,6 +477,163 @@ function crearAtmosfera() {
     halo.scale.setScalar(1.12);
     halo.renderOrder = 3;
     escena.add(halo);
+}
+
+
+// =====================================================================
+// 7b. LOS ANILLOS
+// Un disco de polvo con bandas y huecos, como los de Saturno. Brilla
+// más cuando el sol está detrás (la luz atraviesa el polvo), el planeta
+// le echa sombra y él echa sombra sobre el planeta y las nubes.
+// =====================================================================
+
+function crearAnillos() {
+    const geometria = new THREE.RingGeometry(ANILLO_DENTRO, ANILLO_FUERA, 256, 1);
+    const material = new THREE.ShaderMaterial({
+        uniforms: comunes,
+        vertexShader: `
+            varying vec3 vMundo;
+            varying vec2 vLocal;
+            void main() {
+                vLocal = position.xy;
+                vec4 m = modelMatrix * vec4(position, 1.0);
+                vMundo = m.xyz;
+                gl_Position = projectionMatrix * viewMatrix * m;
+            }
+        `,
+        fragmentShader: `
+            uniform sampler2D tRuido;
+            uniform vec3 uSol;
+            uniform float uTiempo;
+            uniform float uFuerzaSol;
+            varying vec3 vMundo;
+            varying vec2 vLocal;
+            ${anilloGlsl}
+            void main() {
+                float r = length(vLocal);
+                float d = densidadAnillo(r);
+                float x = (r - ${ANILLO_DENTRO.toFixed(2)}) / ${(ANILLO_FUERA - ANILLO_DENTRO).toFixed(2)};
+                float angulo = atan(vLocal.y, vLocal.x) / 6.2831853;
+                d *= 0.8 + 0.4 * texture2D(tRuido, vec2(x * 9.0, 0.37)).r;
+                d *= 0.9 + 0.2 * texture2D(tRuido, vec2(angulo * 6.0 + uTiempo * 0.003, x * 3.0)).r;
+                if (d < 0.004) discard;
+
+                vec3 V = normalize(cameraPosition - vMundo);
+                float deFrente = dot(uNormalAnillo, uSol) * dot(uNormalAnillo, V);
+                float b = dot(vMundo, uSol);
+                float lejos = sqrt(max(dot(vMundo, vMundo) - b * b, 0.0));
+                float sombra = b < 0.0 ? smoothstep(0.97, 1.05, lejos) : 1.0;
+                float cara = deFrente > 0.0 ? 0.35 + 0.65 * abs(dot(uNormalAnillo, uSol)) : 0.3 * (1.0 - d * 0.5);
+                float contraluz = pow(max(dot(-V, uSol), 0.0), 5.0) * 1.6;
+                float tono = texture2D(tRuido, vec2(x * 1.7, 0.83)).r;
+                vec3 polvo = mix(vec3(0.42, 0.33, 0.25), vec3(0.85, 0.76, 0.62), smoothstep(0.3, 0.9, d));
+                polvo = mix(polvo, polvo * vec3(0.8, 0.85, 1.0), smoothstep(0.4, 0.65, tono));
+                vec3 color = polvo * (cara + contraluz) * sombra * uFuerzaSol * 0.85 + polvo * 0.01;
+                gl_FragColor = vec4(color, d * 0.7);
+            }
+        `,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide
+    });
+    const anillos = new THREE.Mesh(geometria, material);
+    anillos.rotation.x = -Math.PI / 2;
+    anillos.renderOrder = 4;
+    eje.add(anillos);
+    eje.updateMatrixWorld(true);
+    comunes.uNormalAnillo.value.set(0, 1, 0).transformDirection(eje.matrixWorld);
+    return anillos;
+}
+
+
+// =====================================================================
+// 7c. LA AURORA
+// Una cortina de luz verde y violeta alrededor del polo, donde está el
+// castillo. Se pliega y ondula despacio, y se ve más en la cara de noche.
+// =====================================================================
+
+function crearAurora() {
+    const geometria = new THREE.CylinderGeometry(0.66, 0.5, 0.3, 200, 1, true);
+    geometria.translate(0, 0.15, 0);
+    const material = new THREE.ShaderMaterial({
+        uniforms: comunes,
+        vertexShader: `
+            uniform float uTiempo;
+            varying vec2 vUv;
+            varying vec3 vMundo;
+            void main() {
+                vUv = uv;
+                vec3 p = position;
+                float a = uv.x * 6.2831853;
+                p.xz *= 1.0 + sin(a * 5.0 + uTiempo * 0.15) * 0.06 + sin(a * 11.0 - uTiempo * 0.23) * 0.025;
+                vec4 m = modelMatrix * vec4(p, 1.0);
+                vMundo = m.xyz;
+                gl_Position = projectionMatrix * viewMatrix * m;
+            }
+        `,
+        fragmentShader: `
+            uniform sampler2D tRuido;
+            uniform float uTiempo;
+            uniform vec3 uSol;
+            varying vec2 vUv;
+            varying vec3 vMundo;
+            void main() {
+                float x = vUv.x;
+                float h = vUv.y;
+                float tramo = texture2D(tRuido, vec2(x * 2.0 + uTiempo * 0.004, 0.21)).r;
+                tramo = 0.25 + 0.75 * smoothstep(0.3, 0.62, tramo);
+                float rayos = texture2D(tRuido, vec2(x * 22.0 + h * 0.06 - uTiempo * 0.012, 0.73)).r;
+                rayos = pow(smoothstep(0.25, 0.78, rayos), 1.5) * 1.2 + 0.3;
+                float base = smoothstep(0.0, 0.12, h) * exp(-h * 2.6) * (1.0 - smoothstep(0.6, 1.0, h));
+                vec3 color = mix(vec3(0.15, 1.0, 0.5), vec3(0.6, 0.28, 1.0), smoothstep(0.2, 0.85, h));
+                color = mix(color, vec3(1.0, 0.3, 0.5), smoothstep(0.85, 1.0, h) * 0.5);
+                float noche = smoothstep(0.35, -0.2, dot(normalize(vMundo), uSol));
+                float latido = 0.7 + 0.3 * sin(uTiempo * 0.6 + x * 25.0);
+                gl_FragColor = vec4(color * rayos * tramo * base * (0.5 + noche) * latido * 3.2, 1.0);
+            }
+        `,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide
+    });
+    const aurora = new THREE.Mesh(geometria, material);
+    aurora.position.y = 0.87;
+    aurora.renderOrder = 4;
+    eje.add(aurora);
+}
+
+
+// =====================================================================
+// 7d. TORMENTAS
+// Unos cuantos sitios fijos en las nubes. Cada poco cae un relámpago
+// en uno que esté en la cara de noche: un fogonazo con parpadeo.
+// =====================================================================
+
+const tormentas = [];
+for (let i = 0; i < 8; i++) {
+    const y = -0.6 + (i / 7) * 1.2;
+    const angulo = i * 2.39996;
+    const r = Math.sqrt(1 - y * y);
+    tormentas.push({ dir: new THREE.Vector3(Math.cos(angulo) * r, y, Math.sin(angulo) * r), t: 99 });
+}
+const auxTormenta = new THREE.Vector3();
+let proximoRelampago = 3;
+
+function moverTormentas(delta) {
+    tormentas.forEach((t) => (t.t += delta));
+    proximoRelampago -= delta;
+    if (proximoRelampago <= 0 && !pocoMovimiento) {
+        proximoRelampago = 0.8 + Math.random() * 2.5;
+        const deNoche = tormentas.filter((t) => auxTormenta.copy(t.dir).transformDirection(nubes.matrixWorld).dot(DIR_SOL) < -0.08);
+        if (deNoche.length) deNoche[Math.floor(Math.random() * deNoche.length)].t = 0;
+    }
+    tormentas.forEach((t, i) => {
+        const k = t.t;
+        let fuerza = 0;
+        if (k < 1.5) fuerza = Math.exp(-k * 6) * (0.55 + 0.45 * Math.sin(k * 70)) + (k > 0.18 ? 0.8 * Math.exp(-(k - 0.18) * 8) : 0);
+        comunes.uTormentas.value[i].set(t.dir.x, t.dir.y, t.dir.z, Math.max(0, fuerza));
+    });
 }
 
 
@@ -556,6 +768,114 @@ function colocarDestello() {
 
 
 // =====================================================================
+// 9b. EL COMETA
+// De vez en cuando cruza un cometa por detrás del planeta, hacia el sol,
+// con la cola apuntando al lado contrario.
+// =====================================================================
+
+const cometa = {
+    t: 0,
+    duracion: 9,
+    espera: parametros.get("cometa") === "si" ? 1 : 14 + Math.random() * 12,
+    activo: false,
+    desde: new THREE.Vector3(),
+    hasta: new THREE.Vector3()
+};
+
+const geometriaCola = new THREE.BufferGeometry();
+geometriaCola.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array(12), 3));
+geometriaCola.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 0, 1, 1], 2));
+geometriaCola.setIndex([0, 2, 1, 1, 2, 3]);
+const materialCola = new THREE.ShaderMaterial({
+    uniforms: { uOpacidad: { value: 0 } },
+    vertexShader: `
+        varying vec2 vUv;
+        void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: `
+        uniform float uOpacidad;
+        varying vec2 vUv;
+        void main() {
+            float largo = vUv.x;
+            float y = (vUv.y - 0.5) * 2.0;
+            float nucleo = exp(-y * y * 30.0 / (0.05 + largo)) * pow(1.0 - largo, 1.3);
+            float polvo = exp(-y * y * 4.0) * pow(1.0 - largo, 1.1) * smoothstep(0.0, 0.25, largo) * 0.5;
+            vec3 color = vec3(0.6, 0.8, 1.0) * nucleo * 3.0 + vec3(1.0, 0.78, 0.5) * polvo * 1.6;
+            gl_FragColor = vec4(color * uOpacidad, 1.0);
+        }
+    `,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide
+});
+const cola = new THREE.Mesh(geometriaCola, materialCola);
+cola.frustumCulled = false;
+cola.visible = false;
+escena.add(cola);
+const cabeza = new THREE.Sprite(new THREE.SpriteMaterial({ map: estrellaSol.material.map, color: new THREE.Color(0.75, 0.88, 1).multiplyScalar(3), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+cabeza.scale.setScalar(1.6);
+cabeza.visible = false;
+escena.add(cabeza);
+
+const auxDerecha = new THREE.Vector3();
+const auxArriba = new THREE.Vector3();
+const auxDelante = new THREE.Vector3();
+const auxCola = new THREE.Vector3();
+const auxLado = new THREE.Vector3();
+
+function lanzarCometa() {
+    camara.matrixWorld.extractBasis(auxDerecha, auxArriba, auxDelante);
+    const lejos = 34;
+    const centro = OBJETIVO.clone().addScaledVector(auxDelante, -lejos);
+    const ancho = (lejos + vista.radio) * Math.tan(THREE.MathUtils.degToRad(camara.fov / 2)) * camara.aspect;
+    const alto = (lejos + vista.radio) * Math.tan(THREE.MathUtils.degToRad(camara.fov / 2));
+    const lado = DIR_SOL.dot(auxDerecha) < 0 ? 1 : -1;
+    const y1 = (0.15 + Math.random() * 0.6) * alto;
+    const y2 = y1 - (0.2 + Math.random() * 0.4) * alto;
+    cometa.desde.copy(centro).addScaledVector(auxDerecha, lado * ancho * 1.25).addScaledVector(auxArriba, y1);
+    cometa.hasta.copy(centro).addScaledVector(auxDerecha, -lado * ancho * 1.25).addScaledVector(auxArriba, y2);
+    cometa.t = 0;
+    cometa.activo = true;
+}
+
+function moverCometa(delta) {
+    if (!cometa.activo) {
+        cometa.espera -= delta;
+        if (cometa.espera <= 0 && entrada.t > 6 && !pocoMovimiento) lanzarCometa();
+        cola.visible = cabeza.visible = false;
+        return;
+    }
+    cometa.t += delta / cometa.duracion;
+    if (cometa.t >= 1) {
+        cometa.activo = false;
+        cometa.espera = 25 + Math.random() * 30;
+        return;
+    }
+    const opacidad = THREE.MathUtils.smoothstep(cometa.t, 0, 0.15) * (1 - THREE.MathUtils.smoothstep(cometa.t, 0.85, 1));
+    cabeza.position.lerpVectors(cometa.desde, cometa.hasta, cometa.t);
+    cabeza.material.opacity = opacidad;
+    materialCola.uniforms.uOpacidad.value = opacidad;
+    camara.matrixWorld.extractBasis(auxDerecha, auxArriba, auxDelante);
+    auxCola.copy(DIR_SOL).multiplyScalar(-1).addScaledVector(auxDelante, -DIR_SOL.dot(auxDelante) * -1).normalize();
+    auxLado.crossVectors(auxCola, auxDelante).normalize();
+    const largo = 9;
+    const p = geometriaCola.attributes.position;
+    const h = cabeza.position;
+    p.setXYZ(0, h.x - auxLado.x * 0.3, h.y - auxLado.y * 0.3, h.z - auxLado.z * 0.3);
+    p.setXYZ(1, h.x + auxLado.x * 0.3, h.y + auxLado.y * 0.3, h.z + auxLado.z * 0.3);
+    const f = auxLuna.copy(h).addScaledVector(auxCola, largo);
+    p.setXYZ(2, f.x - auxLado.x * 1.6, f.y - auxLado.y * 1.6, f.z - auxLado.z * 1.6);
+    p.setXYZ(3, f.x + auxLado.x * 1.6, f.y + auxLado.y * 1.6, f.z + auxLado.z * 1.6);
+    p.needsUpdate = true;
+    cola.visible = cabeza.visible = true;
+}
+
+
+// =====================================================================
 // 10. EFECTOS: RESPLANDOR Y ACABADO DE CINE
 // =====================================================================
 
@@ -618,8 +938,11 @@ botonSonido.addEventListener("click", () => {
 });
 
 function tocar(e) {
-    puntero.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
-    rayo.setFromCamera(puntero, camara);
+    const luna = lunaBajo(e);
+    if (luna) {
+        abrirCartel(luna.boton.dataset.cartel);
+        return;
+    }
     if (!rayo.intersectObject(suelo, false)[0]) return;
     ola.activa = true;
     ola.valor = -0.05;
@@ -636,6 +959,7 @@ lienzo.addEventListener("pointerdown", (e) => {
 
 lienzo.addEventListener("pointermove", (e) => {
     if (e.pointerType === "mouse") {
+        if (listo) lienzo.style.cursor = lunaBajo(e) ? "pointer" : "";
         vista.objGiro = -(e.clientX / innerWidth - 0.5) * 0.6;
         vista.objAltura = (e.clientY / innerHeight - 0.5) * 0.3;
         return;
@@ -656,6 +980,131 @@ lienzo.addEventListener("pointercancel", soltar);
 document.addEventListener("pointerleave", () => {
     vista.objGiro = 0;
     vista.objAltura = 0;
+});
+
+
+// =====================================================================
+// 8b. LAS LUNAS
+// Cuatro lunas distintas (de roca, de hielo, volcánica y de arena), cada
+// una con el nombre de una parte del portfolio. Al tocar la luna o su
+// nombre se abre el cartel.
+// =====================================================================
+
+const lunas = [];
+const botonesLuna = [...document.querySelectorAll(".luna")];
+
+function crearLunas() {
+    const tipos = [
+        { tam: 0.075, radio: 2.65, inclinacion: 0.2, nodo: 0.4, velocidad: 0.1, fase: 0.5, claro: [0.52, 0.5, 0.48], oscuro: [0.22, 0.21, 0.2], brasa: 0 },
+        { tam: 0.06, radio: 2.95, inclinacion: -0.32, nodo: 1.6, velocidad: 0.085, fase: 2.4, claro: [0.78, 0.86, 0.95], oscuro: [0.36, 0.46, 0.6], brasa: 0 },
+        { tam: 0.085, radio: 3.3, inclinacion: 0.12, nodo: 2.7, velocidad: 0.07, fase: 4.0, claro: [0.42, 0.3, 0.24], oscuro: [0.12, 0.08, 0.07], brasa: 1 },
+        { tam: 0.065, radio: 3.65, inclinacion: -0.18, nodo: 4.2, velocidad: 0.058, fase: 5.6, claro: [0.72, 0.56, 0.38], oscuro: [0.4, 0.28, 0.18], brasa: 0 }
+    ];
+    const v = new THREE.Vector3();
+    const c = new THREE.Color();
+    botonesLuna.forEach((boton, i) => {
+        const tipo = tipos[i];
+        const geometria = new THREE.IcosahedronGeometry(1, 24);
+        geometria.deleteAttribute("uv");
+        const pos = geometria.attributes.position;
+        const colores = new Float32Array(pos.count * 3);
+        const brasas = new Float32Array(pos.count);
+        for (let k = 0; k < pos.count; k++) {
+            v.fromBufferAttribute(pos, k).normalize();
+            const n = ruido.noise3d(v.x * 2 + i * 7, v.y * 2, v.z * 2) * 0.5 + 0.5;
+            const crater = Math.abs(ruido.noise3d(v.x * 6 + i * 3, v.y * 6, v.z * 6));
+            const hueco = crater < 0.08 ? (0.08 - crater) / 0.08 : 0;
+            const radio = 1 + n * 0.06 - hueco * 0.05 + ruido.noise3d(v.x * 14, v.y * 14 + i, v.z * 14) * 0.012;
+            pos.setXYZ(k, v.x * radio, v.y * radio, v.z * radio);
+            c.setRGB(...tipo.oscuro).lerp(new THREE.Color(...tipo.claro), suave(0.3, 0.75, n)).multiplyScalar(1 - hueco * 0.35);
+            colores.set([c.r, c.g, c.b], k * 3);
+            brasas[k] = tipo.brasa * suave(0.14, 0.02, Math.abs(ruido.noise3d(v.x * 2.2 + 3, v.y * 2.2, v.z * 2.2)));
+        }
+        geometria.setAttribute("color", new THREE.BufferAttribute(colores, 3));
+        geometria.setAttribute("aBrasa", new THREE.BufferAttribute(brasas, 1));
+        geometria.computeVertexNormals();
+        const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
+        material.onBeforeCompile = (shader) => {
+            shader.uniforms.uTiempo = tiempo;
+            shader.vertexShader = shader.vertexShader
+                .replace("#include <common>", "#include <common>\nattribute float aBrasa;\nvarying float vBrasa;")
+                .replace("#include <begin_vertex>", "#include <begin_vertex>\nvBrasa = aBrasa;");
+            shader.fragmentShader = shader.fragmentShader
+                .replace("#include <common>", "#include <common>\nuniform float uTiempo;\nvarying float vBrasa;")
+                .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.3, 0.06) * vBrasa * (1.1 + 0.3 * sin(uTiempo * 1.7));");
+        };
+        material.customProgramCacheKey = () => "luna";
+        const luna = new THREE.Mesh(geometria, material);
+        luna.scale.setScalar(tipo.tam);
+        const orbita = new THREE.Group();
+        orbita.rotation.set(tipo.inclinacion, tipo.nodo, 0);
+        orbita.add(luna);
+        escena.add(orbita);
+        lunas.push({ luna, boton, ...tipo, angulo: tipo.fase });
+        boton.addEventListener("click", () => abrirCartel(boton.dataset.cartel));
+    });
+}
+
+function moverLunas(delta) {
+    lunas.forEach((l) => {
+        l.angulo += delta * l.velocidad;
+        l.luna.position.set(Math.cos(l.angulo) * l.radio, 0, Math.sin(l.angulo) * l.radio);
+        l.luna.rotation.y += delta * 0.15;
+    });
+}
+
+// Los nombres siguen a su luna en la pantalla y se esconden cuando la
+// luna pasa por detrás del planeta o se sale de la pantalla
+const auxLuna = new THREE.Vector3();
+const auxPantalla = new THREE.Vector3();
+const auxRayoLuna = new THREE.Vector3();
+
+function colocarNombres() {
+    lunas.forEach((l) => {
+        l.luna.getWorldPosition(auxLuna);
+        auxPantalla.copy(auxLuna).project(camara);
+        const x = (auxPantalla.x * 0.5 + 0.5) * innerWidth;
+        const y = (-auxPantalla.y * 0.5 + 0.5) * innerHeight;
+        auxRayoLuna.subVectors(auxLuna, camara.position);
+        const largo = auxRayoLuna.length();
+        auxRayoLuna.normalize();
+        const t = -camara.position.dot(auxRayoLuna);
+        const cerca = Math.sqrt(Math.max(0, camara.position.lengthSq() - t * t));
+        const tapada = t > 0 && t < largo && cerca < 1.1;
+        const dentro = auxPantalla.z < 1 && x > 20 && x < innerWidth - 20 && y > 20 && y < innerHeight - 20;
+        l.boton.classList.toggle("visible", listo && entrada.t > 5 && dentro && !tapada);
+        if (!l.ancho) l.ancho = l.boton.offsetWidth;
+        const bx = Math.max(8, Math.min(innerWidth - (l.ancho || 90) - 8, x + 12));
+        l.boton.style.transform = `translate(${Math.round(bx)}px, ${Math.round(y - 30)}px)`;
+    });
+}
+
+function lunaBajo(e) {
+    puntero.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+    rayo.setFromCamera(puntero, camara);
+    const corte = rayo.intersectObjects(lunas.map((l) => l.luna), false)[0];
+    return corte ? lunas.find((l) => l.luna === corte.object) : null;
+}
+
+
+// =====================================================================
+// 8c. LOS CARTELES
+// =====================================================================
+
+const carteles = [...document.querySelectorAll(".cartel")];
+
+function abrirCartel(id) {
+    carteles.forEach((c) => c.classList.toggle("visible", c.id === id));
+    botonesLuna.forEach((b) => b.classList.toggle("elegida", b.dataset.cartel === id));
+    pista.classList.add("oculta");
+    zumbido.despertar();
+}
+
+carteles.forEach((c) => {
+    c.querySelector(".cerrar").addEventListener("click", () => {
+        c.classList.remove("visible");
+        botonesLuna.forEach((b) => b.classList.remove("elegida"));
+    });
 });
 
 
@@ -743,6 +1192,12 @@ function animar() {
         if (ola.valor > 1.1) ola.activa = false;
     }
     comunes.uOla.value = ola.activa ? ola.valor : -1;
+    comunes.uFuerzaSol.value = sol.intensity / 3.2;
+    moverTormentas(delta);
+    moverLunas(delta);
+    moverCometa(delta);
+    camara.updateMatrixWorld();
+    colocarNombres();
     compositor.render();
 }
 
@@ -753,6 +1208,10 @@ requestAnimationFrame(() => {
     luces = crearLuces(castillo);
     nubes = crearNubes();
     crearAtmosfera();
+    crearAnillos();
+    crearAurora();
+    crearLunas();
+    moverLunas(0);
     ajustarTamano();
     entrada.inicio = performance.now();
     moverEntrada();

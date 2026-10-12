@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#05060a">
     <title>El planeta pequeño | Miguel Ángel Calvente Medina</title>
-    <meta name="description" content="Un planeta pequeño visto desde el espacio, con un castillo en lo alto y un camino que lo rodea: amanecer, atmósfera, nubes, lagos y luces de noche, hecho con three.js por Miguel Ángel Calvente Medina.">
+    <meta name="description" content="Un planeta pequeño visto desde el espacio, con un castillo en lo alto, un camino que lo rodea, anillos, aurora, tormentas, cuatro lunas y algún cometa. Hecho con three.js por Miguel Ángel Calvente Medina.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;1,9..144,400&family=Inter:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="estilo.css?v=1">
+    <link rel="stylesheet" href="estilo.css?v=2">
     <script type="importmap">
         {
             "imports": {
@@ -23,15 +23,62 @@
     <header class="cabecera">
         <p class="etiqueta">Planeta</p>
         <h1>El planeta pequeño.</h1>
-        <p class="texto">Un castillo en lo alto y un camino que le da vueltas. Amanece por un lado y por el otro se encienden las farolas del camino.</p>
+        <p class="texto">Un castillo en lo alto, un camino que le da vueltas y cuatro lunas. Toca una luna para ver esa parte de mi portfolio.</p>
         <a class="volver" href="../">Volver al portfolio</a>
     </header>
 
     <button class="sonido" id="boton-sonido" aria-pressed="false">Sonido</button>
 
-    <p class="pista" id="pista">Mueve para mirar, toca el planeta para encender el camino</p>
+    <button class="luna" data-cartel="cartel-sobre-mi">Sobre mí</button>
+    <button class="luna" data-cartel="cartel-habilidades">Habilidades</button>
+    <button class="luna" data-cartel="cartel-formacion">Formación</button>
+    <button class="luna" data-cartel="cartel-contacto">Contacto</button>
+
+    <article class="cartel" id="cartel-sobre-mi">
+        <button class="cerrar" aria-label="Cerrar">x</button>
+        <p class="numero">1 / 4</p>
+        <h2>Sobre mí</h2>
+        <p>Mis dos pasiones son la geografía y la informática. Estoy terminando el Grado en Geografía en la Universidad de Málaga y estudio segundo de DAW en Digitech FP. Me centro en el desarrollo web.</p>
+        <p>Soy resolutivo e independiente, y me gusta hacer las cosas lo mejor posible.</p>
+    </article>
+
+    <article class="cartel" id="cartel-habilidades">
+        <button class="cerrar" aria-label="Cerrar">x</button>
+        <p class="numero">2 / 4</p>
+        <h2>Habilidades</h2>
+        <ul class="etiquetas">
+            <li>HTML</li>
+            <li>CSS</li>
+            <li>JavaScript</li>
+            <li>three.js</li>
+            <li>Java</li>
+            <li>SQL</li>
+            <li>PostgreSQL</li>
+            <li>Git</li>
+            <li>Linux</li>
+        </ul>
+        <p>Este planeta está hecho con three.js y shaders escritos a mano, sin ninguna imagen.</p>
+    </article>
+
+    <article class="cartel" id="cartel-formacion">
+        <button class="cerrar" aria-label="Cerrar">x</button>
+        <p class="numero">3 / 4</p>
+        <h2>Formación</h2>
+        <p><strong>Técnico Superior en Desarrollo de Aplicaciones Web</strong><br>Digitech FP Málaga · 2024 – 2026</p>
+        <p><strong>Grado en Geografía y Gestión del Territorio</strong><br>Universidad de Málaga · En curso</p>
+    </article>
+
+    <article class="cartel" id="cartel-contacto">
+        <button class="cerrar" aria-label="Cerrar">x</button>
+        <p class="numero">4 / 4</p>
+        <h2>Contacto</h2>
+        <p>Si te gusta lo que hago, escríbeme o mira mi código.</p>
+        <a class="enlace" href="https://github.com/mdeangelc" target="_blank" rel="noopener">GitHub</a>
+    </article>
+
+    <p class="pista" id="pista">Mueve para mirar, toca una luna o el planeta</p>
     <p class="cargando" id="cargando">Formando el planeta...</p>
 
-    <script type="module" src="escena.js?v=2"></script>
+    <script type="module" src="escena.js?v=3"></script>
 </body>
 </html>
