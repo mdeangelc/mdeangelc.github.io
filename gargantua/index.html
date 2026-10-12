@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;1,9..144,400&family=Inter:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="estilo.css?v=2">
+    <link rel="stylesheet" href="estilo.css?v=3">
     <script type="importmap">
         {
             "imports": {
@@ -23,16 +23,18 @@
     <header class="cabecera">
         <p class="etiqueta">Agujero negro</p>
         <h1>Gargantua.</h1>
-        <p class="texto">Un agujero negro en la oscuridad y cuatro mundos que lo rodean. Toca uno para ver esa parte de mi portfolio.</p>
+        <p class="texto">Un agujero negro en la oscuridad. Elige una sección y la cámara te lleva a verlo desde otro sitio.</p>
         <a class="volver" href="../">Volver al portfolio</a>
     </header>
 
     <button class="sonido" id="boton-sonido" aria-pressed="false">Sonido</button>
 
-    <button class="luna" data-cartel="cartel-sobre-mi">Sobre mí</button>
-    <button class="luna" data-cartel="cartel-habilidades">Habilidades</button>
-    <button class="luna" data-cartel="cartel-formacion">Formación</button>
-    <button class="luna" data-cartel="cartel-contacto">Contacto</button>
+    <nav class="menu" aria-label="Secciones">
+        <button class="seccion" data-cartel="cartel-sobre-mi">Sobre mí</button>
+        <button class="seccion" data-cartel="cartel-habilidades">Habilidades</button>
+        <button class="seccion" data-cartel="cartel-formacion">Formación</button>
+        <button class="seccion" data-cartel="cartel-contacto">Contacto</button>
+    </nav>
 
     <article class="cartel" id="cartel-sobre-mi">
         <button class="cerrar" aria-label="Cerrar">x</button>
@@ -76,9 +78,9 @@
         <a class="enlace" href="https://github.com/mdeangelc" target="_blank" rel="noopener">GitHub</a>
     </article>
 
-    <p class="pista" id="pista">Arrastra para girar, rueda o pellizca para acercarte, toca para despertarlo</p>
+    <p class="pista" id="pista">Arrastra para girar, rueda o pellizca para acercarte</p>
     <p class="cargando" id="cargando">Encendiendo el disco...</p>
 
-    <script type="module" src="escena.js?v=11"></script>
+    <script type="module" src="escena.js?v=13"></script>
 </body>
 </html>

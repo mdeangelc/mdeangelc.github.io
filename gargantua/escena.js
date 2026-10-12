@@ -7,13 +7,20 @@ import { Pass, FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 
 // =====================================================================
 // 1. AJUSTES
-// Gargantua solo, flotando en el espacio. El disco de gas son tres
-// capas que giran (más rápido por dentro), la luz doblada son dos arcos
-// que abrazan la sombra negra, las estrellas de detrás se deforman por
-// la gravedad y un resplandor en varias capas hace brillar lo caliente.
-// Al cargar, el gas se va encendiendo en espiral. El ratón solo inclina
-// un poco la vista. Si el sistema pide menos movimiento, no hay entrada
-// ni balanceo.
+// Gargantua, flotando en el espacio y haciendo de portada del
+// portfolio. El disco de gas son tres capas que giran (más rápido por
+// dentro), la luz doblada son dos arcos que abrazan la sombra negra, y
+// detrás hay estrellas, la Vía Láctea y Andrómeda, todo deformado por la
+// gravedad. De vez en cuando se come un planeta. Arrastrando se gira
+// alrededor y con la rueda o pellizcando te acercas. El menú lleva la
+// cámara a una toma distinta por sección. Al cargar llegas desde lejos
+// mientras el gas se enciende en espiral. Si el sistema pide menos
+// movimiento, no hay entrada, balanceo ni planetas.
+// Opciones en la dirección:
+//   ?sinentrada  -> sin la llegada
+//   ?fijo        -> sin llegada ni cambios de resolución
+//   ?marea=si    -> el planeta cae enseguida
+//   ?pulso       -> despierta el agujero al cargar
 // =====================================================================
 
 const parametros = new URLSearchParams(location.search);
@@ -187,29 +194,59 @@ const fondo = new THREE.Mesh(
                 return col * luz * fuerza;
             }
 
-            // Una galaxia espiral lejana justo detrás del agujero. Su luz se
-            // dobla igual que la de las estrellas: alrededor de la sombra
-            // se ve estirada en arcos y, si queda bien alineada, en un
-            // anillo completo (anillo de Einstein)
-            vec3 galaxia(vec3 d) {
+            // Andrómeda, enorme en el cielo: un disco muy inclinado con el
+            // núcleo dorado, brazos azulados con nudos de estrellas
+            // jóvenes, bandas de polvo oscuro (más marcadas en el lado que
+            // queda delante) y sus dos galaxias pequeñas al lado. Se lee
+            // con la dirección ya doblada por la lente, así que cuando
+            // pasa por detrás del agujero se curva a su alrededor.
+            vec3 andromeda(vec3 d) {
                 vec3 g = normalize(uGalaxia);
+                if (dot(d, g) < 0.94) return vec3(0.0);
                 vec3 e1 = normalize(cross(g, vec3(0.0, 1.0, 0.0)));
                 vec3 e2 = cross(e1, g);
-                float frente = dot(d, g);
-                if (frente < 0.97) return vec3(0.0);
-                vec2 p = vec2(dot(d, e1), dot(d, e2)) / 0.06;
-                p = mat2(0.8, -0.6, 0.6, 0.8) * p;
-                p.y /= 0.55;
-                float r = length(p);
-                if (r > 1.6) return vec3(0.0);
-                float a = atan(p.y, p.x);
-                float brazos = 0.5 + 0.5 * sin(2.0 * a - log(r + 0.02) * 4.2 + 0.6);
-                brazos = pow(brazos, 2.2);
-                float polvo = texture2D(tRuido, p * 0.2 + 0.5).r;
-                float nucleo = exp(-r * r * 22.0) * 2.2 + exp(-r * 5.0) * 0.5;
-                float disco = exp(-r * 2.3) * (0.25 + brazos * (0.6 + polvo * 0.8));
-                vec3 col = vec3(1.0, 0.84, 0.62) * nucleo + mix(vec3(0.35, 0.55, 1.0), vec3(0.95, 0.55, 0.85), polvo) * disco * 1.3;
-                return col * 0.16;
+                vec2 p = vec2(dot(d, e1), dot(d, e2)) / 0.17;
+                p = mat2(0.83, -0.56, 0.56, 0.83) * p;
+                vec2 q = vec2(p.x, p.y / 0.3);
+                float r = length(q);
+                vec3 col = vec3(0.0);
+                if (r < 1.7) {
+                    float ang = atan(q.y, q.x);
+                    float ruidoA = texture2D(tRuido, q * 0.45 + 0.3).r;
+                    float ruidoB = texture2D(tRuido, q * 1.6 + 0.7).r;
+                    float brazos = pow(0.5 + 0.5 * sin(ang * 2.0 - log(r + 0.03) * 6.5 + ruidoA * 2.0), 1.6);
+                    float nucleo = exp(-r * r * 60.0) * 2.4 + exp(-r * 7.0) * 0.9;
+                    float disco = exp(-r * 1.7) * (0.3 + 0.7 * brazos) * smoothstep(1.7, 1.1, r);
+                    float polvo = smoothstep(0.42, 0.7, ruidoA * 0.6 + ruidoB * 0.4) * (0.5 + 0.5 * sin(r * 15.0 + ruidoA * 4.0));
+                    polvo *= smoothstep(0.12, 0.35, r) * smoothstep(1.4, 0.7, r) * (q.y > 0.0 ? 1.0 : 0.45);
+                    float nudos = smoothstep(0.7, 0.85, ruidoB) * brazos * smoothstep(0.35, 0.6, r) * smoothstep(1.3, 0.9, r);
+                    col = vec3(1.0, 0.8, 0.56) * nucleo;
+                    col += mix(vec3(0.42, 0.58, 1.0), vec3(0.95, 0.78, 0.66), exp(-r * 2.6)) * disco;
+                    col += vec3(0.55, 0.7, 1.0) * nudos * 0.6 + vec3(1.0, 0.45, 0.6) * nudos * smoothstep(0.8, 0.95, ruidoA) * 0.5;
+                    col *= 1.0 - polvo * 0.75;
+                }
+                // M32, pegada al disco, y M110, más lejos y alargada
+                vec2 a1 = (p - vec2(0.12, 0.2)) / vec2(0.05, 0.045);
+                vec2 a2 = mat2(0.6, -0.8, 0.8, 0.6) * (p - vec2(-0.5, -0.62)) / vec2(0.14, 0.07);
+                col += vec3(1.0, 0.86, 0.7) * (exp(-dot(a1, a1) * 1.6) * 0.8 + exp(-dot(a2, a2) * 1.4) * 0.35);
+                return col * 0.32;
+            }
+
+            // La Vía Láctea: una banda ancha que cruza todo el cielo, con
+            // nubes de estrellas, una zona central más cálida y una franja
+            // de polvo oscuro en medio
+            vec3 viaLactea(vec3 d, out float densidad) {
+                vec3 n = normalize(vec3(0.35, 0.8, -0.45));
+                float lat = dot(d, n);
+                float banda = exp(-lat * lat / 0.07);
+                float lon = atan(dot(d, normalize(cross(n, vec3(1.0, 0.0, 0.0)))), dot(d, normalize(cross(n, vec3(0.0, 0.0, 1.0))))) / 6.2832;
+                float nubes = texture2D(tRuido, vec2(lon * 3.0, lat * 1.5 + 0.5)).r;
+                float finas = texture2D(tRuido, vec2(lon * 9.0 + 0.3, lat * 4.0 + 0.2)).r;
+                float polvo = smoothstep(0.45, 0.7, finas) * exp(-lat * lat / 0.006);
+                float centro = exp(-pow((lon - 0.12) * 4.0, 2.0));
+                densidad = banda * (0.5 + nubes) * (1.0 - polvo * 0.8);
+                vec3 color = mix(vec3(0.38, 0.45, 0.7), vec3(0.9, 0.72, 0.52), centro * 0.8);
+                return color * banda * smoothstep(0.35, 0.8, nubes * 0.7 + finas * 0.4) * (1.0 - polvo * 0.85) * (0.05 + centro * 0.05);
             }
 
             void main() {
@@ -226,12 +263,8 @@ const fondo = new THREE.Mesh(
                 float aumento = clamp(1.0 / abs(1.0 - e2 * e2 / pow(max(theta, 0.0005), 4.0)), 0.0, 6.0);
 
                 vec3 cielo = mix(vec3(0.004, 0.005, 0.01), vec3(0.012, 0.012, 0.022), exp(-theta * 2.5));
-                float lon = atan(d.z, d.x) / 6.2832;
-                float banda = exp(-pow(dot(d, normalize(vec3(0.35, 0.8, -0.45))) / 0.32, 2.0));
-                float nube = texture2D(tRuido, vec2(lon * 2.0, d.y * 0.9 + 0.3)).r;
-                float nubeFina = texture2D(tRuido, vec2(lon * 6.0 + 0.2, d.y * 2.6)).r;
-                float nebulosa = smoothstep(0.4, 0.85, nube * 0.7 + nubeFina * 0.4) * banda;
-                cielo += mix(vec3(0.035, 0.02, 0.06), vec3(0.06, 0.035, 0.03), nubeFina) * nebulosa * 0.9;
+                float nebulosa;
+                cielo += viaLactea(d, nebulosa);
 
                 vec3 estrellas = capaEstrellas(d, 110.0, 0.3, 0.07, 1.0) * 0.6;
                 estrellas += capaEstrellas(d, 40.0, 0.22, 0.05, 2.0) * 1.6;
@@ -239,7 +272,7 @@ const fondo = new THREE.Mesh(
                 estrellas *= 0.7 + nebulosa * 1.5;
                 float lejosDelCentro = smoothstep(0.1, 0.4, abs(beta) / uRadioLente) * smoothstep(1.1, 1.7, theta * 2.1 / uRadioLente);
                 cielo += estrellas * min(aumento, 3.0) * lejosDelCentro;
-                cielo += galaxia(d) * min(aumento, 4.0) * smoothstep(0.02, 0.25, abs(beta) / uRadioLente) * smoothstep(0.9, 1.3, theta * 2.1 / uRadioLente);
+                cielo += andromeda(d) * min(aumento, 4.0) * smoothstep(0.02, 0.25, abs(beta) / uRadioLente) * smoothstep(0.9, 1.3, theta * 2.1 / uRadioLente);
                 gl_FragColor = vec4(cielo * uAparece, 1.0);
             }
         `,
@@ -249,9 +282,9 @@ const fondo = new THREE.Mesh(
 );
 fondo.renderOrder = -1;
 escena.add(fondo);
-// La galaxia queda detrás del agujero vista desde el sitio de partida,
-// un poco desplazada: así forma arcos y, al girar, un anillo
-fondo.material.uniforms.uGalaxia.value.set(-Math.sin(BASE_GIRO + 0.035), -Math.sin(BASE_ALTURA - 0.02), -Math.cos(BASE_GIRO + 0.035)).normalize();
+// Andrómeda queda arriba a la izquierda del agujero vista desde el sitio
+// de partida; al girar alrededor pasa por detrás y se dobla
+fondo.material.uniforms.uGalaxia.value.set(-Math.sin(BASE_GIRO - 0.3), -Math.sin(BASE_ALTURA) + 0.14, -Math.cos(BASE_GIRO - 0.3)).normalize();
 
 
 
@@ -558,12 +591,14 @@ const halos = [[10, 0.16, [1, 0.5, 0.22]], [3.8, 0.28, [1, 0.72, 0.45]]].map(([t
 
 
 // =====================================================================
-// 6b. LA ESTRELLA DESTROZADA
-// De vez en cuando (o al tocar) una estrella cae hacia el agujero. Al
-// pasar muy cerca, la gravedad la estira y la rompe en un río de gas:
-// la mitad se escapa hacia fuera y la otra mitad da vueltas y acaba
-// entrando en el disco. Cada trozo se mueve con la gravedad de verdad
-// (en el plano del disco, un poco inclinado).
+// 6b. EL PLANETA DEVORADO
+// De vez en cuando (o al tocar) un planeta cae hacia el agujero. Al
+// acercarse se estira hacia él como un espagueti, se agrieta con la lava
+// brillando por dentro y empieza a soltar trozos por las dos puntas. Muy
+// cerca se rompe del todo: parte de los trozos sale despedida y el resto
+// da vueltas y entra en el disco como un brazo brillante. Los últimos
+// trozos, ya en el borde, se vuelven rojos y se apagan, como congelados.
+// Cada trozo se mueve con la gravedad de verdad.
 // =====================================================================
 
 const GM = 5.4;
@@ -572,33 +607,43 @@ const marea = {
     estado: "nada",
     espera: parametros.get("marea") === "si" ? 7 : 40 + Math.random() * 25,
     ultima: -99,
-    estrella: { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 },
-    trozos: new Float32Array(TROZOS * 7)
+    cuerpo: { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 },
+    trozos: new Float32Array(TROZOS * 7),
+    siguiente: 0
 };
 
 const geometriaMarea = new THREE.BufferGeometry();
 geometriaMarea.setAttribute("position", new THREE.BufferAttribute(new Float32Array(TROZOS * 3), 3));
 geometriaMarea.setAttribute("aBrillo", new THREE.BufferAttribute(new Float32Array(TROZOS), 1));
+geometriaMarea.setAttribute("aRadio", new THREE.BufferAttribute(new Float32Array(TROZOS).fill(9), 1));
 const materialMarea = new THREE.ShaderMaterial({
     uniforms: { uEscala: { value: 1 } },
     vertexShader: `
         attribute float aBrillo;
+        attribute float aRadio;
         uniform float uEscala;
         varying float vBrillo;
+        varying float vRadio;
         void main() {
             vBrillo = aBrillo;
+            vRadio = aRadio;
             vec4 vista = modelViewMatrix * vec4(position, 1.0);
-            gl_PointSize = uEscala * (0.6 + aBrillo * 0.6) / -vista.z;
+            gl_PointSize = uEscala * (0.6 + min(aBrillo, 1.5) * 0.5) / -vista.z;
             gl_Position = projectionMatrix * vista;
         }
     `,
     fragmentShader: `
         varying float vBrillo;
+        varying float vRadio;
         void main() {
             float r = length(gl_PointCoord - 0.5) * 2.0;
             float a = exp(-r * r * 5.0);
-            vec3 color = mix(vec3(1.0, 0.55, 0.25), vec3(0.85, 0.92, 1.0), clamp(vBrillo - 0.6, 0.0, 1.0));
-            gl_FragColor = vec4(color * a * vBrillo * 2.6, a * min(vBrillo, 1.0));
+            vec3 color = mix(vec3(1.0, 0.5, 0.2), vec3(1.0, 0.86, 0.66), clamp(vBrillo - 0.8, 0.0, 1.0));
+            // Pegado al borde la luz sale enrojecida y cada vez más débil
+            float rojo = smoothstep(2.3, 1.4, vRadio);
+            color = mix(color, vec3(0.7, 0.08, 0.03), rojo);
+            float apaga = smoothstep(1.22, 1.75, vRadio);
+            gl_FragColor = vec4(color * a * vBrillo * 2.4 * apaga, a * min(vBrillo, 1.0) * apaga);
         }
     `,
     transparent: true,
@@ -627,7 +672,7 @@ const materialEstelas = new THREE.ShaderMaterial({
     fragmentShader: `
         varying float vBrillo;
         void main() {
-            gl_FragColor = vec4(vec3(1.0, 0.62, 0.32) * vBrillo * 0.9, vBrillo);
+            gl_FragColor = vec4(vec3(1.0, 0.55, 0.28) * vBrillo * 0.9, vBrillo);
         }
     `,
     transparent: true,
@@ -641,64 +686,127 @@ estelas.visible = false;
 agujero.add(estelas);
 const anteriores = new Float32Array(TROZOS * 3);
 
-const estrellaMarea = brillar(new THREE.Sprite(new THREE.SpriteMaterial({ map: mapaHalo, color: new THREE.Color(0.85, 0.92, 1).multiplyScalar(3), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
-estrellaMarea.visible = false;
-estrellaMarea.renderOrder = 8;
-agujero.add(estrellaMarea);
+// El planeta: roca con grietas por las que asoma la lava. Lo ilumina el
+// disco por el lado que mira al agujero.
+const materialPlaneta = new THREE.ShaderMaterial({
+    uniforms: { tRuido, uGrietas: { value: 0 }, uTiempo: comunes.uTiempo },
+    vertexShader: `
+        varying vec3 vLocal;
+        varying vec3 vNormal;
+        varying vec3 vMundo;
+        void main() {
+            vLocal = position;
+            vNormal = normalize(mat3(modelMatrix) * normal);
+            vec4 m = modelMatrix * vec4(position, 1.0);
+            vMundo = m.xyz;
+            gl_Position = projectionMatrix * viewMatrix * m;
+        }
+    `,
+    fragmentShader: `
+        uniform sampler2D tRuido;
+        uniform float uGrietas;
+        uniform float uTiempo;
+        varying vec3 vLocal;
+        varying vec3 vNormal;
+        varying vec3 vMundo;
+        void main() {
+            vec3 d = normalize(vLocal);
+            vec2 uv = vec2(atan(d.z, d.x) / 6.2832, d.y * 0.5 + 0.5);
+            float roca = texture2D(tRuido, uv * vec2(2.0, 1.0)).r * 0.6 + texture2D(tRuido, uv * vec2(7.0, 3.5) + 0.3).r * 0.4;
+            vec3 base = mix(vec3(0.16, 0.13, 0.12), vec3(0.55, 0.45, 0.36), smoothstep(0.3, 0.75, roca));
+            vec3 n = normalize(vNormal);
+            vec3 haciaDisco = normalize(vec3(${CENTRO.x.toFixed(2)}, ${CENTRO.y.toFixed(2)}, ${CENTRO.z.toFixed(2)}) - vMundo);
+            vec3 color = base * (vec3(1.0, 0.6, 0.3) * max(dot(n, haciaDisco), 0.0) * 1.8 + 0.03);
+            // Grietas: líneas finas del ruido que se abren al acercarse
+            float g = texture2D(tRuido, uv * vec2(5.0, 2.5) + 0.61).r;
+            float ancho = 0.01 + 0.05 * uGrietas;
+            float grieta = smoothstep(ancho, 0.0, abs(g - 0.5)) * smoothstep(0.05, 0.3, uGrietas);
+            float latido = 0.8 + 0.2 * sin(uTiempo * 6.0 + g * 30.0);
+            color += vec3(1.0, 0.42, 0.1) * grieta * (1.5 + 3.0 * uGrietas) * latido;
+            color += vec3(1.0, 0.35, 0.1) * uGrietas * uGrietas * 0.6;
+            gl_FragColor = vec4(color, 1.0);
+        }
+    `
+});
+const planeta = brillar(new THREE.Mesh(new THREE.SphereGeometry(0.36, 48, 32), materialPlaneta));
+planeta.visible = false;
+planeta.renderOrder = 8;
+agujero.add(planeta);
+const ejeZ = new THREE.Vector3(0, 0, 1);
+const haciaAgujero = new THREE.Vector3();
 
-function lanzarEstrella() {
+const fogonazo = brillar(new THREE.Sprite(new THREE.SpriteMaterial({ map: mapaHalo, color: new THREE.Color(1, 0.7, 0.45).multiplyScalar(1.6), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
+fogonazo.visible = false;
+fogonazo.renderOrder = 8;
+agujero.add(fogonazo);
+
+function lanzarPlaneta() {
     if (marea.estado !== "nada" || comunes.uTiempo.value - marea.ultima < 15) return;
-    // Órbita casi parabólica que pasa muy cerca, en el plano del disco
-    const q = 2.5;
-    const phi = -2.05 + (Math.random() - 0.5) * 0.2;
+    // Órbita casi parabólica que pasa muy cerca, inclinada respecto al
+    // disco para que se vea por encima antes de caer en él
+    const q = 2.3;
+    const phi = -2.3 + (Math.random() - 0.5) * 0.15;
     const r = (2 * q) / (1 + Math.cos(phi));
-    const sentido = 1;
     const v = Math.sqrt((2 * GM) / r) * 0.985;
     const h = Math.sqrt(2 * GM * q) * 0.985;
     const vt = h / r;
     const vr = -Math.sqrt(Math.max(0, v * v - vt * vt));
-    const e = marea.estrella;
-    const c = Math.cos(phi * sentido);
-    const s = Math.sin(phi * sentido);
-    // La órbita va inclinada respecto al disco para que el río de gas se
-    // vea por encima y por debajo antes de caer en él
+    const e = marea.cuerpo;
+    const c = Math.cos(phi);
+    const s = Math.sin(phi);
     const inc = 0.5;
     const z = r * s;
-    const vz = vr * s + vt * c * sentido;
+    const vz = vr * s + vt * c;
     e.x = r * c;
     e.y = z * Math.sin(inc);
     e.z = z * Math.cos(inc);
-    e.vx = vr * c - vt * s * sentido;
+    e.vx = vr * c - vt * s;
     e.vy = vz * Math.sin(inc);
     e.vz = vz * Math.cos(inc);
     marea.estado = "cae";
     marea.t = 0;
-    estrellaMarea.visible = true;
+    marea.siguiente = 0;
+    marea.trozos.fill(0);
+    for (let i = 0; i < TROZOS; i++) marea.trozos[i * 7 + 6] = -1;
+    planeta.visible = true;
+    rioMarea.visible = true;
+    estelas.visible = true;
 }
 
-function romperEstrella() {
-    const e = marea.estrella;
+// Suelta "cuantos" trozos desde el planeta: por las dos puntas del eje
+// que apunta al agujero (donde tira más la gravedad) o, al romperse, de
+// todo el planeta y repartidos a lo largo de su camino
+function soltarTrozos(cuantos, rompe) {
+    const e = marea.cuerpo;
     const t = marea.trozos;
     const v = Math.hypot(e.vx, e.vy, e.vz);
-    for (let i = 0; i < TROZOS; i++) {
+    const estiramiento = planeta.scale.z;
+    for (let n = 0; n < cuantos && marea.siguiente < TROZOS; n++) {
+        const i = marea.siguiente++;
         const k = i * 7;
-        // Repartidos a lo largo de la trayectoria y con velocidades un poco
-        // distintas: unos ligados al agujero y otros no
-        const desfase = (Math.random() - 0.5) * 0.9;
-        const extra = 1 + (Math.random() - 0.5) * 0.16;
-        t[k] = e.x + (e.vx / v) * desfase + (Math.random() - 0.5) * 0.05;
-        t[k + 1] = e.y + (Math.random() - 0.5) * 0.04;
-        t[k + 2] = e.z + (e.vz / v) * desfase + (Math.random() - 0.5) * 0.05;
+        const punta = Math.random() < 0.5 ? 1 : -1;
+        const largo = rompe ? (Math.random() - 0.5) * 1.2 : punta * 0.3 * estiramiento * (0.8 + Math.random() * 0.3);
+        const dir = rompe ? [e.vx / v, e.vy / v, e.vz / v] : [haciaAgujero.x, haciaAgujero.y, haciaAgujero.z];
+        t[k] = e.x + dir[0] * largo + (Math.random() - 0.5) * 0.12;
+        t[k + 1] = e.y + dir[1] * largo + (Math.random() - 0.5) * 0.12;
+        t[k + 2] = e.z + dir[2] * largo + (Math.random() - 0.5) * 0.12;
+        // Los de la punta de dentro van un poco más lentos (quedan ligados
+        // al agujero) y los de fuera un poco más rápidos (se escapan)
+        const extra = rompe ? 1 + (Math.random() - 0.5) * 0.18 : 1 - punta * 0.05 + (Math.random() - 0.5) * 0.04;
         t[k + 3] = e.vx * extra;
         t[k + 4] = e.vy * extra;
         t[k + 5] = e.vz * extra;
         t[k + 6] = 1;
+        anteriores.set([t[k], t[k + 1], t[k + 2]], i * 3);
     }
+}
+
+function romperPlaneta() {
+    soltarTrozos(TROZOS, true);
     marea.estado = "rio";
     marea.t = 0;
-    for (let i = 0; i < TROZOS; i++) anteriores.set([t[i * 7], t[i * 7 + 1], t[i * 7 + 2]], i * 3);
-    rioMarea.visible = true;
-    estelas.visible = true;
+    planeta.visible = false;
+    fogonazo.position.copy(planeta.position);
     despertar();
     sonarMarea();
 }
@@ -732,13 +840,34 @@ function gravedad(p, k, dt, conRoce) {
     return r;
 }
 
-const estadoEstrella = new Float32Array(6);
+const estadoPlaneta = new Float32Array(6);
+
+function moverPlaneta(delta, pasos, dt) {
+    const e = marea.cuerpo;
+    const s = estadoPlaneta;
+    s.set([e.x, e.y, e.z, e.vx, e.vy, e.vz]);
+    let r = 99;
+    for (let i = 0; i < pasos; i++) r = gravedad(s, 0, dt, false);
+    [e.x, e.y, e.z, e.vx, e.vy, e.vz] = s;
+    planeta.position.set(e.x, e.y, e.z);
+    // Se estira hacia el agujero y se agrieta al acercarse
+    haciaAgujero.set(-e.x, -e.y, -e.z).normalize();
+    planeta.quaternion.setFromUnitVectors(ejeZ, haciaAgujero);
+    const cerca = THREE.MathUtils.smoothstep(r, 9.5, 2.6);
+    const largo = 1 + cerca * cerca * 2.6;
+    planeta.scale.set(1 / Math.sqrt(largo), 1 / Math.sqrt(largo), largo);
+    planeta.rotateZ(marea.t * 0.3);
+    materialPlaneta.uniforms.uGrietas.value = cerca;
+    // Empieza a soltar trozos por las puntas
+    if (r < 7) soltarTrozos(Math.ceil(TROZOS * 0.2 * delta * cerca * cerca), false);
+    if (r < 2.7) romperPlaneta();
+}
 
 function moverMarea(delta) {
     if (marea.estado === "nada") {
         marea.espera -= delta;
         if (marea.espera <= 0 && comunes.uEncendido.value > 0.95 && !pocoMovimiento) {
-            lanzarEstrella();
+            lanzarPlaneta();
             marea.espera = 55 + Math.random() * 35;
         }
         return;
@@ -746,67 +875,63 @@ function moverMarea(delta) {
     marea.t += delta;
     const pasos = 4;
     const dt = delta / pasos;
-    if (marea.estado === "cae") {
-        const e = marea.estrella;
-        const s = estadoEstrella;
-        s.set([e.x, e.y, e.z, e.vx, e.vy, e.vz]);
-        let r = 99;
-        for (let i = 0; i < pasos; i++) r = gravedad(s, 0, dt, false);
-        [e.x, e.y, e.z, e.vx, e.vy, e.vz] = s;
-        estrellaMarea.position.set(e.x, e.y, e.z);
-        // Se va estirando y calentando al acercarse
-        const cerca = THREE.MathUtils.smoothstep(r, 9, 3);
-        estrellaMarea.scale.setScalar(0.8 + cerca * 1.2);
-        estrellaMarea.material.opacity = Math.min(1, marea.t * 0.8);
-        if (r < 3.1) romperEstrella();
-        return;
-    }
-    // El fogonazo al romperse: la estrella se hincha y se apaga
-    if (marea.t < 1.2) {
-        estrellaMarea.visible = true;
-        estrellaMarea.scale.setScalar(2 + marea.t * 5);
-        estrellaMarea.material.opacity = Math.max(0, 1 - marea.t / 1.2);
-    } else estrellaMarea.visible = false;
+    if (marea.estado === "cae") moverPlaneta(delta, pasos, dt);
+    // El fogonazo al romperse: un destello que se hincha y se apaga
+    if (marea.estado === "rio" && marea.t < 1.2) {
+        fogonazo.visible = true;
+        fogonazo.scale.setScalar(1.2 + marea.t * 3);
+        fogonazo.material.opacity = Math.max(0, 1 - marea.t / 1.2);
+    } else fogonazo.visible = false;
     const p = marea.trozos;
     const pos = geometriaMarea.attributes.position.array;
     const lin = geometriaEstelas.attributes.position.array;
     const linB = geometriaEstelas.attributes.aBrillo.array;
     const brilloT = geometriaMarea.attributes.aBrillo.array;
+    const radioT = geometriaMarea.attributes.aRadio.array;
     let vivos = 0;
+    let enDisco = 0;
+    const roce = marea.estado === "rio" && marea.t > 2.0;
     for (let i = 0; i < TROZOS; i++) {
         const k = i * 7;
         if (p[k + 6] <= 0) {
             brilloT[i] = 0;
+            linB[i * 2 + 1] = 0;
             continue;
         }
         let r = 99;
-        for (let j = 0; j < pasos; j++) r = gravedad(p, k, dt, marea.t > 2.5);
-        // Se apaga al entrar en el disco interior o al alejarse mucho
-        if (r < 1.5) p[k + 6] -= delta * 1.5;
+        for (let j = 0; j < pasos; j++) r = gravedad(p, k, dt, roce);
+        // Se apaga al llegar al borde o al alejarse mucho
+        if (r < 1.5) p[k + 6] -= delta * 0.9;
         else if (r > 25) p[k + 6] -= delta * 0.6;
-        else if (marea.t > 14) p[k + 6] -= delta * 0.12;
+        else if (marea.t > 16 && marea.estado === "rio") p[k + 6] -= delta * 0.12;
+        if (r < 4.8) enDisco++;
         pos[i * 3] = p[k];
         pos[i * 3 + 1] = p[k + 1];
         pos[i * 3 + 2] = p[k + 2];
-        // Al principio, con todo el gas junto, brilla menos cada trozo para
+        radioT[i] = r;
+        // Recién roto, con todo el gas junto, cada trozo brilla menos para
         // no hacer una mancha blanca
-        const junto = THREE.MathUtils.smoothstep(marea.t, 0, 1.5);
-        brilloT[i] = Math.max(0, p[k + 6]) * (0.25 + 0.75 * junto) * (0.55 + 0.9 * Math.exp(-marea.t * 0.3) + 0.5 / Math.max(r - 0.8, 0.6));
-        if (p[k + 6] > 0) vivos++;
+        const junto = marea.estado === "rio" ? 0.3 + 0.7 * THREE.MathUtils.smoothstep(marea.t, 0, 1.4) : 1;
+        brilloT[i] = Math.max(0, p[k + 6]) * junto * (0.5 + 0.7 * Math.exp(-marea.t * 0.25) + 0.45 / Math.max(r - 0.8, 0.6));
+        vivos++;
         // La estela va de la posición de hace un momento a la de ahora
         const q = i * 3;
-        anteriores[q] += (p[k] - anteriores[q]) * Math.min(1, delta * 7);
-        anteriores[q + 1] += (p[k + 1] - anteriores[q + 1]) * Math.min(1, delta * 7);
-        anteriores[q + 2] += (p[k + 2] - anteriores[q + 2]) * Math.min(1, delta * 7);
+        const seguir = Math.min(1, delta * 7);
+        anteriores[q] += (p[k] - anteriores[q]) * seguir;
+        anteriores[q + 1] += (p[k + 1] - anteriores[q + 1]) * seguir;
+        anteriores[q + 2] += (p[k + 2] - anteriores[q + 2]) * seguir;
         lin.set([anteriores[q], anteriores[q + 1], anteriores[q + 2], p[k], p[k + 1], p[k + 2]], i * 6);
         linB[i * 2] = 0;
-        linB[i * 2 + 1] = brilloT[i] * 0.35;
+        linB[i * 2 + 1] = brilloT[i] * 0.35 * THREE.MathUtils.smoothstep(r, 1.3, 1.9);
     }
+    // Mientras el gas del planeta entra en el disco, el disco brilla más
+    comunes.uPulso.value = Math.max(comunes.uPulso.value, (enDisco / TROZOS) * 0.35);
     geometriaMarea.attributes.position.needsUpdate = true;
     geometriaMarea.attributes.aBrillo.needsUpdate = true;
+    geometriaMarea.attributes.aRadio.needsUpdate = true;
     geometriaEstelas.attributes.position.needsUpdate = true;
     geometriaEstelas.attributes.aBrillo.needsUpdate = true;
-    if (!vivos || marea.t > 30) {
+    if (marea.estado === "rio" && (!vivos || marea.t > 32)) {
         marea.estado = "nada";
         marea.ultima = comunes.uTiempo.value;
         rioMarea.visible = false;
@@ -815,144 +940,75 @@ function moverMarea(delta) {
 }
 
 // =====================================================================
-// 6c. LOS CUATRO MUNDOS
-// Cuatro planetas pequeños dan vueltas alrededor del agujero, cada uno
-// con el nombre de una parte del portfolio. Los ilumina el disco (luz
-// cálida por el lado que mira al agujero) y tienen un filo azulado al
-// otro lado. Al tocar el planeta o su nombre se abre el cartel.
+// 6c. LAS SECCIONES DEL PORTFOLIO
+// Un menú fijo con las cuatro partes. Al elegir una, la cámara viaja a
+// su propia toma del agujero (más cerca, más lejos, desde otro lado),
+// el agujero se aparta hacia un lado y aparece el panel con el texto.
 // =====================================================================
 
-const botonesMundo = [...document.querySelectorAll(".luna")];
+const botonesSeccion = [...document.querySelectorAll(".seccion")];
 const carteles = [...document.querySelectorAll(".cartel")];
-const mundos = [];
-
-function crearMundos() {
-    const tipos = [
-        { radio: 6.6, tam: 0.26, inclinacion: 0.16, nodo: 0.3, velocidad: 0.052, fase: 0.4, claro: [0.62, 0.6, 0.58], oscuro: [0.2, 0.19, 0.18] },
-        { radio: 7.7, tam: 0.21, inclinacion: -0.22, nodo: 1.7, velocidad: 0.047, fase: 2.0, claro: [0.78, 0.88, 1.0], oscuro: [0.25, 0.34, 0.48] },
-        { radio: 8.8, tam: 0.3, inclinacion: 0.1, nodo: 2.9, velocidad: 0.042, fase: 3.6, claro: [0.75, 0.42, 0.28], oscuro: [0.22, 0.1, 0.07] },
-        { radio: 9.9, tam: 0.23, inclinacion: -0.14, nodo: 4.4, velocidad: 0.038, fase: 5.2, claro: [0.85, 0.72, 0.5], oscuro: [0.32, 0.24, 0.15] }
-    ];
-    botonesMundo.forEach((boton, i) => {
-        const tipo = tipos[i];
-        const material = new THREE.ShaderMaterial({
-            uniforms: {
-                tRuido,
-                uCentro: { value: CENTRO },
-                uClaro: { value: new THREE.Color(...tipo.claro) },
-                uOscuro: { value: new THREE.Color(...tipo.oscuro) },
-                uSemilla: { value: i * 0.27 }
-            },
-            vertexShader: `
-                varying vec3 vNormal;
-                varying vec3 vMundo;
-                varying vec3 vLocal;
-                void main() {
-                    vLocal = normalize(position);
-                    vNormal = normalize(mat3(modelMatrix) * normal);
-                    vec4 m = modelMatrix * vec4(position, 1.0);
-                    vMundo = m.xyz;
-                    gl_Position = projectionMatrix * viewMatrix * m;
-                }
-            `,
-            fragmentShader: `
-                uniform sampler2D tRuido;
-                uniform vec3 uCentro;
-                uniform vec3 uClaro;
-                uniform vec3 uOscuro;
-                uniform float uSemilla;
-                varying vec3 vNormal;
-                varying vec3 vMundo;
-                varying vec3 vLocal;
-                void main() {
-                    vec3 n = normalize(vNormal);
-                    vec3 haciaDisco = normalize(uCentro - vMundo);
-                    vec3 haciaOjo = normalize(cameraPosition - vMundo);
-                    vec2 uv = vec2(atan(vLocal.z, vLocal.x) / 6.2832, vLocal.y * 0.5 + 0.5);
-                    float superficie = texture2D(tRuido, uv * vec2(2.0, 1.0) + uSemilla).r * 0.65 + texture2D(tRuido, uv * vec2(6.0, 3.0) + uSemilla).r * 0.35;
-                    vec3 base = mix(uOscuro, uClaro, smoothstep(0.3, 0.75, superficie));
-                    float luz = max(dot(n, haciaDisco), 0.0);
-                    vec3 color = base * (vec3(1.0, 0.62, 0.32) * luz * 1.6 + vec3(0.03, 0.035, 0.05));
-                    float filo = pow(1.0 - max(dot(n, haciaOjo), 0.0), 3.0);
-                    color += vec3(0.35, 0.45, 0.8) * filo * 0.35;
-                    gl_FragColor = vec4(color, 1.0);
-                }
-            `
-        });
-        const mundo = brillar(new THREE.Mesh(new THREE.SphereGeometry(tipo.tam, 40, 28), material));
-        const orbita = new THREE.Group();
-        orbita.position.copy(CENTRO);
-        orbita.rotation.set(tipo.inclinacion, tipo.nodo, 0);
-        orbita.add(mundo);
-        escena.add(orbita);
-        mundos.push({ mundo, boton, ...tipo, angulo: tipo.fase });
-        boton.addEventListener("click", () => abrirCartel(boton.dataset.cartel));
-    });
-}
-
-function moverMundos(delta) {
-    mundos.forEach((m) => {
-        m.angulo += delta * m.velocidad;
-        m.mundo.position.set(Math.cos(m.angulo) * m.radio, 0, Math.sin(m.angulo) * m.radio);
-        m.mundo.rotation.y += delta * 0.2;
-    });
-}
-
-const auxMundo = new THREE.Vector3();
-const auxPantalla = new THREE.Vector3();
-const auxRayo = new THREE.Vector3();
-
-// Los nombres siguen a su planeta y se esconden detrás del agujero, fuera
-// de la pantalla o encima del título
-const cabecera = document.querySelector(".cabecera");
-
-function colocarNombres() {
-    camara.updateMatrixWorld();
-    const titulo = cabecera.getBoundingClientRect();
-    mundos.forEach((m) => {
-        m.mundo.getWorldPosition(auxMundo);
-        auxPantalla.copy(auxMundo).project(camara);
-        const x = (auxPantalla.x * 0.5 + 0.5) * innerWidth;
-        const y = (-auxPantalla.y * 0.5 + 0.5) * innerHeight;
-        auxRayo.subVectors(auxMundo, camara.position);
-        const largo = auxRayo.length();
-        auxRayo.normalize();
-        const hastaCentro = auxV.subVectors(CENTRO, camara.position);
-        const t = hastaCentro.dot(auxRayo);
-        const lejos = Math.sqrt(Math.max(0, hastaCentro.lengthSq() - t * t));
-        const tapado = t > 0 && t < largo && lejos < 1.6;
-        const dentro = auxPantalla.z < 1 && x > 20 && x < innerWidth - 20 && y > 20 && y < innerHeight - 20;
-        if (!m.ancho) m.ancho = m.boton.offsetWidth;
-        const bx = Math.max(8, Math.min(innerWidth - (m.ancho || 90) - 8, x + 14));
-        const sobreTitulo = bx < titulo.right && bx + (m.ancho || 90) > titulo.left && y - 30 < titulo.bottom && y > titulo.top;
-        m.boton.classList.toggle("visible", listo && comunes.uEncendido.value > 0.9 && dentro && !tapado && !sobreTitulo);
-        m.boton.style.transform = `translate(${Math.round(bx)}px, ${Math.round(y - 30)}px)`;
-    });
-}
-
-const rayoMundos = new THREE.Raycaster();
-const punteroMundos = new THREE.Vector2();
-
-function mundoBajo(e) {
-    punteroMundos.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
-    rayoMundos.setFromCamera(punteroMundos, camara);
-    const corte = rayoMundos.intersectObjects(mundos.map((m) => m.mundo), false)[0];
-    return corte ? mundos.find((m) => m.mundo === corte.object) : null;
-}
+const tomas = {
+    "cartel-sobre-mi": { orbita: 0.7, altura: 0.06, zoom: 0.62 },
+    "cartel-habilidades": { orbita: -1.2, altura: -0.07, zoom: 0.82 },
+    "cartel-formacion": { orbita: 2.5, altura: 0.1, zoom: 1.12 },
+    "cartel-contacto": { orbita: -2.7, altura: 0.0, zoom: 0.5 }
+};
+const seccion = { toma: null, apartar: 0, objApartar: 0 };
 
 function abrirCartel(id) {
     carteles.forEach((c) => c.classList.toggle("visible", c.id === id));
-    botonesMundo.forEach((b) => b.classList.toggle("elegida", b.dataset.cartel === id));
+    botonesSeccion.forEach((b) => b.classList.toggle("elegida", b.dataset.cartel === id));
     document.getElementById("pista").classList.add("oculta");
+    seccion.toma = tomas[id] || null;
+    seccion.objApartar = 1;
+    document.body.classList.add("con-seccion");
+    vista.velGiro = 0;
+    vista.velAltura = 0;
+    if (seccion.toma) vista.objZoom = seccion.toma.zoom;
 }
 
-carteles.forEach((c) => {
-    c.querySelector(".cerrar").addEventListener("click", () => {
-        c.classList.remove("visible");
-        botonesMundo.forEach((b) => b.classList.remove("elegida"));
-    });
+function cerrarCartel() {
+    carteles.forEach((c) => c.classList.remove("visible"));
+    botonesSeccion.forEach((b) => b.classList.remove("elegida"));
+    seccion.toma = null;
+    seccion.objApartar = 0;
+    vista.objZoom = 1;
+    document.body.classList.remove("con-seccion");
+}
+
+botonesSeccion.forEach((b) =>
+    b.addEventListener("click", () => {
+        if (b.classList.contains("elegida")) cerrarCartel();
+        else abrirCartel(b.dataset.cartel);
+    })
+);
+carteles.forEach((c) => c.querySelector(".cerrar").addEventListener("click", cerrarCartel));
+document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") cerrarCartel();
 });
 
+// Lleva la cámara poco a poco hacia la toma elegida (por el camino más
+// corto alrededor) y aparta el agujero para dejar sitio al panel
+function moverToma(delta) {
+    const k = Math.min(1, delta * 1.4);
+    if (seccion.toma && !vista.arrastrando) {
+        let diferencia = seccion.toma.orbita - vista.orbita;
+        diferencia -= Math.round(diferencia / (Math.PI * 2)) * Math.PI * 2;
+        vista.orbita += diferencia * k;
+        vista.orbitaAltura += (seccion.toma.altura - vista.orbitaAltura) * k;
+    }
+    seccion.apartar += (seccion.objApartar - seccion.apartar) * Math.min(1, delta * 2.2);
+    const a = seccion.apartar;
+    if (a < 0.001) {
+        camara.clearViewOffset();
+        return;
+    }
+    const estrecho = innerWidth < 760;
+    const dx = estrecho ? 0 : innerWidth * 0.2 * a;
+    const dy = estrecho ? innerHeight * 0.17 * a : 0;
+    camara.setViewOffset(innerWidth, innerHeight, dx, dy, innerWidth, innerHeight);
+}
 
 // =====================================================================
 // 7. RESPLANDOR EN VARIAS CAPAS
@@ -1031,7 +1087,7 @@ class PaseBrillo extends Pass {
                 uRaya: { value: 0.22 },
                 uFuerza: { value: 0.55 },
                 uCentro: { value: new THREE.Vector2(0.5, 0.5) },
-                uRadio: { value: new THREE.Vector2(0.1, 0.1) }
+                uElipse: { value: new THREE.Matrix3() }
             },
             vertexShader: VERTICE_PLANO,
             fragmentShader: `
@@ -1043,12 +1099,16 @@ class PaseBrillo extends Pass {
                 uniform float uRaya;
                 uniform float uFuerza;
                 uniform vec2 uCentro;
-                uniform vec2 uRadio;
+                uniform mat3 uElipse;
                 varying vec2 vUv;
                 void main() {
                     vec4 base = texture2D(tBase, vUv);
                     vec3 brillo = texture2D(tN0, vUv).rgb * 0.22 + texture2D(tN1, vUv).rgb * 0.42 + texture2D(tN2, vUv).rgb * 0.75;
-                    float bola = 1.0 - smoothstep(0.8, 1.0, length((vUv - uCentro) / uRadio));
+                    // La sombra en pantalla es una elipse (por la perspectiva);
+                    // dentro casi no se suma brillo para que siga negra
+                    vec2 d = vUv - uCentro;
+                    vec2 e = mat2(uElipse[0].xy, uElipse[1].xy) * d;
+                    float bola = 1.0 - smoothstep(0.8, 1.0, sqrt(dot(d, e)));
                     brillo += texture2D(tRaya, vUv).rgb * vec3(0.8, 0.88, 1.0) * uRaya;
                     brillo *= 1.0 - bola * 0.88;
                     gl_FragColor = vec4(base.rgb + brillo * uFuerza, base.a);
@@ -1254,16 +1314,55 @@ function encuadrar() {
 }
 
 // La sombra en pantalla, para que el resplandor no la tape, y el tamaño
-// de la lente para el fondo
+// de la lente para el fondo. La silueta de la bola se proyecta punto a
+// punto y se ajusta una elipse (con la perspectiva no es un círculo
+// centrado, sobre todo de cerca y fuera del centro de la pantalla).
+const silueta = Array.from({ length: 16 }, () => new THREE.Vector3());
+const auxEje1 = new THREE.Vector3();
+const auxEje2 = new THREE.Vector3();
+const auxCentroSil = new THREE.Vector3();
+
 function marcarBola() {
+    camara.updateMatrixWorld();
     const distancia = camara.position.distanceTo(CENTRO);
     const angulo = Math.asin(1 / distancia);
     fondo.material.uniforms.uRadioLente.value = angulo * 2.1;
-    auxV.copy(CENTRO).project(camara);
+    // Círculo de contacto de la bola vista desde la cámara
+    const haciaOjo = auxV.subVectors(camara.position, CENTRO).normalize();
+    auxCentroSil.copy(CENTRO).addScaledVector(haciaOjo, 1 / distancia);
+    const radio = Math.sqrt(1 - 1 / (distancia * distancia));
+    auxEje1.set(0, 1, 0).cross(haciaOjo).normalize();
+    auxEje2.crossVectors(haciaOjo, auxEje1);
+    let cx = 0;
+    let cy = 0;
+    silueta.forEach((p, i) => {
+        const a = (i / silueta.length) * Math.PI * 2;
+        p.copy(auxCentroSil).addScaledVector(auxEje1, Math.cos(a) * radio).addScaledVector(auxEje2, Math.sin(a) * radio).project(camara);
+        p.set(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5, 0);
+        cx += p.x;
+        cy += p.y;
+    });
+    cx /= silueta.length;
+    cy /= silueta.length;
+    // Elipse a partir de la dispersión de los puntos: E = 2 * covarianza
+    let sxx = 0;
+    let sxy = 0;
+    let syy = 0;
+    silueta.forEach((p) => {
+        const dx = p.x - cx;
+        const dy = p.y - cy;
+        sxx += dx * dx;
+        sxy += dx * dy;
+        syy += dy * dy;
+    });
+    const n = silueta.length / 2;
+    sxx /= n;
+    sxy /= n;
+    syy /= n;
+    const det = sxx * syy - sxy * sxy || 1e-9;
     const u = brillo.mezclar.uniforms;
-    u.uCentro.value.set(auxV.x * 0.5 + 0.5, auxV.y * 0.5 + 0.5);
-    const ry = (Math.tan(angulo) / Math.tan(THREE.MathUtils.degToRad(camara.fov / 2))) * 0.5;
-    u.uRadio.value.set(ry / camara.aspect, ry);
+    u.uCentro.value.set(cx, cy);
+    u.uElipse.value.set(syy / det, -sxy / det, 0, -sxy / det, sxx / det, 0, 0, 0, 1);
 }
 
 
@@ -1447,7 +1546,6 @@ lienzo.addEventListener("pointermove", (e) => {
     if (!vista.arrastrando) {
         // Ratón sin pulsar: solo inclina un poco la vista
         if (e.pointerType === "mouse") {
-            if (listo) lienzo.style.cursor = mundoBajo(e) ? "pointer" : "";
             vista.objGiro = -(e.clientX / innerWidth - 0.5) * 0.3;
             vista.objAltura = (e.clientY / innerHeight - 0.5) * 0.1;
         }
@@ -1482,13 +1580,8 @@ const soltar = (e) => {
         vista.velAltura = 0;
     }
     if (e.type === "pointerup" && Math.hypot(e.clientX - toque.x, e.clientY - toque.y) < 8 && performance.now() - toque.t < 350) {
-        const mundo = mundoBajo(e);
-        if (mundo) {
-            abrirCartel(mundo.boton.dataset.cartel);
-            return;
-        }
         despertar();
-        lanzarEstrella();
+        lanzarPlaneta();
     }
 };
 lienzo.addEventListener("pointerup", soltar);
@@ -1567,6 +1660,7 @@ function animar() {
     // Cerca del agujero el tiempo pasa más despacio: el gas gira más lento
     const t = (comunes.uTiempo.value += delta * (1 - cercania() * 0.45));
     if (real < 0.5) adaptarResolucion(real);
+    moverToma(delta);
     colocarCamara(delta, t);
     orientarAgujero();
     const pulso = (comunes.uPulso.value *= Math.exp(-delta * 1.1));
@@ -1583,8 +1677,6 @@ function animar() {
     comunes.uExpo.value = 1 - c * 0.38;
     marcarBola();
     moverMarea(delta);
-    moverMundos(delta);
-    colocarNombres();
     sonidoCercania();
     destellos.forEach((d) => (d.material.opacity = d.userData.fuerza * fondo.material.uniforms.uAparece.value * (0.8 + 0.2 * Math.sin(t * 1.3 + d.userData.fase))));
     compositor.render();
@@ -1597,8 +1689,6 @@ requestAnimationFrame(() => {
     orientarAgujero();
     marcarBola();
     moverEntrada(0);
-    crearMundos();
-    moverMundos(0);
     if (parametros.has("pulso")) despertar();
     renderizador.compile(escena, camara);
     listo = true;
