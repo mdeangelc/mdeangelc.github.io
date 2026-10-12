@@ -155,16 +155,10 @@ const terrenoGLSL = `
         return fract((q.x + q.y) * q.z);
     }
 
+    // Ruido fino por píxel (sin la rejilla de 4x4 del pixel art) para
+    // desvanecer lo que está lejos
     float tramado(vec2 pixel) {
-        vec2 p = mod(floor(pixel), 4.0);
-        int i = int(p.x + p.y * 4.0);
-        float m[16];
-        m[0] = 0.0; m[1] = 8.0; m[2] = 2.0; m[3] = 10.0;
-        m[4] = 12.0; m[5] = 4.0; m[6] = 14.0; m[7] = 6.0;
-        m[8] = 3.0; m[9] = 11.0; m[10] = 1.0; m[11] = 9.0;
-        m[12] = 15.0; m[13] = 7.0; m[14] = 13.0; m[15] = 5.0;
-        for (int k = 0; k < 16; k++) if (k == i) return (m[k] + 0.5) / 16.0;
-        return 0.5;
+        return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
     }
 
     float ruido(vec2 p) {
@@ -431,25 +425,17 @@ const fragmentFondo = `
         return suma;
     }
 
-    // Tramado ordenado 4x4 (Bayer): reparte los píxeles entre dos tonos
+    // Ruido fino por píxel
     float tramado() {
-        vec2 p = mod(floor(gl_FragCoord.xy), 4.0);
-        int i = int(p.x + p.y * 4.0);
-        float m[16];
-        m[0] = 0.0; m[1] = 8.0; m[2] = 2.0; m[3] = 10.0;
-        m[4] = 12.0; m[5] = 4.0; m[6] = 14.0; m[7] = 6.0;
-        m[8] = 3.0; m[9] = 11.0; m[10] = 1.0; m[11] = 9.0;
-        m[12] = 15.0; m[13] = 7.0; m[14] = 13.0; m[15] = 5.0;
-        for (int k = 0; k < 16; k++) if (k == i) return (m[k] + 0.5) / 16.0;
-        return 0.5;
+        return fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     }
 
-    // Reduce un valor de 0 a 1 a unos pocos escalones, con tramado en los bordes
+    // Antes reducía el valor a escalones (pixel art); ahora lo deja suave
     float escalones(float v, float cuantos, float t) {
         return clamp(v, 0.0, 1.0);
     }
 
-    // Igual, pero con menos tramado (para que no salgan tableros de ajedrez)
+    // Igual, suave
     float escalonesSuaves(float v, float cuantos, float t) {
         return smoothstep(0.0, 1.0, clamp(v, 0.0, 1.0));
     }
@@ -752,10 +738,10 @@ function actualizarFondo(metros) {
 
 const contextoGl = renderizador.getContext();
 const hayFlotantes = renderizador.capabilities.isWebGL2 && !!(contextoGl.getExtension("EXT_color_buffer_float") || contextoGl.getExtension("EXT_color_buffer_half_float"));
-const entrada = { t: movimientoReducido || parametros.has("sinentrada") ? 10 : 0 };
+const entrada = { t: movimientoReducido || parametros.has("sinentrada") ? 10 : 0, inicio: performance.now() };
 
-function moverEntrada(delta) {
-    entrada.t += delta;
+function moverEntrada() {
+    entrada.t = entrada.t >= 10 ? 10 : (performance.now() - entrada.inicio) / 1000;
     uniformesFondo.uSubida.value = THREE.MathUtils.smoothstep(entrada.t, 0.3, 7);
 }
 
@@ -874,7 +860,7 @@ const fragmentSuelo = `
         // Hierba del suelo
         float manchas = ruido(w * 0.35) * 0.6 + ruido(w * 1.7) * 0.4;
         vec3 pasto = mix(uTierra, uTierraClara, manchas);
-        float grano = hash(floor(w * 7.0));
+        float grano = ruido(w * 7.0);
         vec3 color = pasto * (1.0 + (grano - 0.5) * 0.3 * detalle);
 
         // Tierra pisada junto al camino
@@ -882,7 +868,8 @@ const fragmentSuelo = `
         float finArcen = borde + 0.5 + ruido(w * 1.3) * 0.45;
         float arcen = 1.0 - smoothstep(borde + 0.1, finArcen, lado);
         vec3 barro = uBarro * (0.85 + grano * 0.3 * detalle);
-        float guijarro = step(0.93, hash(floor(w * 9.0))) * detalle;
+        vec2 celdaG = floor(w * 9.0);
+        float guijarro = step(0.93, hash(celdaG)) * smoothstep(0.32, 0.18, length(fract(w * 9.0) - 0.5)) * detalle;
         barro = mix(barro, uPiedra * 0.8, guijarro);
         color = mix(color, barro, arcen * 0.92);
         #ifndef PUENTE
@@ -960,7 +947,9 @@ const fragmentSuelo = `
         #endif
 
         // Hojas secas caídas por aquí y por allá
-        float hoja = step(0.988, hash(floor(w * 8.0) + 3.7)) * step(0.45, ruido(w * 0.2)) * detalle;
+        vec2 enHoja = fract(w * 8.0) - 0.5;
+        float formaHoja = smoothstep(0.3, 0.15, length(enHoja * vec2(1.0, 1.8)));
+        float hoja = step(0.988, hash(floor(w * 8.0) + 3.7)) * step(0.45, ruido(w * 0.2)) * formaHoja * detalle;
         color = mix(color, mix(vec3(0.62, 0.26, 0.1), vec3(0.75, 0.48, 0.14), hash(floor(w * 8.0))), hoja * (1.0 - charco));
 
         // Luz del sol y del cielo
@@ -989,7 +978,7 @@ const fragmentSuelo = `
             vec3 rio = mix(uReflejoAlto * 0.5, uReflejoAlto * 1.1, ondas);
             float linea = step(0.8, ruido(vec2(vMundo.x * 1.6 - uTiempo * 1.4, vMundo.z * 6.0)));
             rio = mix(rio, uReflejoBajo, linea * 0.65);
-            float destello = step(0.95, hash(floor(w * 5.0) + floor(uTiempo * 3.0)));
+            float destello = step(0.95, hash(floor(w * 5.0) + floor(uTiempo * 3.0))) * smoothstep(0.35, 0.1, length(fract(w * 5.0) - 0.5));
             rio += destello * uReflejoBajo * 0.5;
             rio *= 1.0 - smoothstep(1.0, 1.5, dz) * 0.35;
             color = mix(color, rio, agua);
@@ -1070,9 +1059,9 @@ function crearHierba() {
         const signo = azar() < 0.5 ? -1 : 1;
         let x;
         let alto = entre(0.35, 0.75);
-        if (tipo < 0.012) {
+        if (tipo < 0.003) {
             x = entre(-1.1, 1.1);
-            alto *= 0.35;
+            alto *= 0.25;
         } else if (tipo < 0.045) {
             x = signo * entre(1.25, 1.6);
             alto *= 0.75;
@@ -1207,29 +1196,21 @@ const hierba = crearHierba();
 // por vértice: así cada trozo es una sola llamada de dibujo.
 // =====================================================================
 
-// Lo que está lejos se desvanece con un tramado de píxeles (dithering)
+// Lo que está lejos se desvanece con un ruido fino
 // para fundirse con el fondo pintado, en vez de cortarse de golpe.
 function desvanecerLejos(material, cerca, lejos) {
     material.onBeforeCompile = (shader) => {
         shader.fragmentShader = shader.fragmentShader.replace(
             "#include <clipping_planes_fragment>",
             `#include <clipping_planes_fragment>
-            vec2 pt = mod(floor(gl_FragCoord.xy), 4.0);
-            int ib = int(pt.x + pt.y * 4.0);
-            float umbral = 0.5;
-            float bayer[16];
-            bayer[0] = 0.0; bayer[1] = 8.0; bayer[2] = 2.0; bayer[3] = 10.0;
-            bayer[4] = 12.0; bayer[5] = 4.0; bayer[6] = 14.0; bayer[7] = 6.0;
-            bayer[8] = 3.0; bayer[9] = 11.0; bayer[10] = 1.0; bayer[11] = 9.0;
-            bayer[12] = 15.0; bayer[13] = 7.0; bayer[14] = 13.0; bayer[15] = 5.0;
-            for (int k = 0; k < 16; k++) if (k == ib) umbral = (bayer[k] + 0.5) / 16.0;
+            float umbral = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
             if (smoothstep(${cerca.toFixed(1)}, ${lejos.toFixed(1)}, length(vViewPosition)) > umbral) discard;`
         );
     };
     return material;
 }
 
-const materialMundo = desvanecerLejos(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true, emissive: "#141c26" }), 34, 56);
+const materialMundo = desvanecerLejos(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true, emissive: "#141c26" }), 60, 95);
 const materialFarol = new THREE.MeshBasicMaterial({ color: "#2a2230" });
 const materialFlores = new THREE.PointsMaterial({ size: 0.13, vertexColors: true });
 
@@ -1526,6 +1507,11 @@ materialPlantas.onBeforeCompile = (shader) => {
             "#include <emissivemap_fragment>",
             `#include <emissivemap_fragment>
             totalEmissiveRadiance += diffuseColor.rgb * vec3(1.0, 0.6, 0.3) * luzFarolas(vMundoP) * uNoche * 2.5;`
+        )
+        .replace(
+            "#include <clipping_planes_fragment>",
+            `#include <clipping_planes_fragment>
+            if (smoothstep(60.0, 95.0, length(vViewPosition)) > tramado(gl_FragCoord.xy)) discard;`
         );
 };
 materialPlantas.customProgramCacheKey = () => "plantas";
@@ -2525,7 +2511,7 @@ function animar() {
     actualizarSonido();
     if (conCarteles) actualizarCarteles();
 
-    moverEntrada(delta);
+    moverEntrada();
     paseEscena.enabled = !soloFondo;
     compositor.render();
 
@@ -2535,6 +2521,7 @@ function animar() {
 Promise.resolve(new THREE.Texture())
     .then((textura) => {
         crearFondo(textura);
+        entrada.inicio = performance.now();
         colocarCamara();
         actualizarTrozos(true);
         document.getElementById("cargando").classList.add("oculta");

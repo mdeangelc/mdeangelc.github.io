@@ -68,6 +68,9 @@ const sol = new THREE.DirectionalLight(0xfff1dc, 3.2);
 escena.add(sol);
 const cielo = new THREE.HemisphereLight(0x5a6fa8, 0x0a0a12, 0.16);
 escena.add(cielo);
+const relleno = new THREE.DirectionalLight(0x8ea4e0, 0.22);
+relleno.position.set(2, 3, 6);
+escena.add(relleno);
 
 const tRuido = { value: texturaRuido() };
 const tiempo = { value: 0 };
@@ -129,7 +132,7 @@ const suave = (a, b, x) => {
 };
 
 function alturaBruta(d) {
-    return ruido.noise3d(d.x * 1.7, d.y * 1.7, d.z * 1.7) * 0.034 + ruido.noise3d(d.x * 4.2 + 5, d.y * 4.2, d.z * 4.2) * 0.013 + ruido.noise3d(d.x * 11 + 2, d.y * 11, d.z * 11) * 0.004;
+    return ruido.noise3d(d.x * 1.7, d.y * 1.7, d.z * 1.7) * 0.034 + ruido.noise3d(d.x * 4.2 + 5, d.y * 4.2, d.z * 4.2) * 0.013 + ruido.noise3d(d.x * 9 + 2, d.y * 9, d.z * 9) * 0.0025;
 }
 
 function altura(d, dc = cercaDelCamino(d).distancia) {
@@ -277,7 +280,7 @@ const ventanasCastillo = [];
 
 function crearCastillo() {
     const castillo = new THREE.Group();
-    const piedra = new THREE.MeshStandardMaterial({ color: 0xb4ab9e, roughness: 0.9 });
+    const piedra = new THREE.MeshStandardMaterial({ color: 0xc4bbae, roughness: 0.85, emissive: 0x1a1410 });
     const piedraOscura = new THREE.MeshStandardMaterial({ color: 0x6a655f, roughness: 0.95 });
     const pizarra = new THREE.MeshStandardMaterial({ color: 0x2c3038, roughness: 0.7 });
     const pizarraRoja = new THREE.MeshStandardMaterial({ color: 0x4a2a26, roughness: 0.7 });
@@ -360,7 +363,7 @@ function crearNubes() {
             void main() {
                 vec3 p = vLocal;
                 float n = plano(p + vec3(uTiempo * 0.004, 0.0, 0.0), 0.55) * 0.65 + plano(p * 1.0, 1.7) * 0.35;
-                float densidad = smoothstep(0.53, 0.74, n);
+                float densidad = smoothstep(0.56, 0.76, n);
                 densidad *= 1.0 - smoothstep(0.8, 0.95, p.y);
                 if (densidad < 0.01) discard;
                 vec3 n3 = normalize(vNormalMundo);
@@ -476,10 +479,10 @@ function crearLuces(castillo) {
                 vec4 mundo = modelMatrix * vec4(position, 1.0);
                 vec3 normal = normalize(mundo.xyz);
                 float noche = smoothstep(0.12, -0.18, dot(normal, uSol));
-                float ola = exp(-pow((aOrden - uOla) / 0.035, 2.0)) * 2.5;
+                float ola = exp(-pow((aOrden - uOla) / 0.04, 2.0)) * 4.0;
                 vLuz = (noche * (0.8 + 0.2 * sin(uTiempo * 2.0 + aOrden * 90.0)) + ola) * aTam;
                 vec4 vista = viewMatrix * mundo;
-                gl_PointSize = (9.0 + ola * 8.0) * uEscala / -vista.z * aTam;
+                gl_PointSize = (9.0 + ola * 6.0) * uEscala / -vista.z * aTam;
                 gl_Position = projectionMatrix * vista;
             }
         `,
@@ -530,6 +533,26 @@ escena.add(espacio);
 const estrellaSol = new THREE.Sprite(new THREE.SpriteMaterial({ map: texturaSol(), color: new THREE.Color(1, 0.96, 0.9).multiplyScalar(6), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
 estrellaSol.scale.setScalar(18);
 escena.add(estrellaSol);
+
+// El sol queda fuera de la pantalla, así que en el borde del planeta
+// que mira al sol se pone un destello: es la luz que asoma por detrás
+const destello = new THREE.Sprite(new THREE.SpriteMaterial({ map: estrellaSol.material.map, color: new THREE.Color(1, 0.85, 0.65).multiplyScalar(2.2), transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending }));
+destello.renderOrder = 5;
+escena.add(destello);
+const auxVista = new THREE.Vector3();
+const auxBorde = new THREE.Vector3();
+
+function colocarDestello() {
+    auxVista.copy(camara.position).normalize();
+    auxBorde.copy(DIR_SOL).addScaledVector(auxVista, -DIR_SOL.dot(auxVista));
+    if (auxBorde.lengthSq() < 1e-6) auxBorde.set(-1, 0, 0);
+    auxBorde.normalize().multiplyScalar(1.09);
+    destello.position.copy(auxBorde);
+    const detras = Math.max(0, -DIR_SOL.dot(auxVista));
+    const fuerza = THREE.MathUtils.smoothstep(detras, -0.2, 0.9);
+    destello.material.opacity = 0.25 + fuerza * 0.75;
+    destello.scale.setScalar(0.8 + fuerza * 1.6);
+}
 
 
 // =====================================================================
@@ -643,13 +666,13 @@ document.addEventListener("pointerleave", () => {
 // =====================================================================
 
 const reloj = new THREE.Clock();
-const entrada = { t: pocoMovimiento || parametros.has("sinentrada") || parametros.has("fijo") ? 10 : 0 };
+const entrada = { t: pocoMovimiento || parametros.has("sinentrada") || parametros.has("fijo") ? 10 : 0, inicio: performance.now() };
 let listo = false;
 let luces = null;
 let nubes = null;
 
-function moverEntrada(delta) {
-    entrada.t += delta;
+function moverEntrada() {
+    entrada.t = entrada.t >= 10 ? 10 : (performance.now() - entrada.inicio) / 1000;
     const amanecer = THREE.MathUtils.smoothstep(entrada.t, 0.8, 6.5);
     DIR_SOL.copy(SOL_INICIO).lerp(SOL_FINAL, amanecer).normalize();
     espacio.material.uniforms.uAparece.value = THREE.MathUtils.smoothstep(entrada.t, 0.1, 1.6);
@@ -701,13 +724,20 @@ function animar() {
     const delta = Math.min(real, 0.1);
     const t = (tiempo.value += delta);
     if (real < 0.5) adaptarResolucion(real);
-    const amanecer = moverEntrada(delta);
+    const amanecer = moverEntrada();
     colocarCamara(delta, t, 1 + 0.12 * Math.pow(1 - amanecer, 2));
     planeta.rotation.y += delta * 0.035;
     nubes.rotation.y += delta * 0.045;
     sol.position.copy(DIR_SOL).multiplyScalar(10);
     sol.intensity = 3.2 * THREE.MathUtils.smoothstep(amanecer, 0, 0.35);
     estrellaSol.position.copy(DIR_SOL).multiplyScalar(120);
+    colocarDestello();
+    if (parametros.has("ola") && !ola.activa && ola.valor < 0) {
+        ola.activa = true;
+        ola.valor = parseFloat(parametros.get("ola")) || 0.5;
+        ola.fija = true;
+    }
+    if (ola.fija) ola.valor -= delta * 0.32;
     if (ola.activa) {
         ola.valor += delta * 0.32;
         if (ola.valor > 1.1) ola.activa = false;
@@ -724,7 +754,8 @@ requestAnimationFrame(() => {
     nubes = crearNubes();
     crearAtmosfera();
     ajustarTamano();
-    moverEntrada(0);
+    entrada.inicio = performance.now();
+    moverEntrada();
     colocarCamara(1, 0, 1);
     renderizador.compile(escena, camara);
     listo = true;
