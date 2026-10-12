@@ -129,7 +129,8 @@ const fondo = new THREE.Mesh(
             tRuido,
             uAgujero: { value: CENTRO },
             uRadioLente: { value: 0.1 },
-            uAparece: { value: 1 }
+            uAparece: { value: 1 },
+            uGalaxia: { value: new THREE.Vector3() }
         },
         vertexShader: `
             varying vec3 vMundo;
@@ -145,6 +146,7 @@ const fondo = new THREE.Mesh(
             uniform vec3 uAgujero;
             uniform float uRadioLente;
             uniform float uAparece;
+            uniform vec3 uGalaxia;
             varying vec3 vMundo;
 
             vec3 hash33(vec3 p3) {
@@ -184,6 +186,31 @@ const fondo = new THREE.Mesh(
                 return col * luz * fuerza;
             }
 
+            // Una galaxia espiral lejana justo detrás del agujero. Su luz se
+            // dobla igual que la de las estrellas: alrededor de la sombra
+            // se ve estirada en arcos y, si queda bien alineada, en un
+            // anillo completo (anillo de Einstein)
+            vec3 galaxia(vec3 d) {
+                vec3 g = normalize(uGalaxia);
+                vec3 e1 = normalize(cross(g, vec3(0.0, 1.0, 0.0)));
+                vec3 e2 = cross(e1, g);
+                float frente = dot(d, g);
+                if (frente < 0.9) return vec3(0.0);
+                vec2 p = vec2(dot(d, e1), dot(d, e2)) / 0.11;
+                p = mat2(0.8, -0.6, 0.6, 0.8) * p;
+                p.y /= 0.55;
+                float r = length(p);
+                if (r > 1.6) return vec3(0.0);
+                float a = atan(p.y, p.x);
+                float brazos = 0.5 + 0.5 * sin(2.0 * a - log(r + 0.02) * 4.2 + 0.6);
+                brazos = pow(brazos, 2.2);
+                float polvo = texture2D(tRuido, p * 0.2 + 0.5).r;
+                float nucleo = exp(-r * r * 22.0) * 2.2 + exp(-r * 5.0) * 0.5;
+                float disco = exp(-r * 2.3) * (0.25 + brazos * (0.6 + polvo * 0.8));
+                vec3 col = vec3(1.0, 0.86, 0.66) * nucleo + mix(vec3(0.5, 0.62, 1.0), vec3(0.95, 0.75, 0.9), polvo) * disco;
+                return col * 0.1;
+            }
+
             void main() {
                 vec3 dir = normalize(vMundo - cameraPosition);
                 vec3 haciaAgujero = normalize(uAgujero - cameraPosition);
@@ -211,6 +238,7 @@ const fondo = new THREE.Mesh(
                 estrellas *= 0.7 + nebulosa * 1.5;
                 float lejosDelCentro = smoothstep(0.1, 0.4, abs(beta) / uRadioLente) * smoothstep(1.1, 1.7, theta * 2.1 / uRadioLente);
                 cielo += estrellas * min(aumento, 3.0) * lejosDelCentro;
+                cielo += galaxia(d) * min(aumento, 4.0) * smoothstep(0.02, 0.25, abs(beta) / uRadioLente) * smoothstep(0.9, 1.3, theta * 2.1 / uRadioLente);
                 gl_FragColor = vec4(cielo * uAparece, 1.0);
             }
         `,
@@ -220,6 +248,9 @@ const fondo = new THREE.Mesh(
 );
 fondo.renderOrder = -1;
 escena.add(fondo);
+// La galaxia queda detrás del agujero vista desde el sitio de partida,
+// un poco desplazada: así forma arcos y, al girar, un anillo
+fondo.material.uniforms.uGalaxia.value.set(-Math.sin(BASE_GIRO + 0.035), -Math.sin(BASE_ALTURA - 0.02), -Math.cos(BASE_GIRO + 0.035)).normalize();
 
 
 
@@ -246,11 +277,11 @@ const gasGlsl = `
 
     float manchasEn(float r, float phi) {
         float m = 0.0;
-        for (int i = 0; i < 6; i++) {
-            float ri = 1.6 + float(i) * 0.5;
+        for (int i = 0; i < 10; i++) {
+            float ri = 1.55 + float(i) * 0.31 + 0.1 * sin(float(i) * 3.7);
             float ai = uTiempo * 1.5 * pow(ri / DENTRO, -1.5) + float(i) * 2.3;
             float da = atan(sin(phi - ai), cos(phi - ai)) * ri;
-            m += exp(-pow(da / (0.35 + float(i) * 0.12), 2.0) - pow((r - ri) / 0.1, 2.0)) * (0.6 + 0.4 * sin(uTiempo * 2.0 + float(i)));
+            m += exp(-pow(da / (0.3 + float(i) * 0.08), 2.0) - pow((r - ri) / (0.07 + float(i) * 0.008), 2.0)) * (0.55 + 0.45 * sin(uTiempo * 2.0 + float(i) * 1.3));
         }
         return m;
     }
@@ -293,11 +324,11 @@ const gasGlsl = `
         vec3 vel = vec3(-sin(phiLuz), 0.0, cos(phiLuz));
         float v = 0.45 * pow(DENTRO / r, 0.5);
         float doppler = 1.0 / (inversesqrt(1.0 - v * v) * (1.0 - v * dot(vel, uVista)));
-        float haz = mix(1.0, pow(doppler, 3.0), 0.8);
+        float haz = mix(1.0, pow(doppler, 3.5), 0.85);
         float brillo = temperatura * 2.0 * haz * (1.0 + 0.12 * sin(uTiempo * 1.3 + r * 2.5)) * (0.72 + 0.56 * rizo);
         col *= brillo * (1.0 - polvo * 0.85) * (1.0 + manchas * 1.5);
         col = mix(col, col * vec3(1.1, 0.8, 0.62), smoothstep(1.0, 0.6, doppler) * 0.6);
-        col = mix(col, col * vec3(0.95, 1.0, 1.1) + 0.06, smoothstep(1.0, 1.45, doppler) * 0.5);
+        col = mix(col, col * vec3(0.88, 0.98, 1.2) + vec3(0.03, 0.05, 0.1), smoothstep(1.0, 1.45, doppler) * 0.65);
         float borde = exp(-pow((r - DENTRO - 0.025) / 0.032, 2.0)) * (0.7 + 0.3 * sin(phi * 7.0 + uTiempo * 3.1) * sin(phi * 3.0 - uTiempo * 1.7));
         col += vec3(1.0, 0.95, 0.88) * borde * 2.2 * haz;
         col *= 1.0 + uPulso * 0.45 + uPulso * 2.2 * exp(-pow((r - uOnda) / 0.3, 2.0));
@@ -521,6 +552,212 @@ const halos = [[10, 0.16, [1, 0.5, 0.22]], [3.8, 0.28, [1, 0.72, 0.45]]].map(([t
     return halo;
 });
 
+
+// =====================================================================
+// 6b. LA ESTRELLA DESTROZADA
+// De vez en cuando (o al tocar) una estrella cae hacia el agujero. Al
+// pasar muy cerca, la gravedad la estira y la rompe en un río de gas:
+// la mitad se escapa hacia fuera y la otra mitad da vueltas y acaba
+// entrando en el disco. Cada trozo se mueve con la gravedad de verdad
+// (en el plano del disco, un poco inclinado).
+// =====================================================================
+
+const GM = 5.4;
+const TROZOS = movil ? 500 : 900;
+const marea = {
+    estado: "nada",
+    espera: parametros.get("marea") === "si" ? 7 : 40 + Math.random() * 25,
+    ultima: -99,
+    estrella: { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 },
+    trozos: new Float32Array(TROZOS * 7)
+};
+
+const geometriaMarea = new THREE.BufferGeometry();
+geometriaMarea.setAttribute("position", new THREE.BufferAttribute(new Float32Array(TROZOS * 3), 3));
+geometriaMarea.setAttribute("aBrillo", new THREE.BufferAttribute(new Float32Array(TROZOS), 1));
+const materialMarea = new THREE.ShaderMaterial({
+    uniforms: { uEscala: { value: 1 } },
+    vertexShader: `
+        attribute float aBrillo;
+        uniform float uEscala;
+        varying float vBrillo;
+        void main() {
+            vBrillo = aBrillo;
+            vec4 vista = modelViewMatrix * vec4(position, 1.0);
+            gl_PointSize = uEscala * (0.6 + aBrillo * 0.6) / -vista.z;
+            gl_Position = projectionMatrix * vista;
+        }
+    `,
+    fragmentShader: `
+        varying float vBrillo;
+        void main() {
+            float r = length(gl_PointCoord - 0.5) * 2.0;
+            float a = exp(-r * r * 5.0);
+            vec3 color = mix(vec3(1.0, 0.55, 0.25), vec3(0.85, 0.92, 1.0), clamp(vBrillo - 0.6, 0.0, 1.0));
+            gl_FragColor = vec4(color * a * vBrillo * 2.6, a * min(vBrillo, 1.0));
+        }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+});
+const rioMarea = brillar(new THREE.Points(geometriaMarea, materialMarea));
+rioMarea.frustumCulled = false;
+rioMarea.renderOrder = 8;
+rioMarea.visible = false;
+agujero.add(rioMarea);
+
+const estrellaMarea = brillar(new THREE.Sprite(new THREE.SpriteMaterial({ map: mapaHalo, color: new THREE.Color(0.85, 0.92, 1).multiplyScalar(3), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
+estrellaMarea.visible = false;
+estrellaMarea.renderOrder = 8;
+agujero.add(estrellaMarea);
+
+function lanzarEstrella() {
+    if (marea.estado !== "nada" || comunes.uTiempo.value - marea.ultima < 15) return;
+    // Órbita casi parabólica que pasa muy cerca, en el plano del disco
+    const q = 2.5;
+    const phi = -2.05 + (Math.random() - 0.5) * 0.2;
+    const r = (2 * q) / (1 + Math.cos(phi));
+    const sentido = 1;
+    const v = Math.sqrt((2 * GM) / r) * 0.985;
+    const h = Math.sqrt(2 * GM * q) * 0.985;
+    const vt = h / r;
+    const vr = -Math.sqrt(Math.max(0, v * v - vt * vt));
+    const e = marea.estrella;
+    const c = Math.cos(phi * sentido);
+    const s = Math.sin(phi * sentido);
+    // La órbita va inclinada respecto al disco para que el río de gas se
+    // vea por encima y por debajo antes de caer en él
+    const inc = 0.5;
+    const z = r * s;
+    const vz = vr * s + vt * c * sentido;
+    e.x = r * c;
+    e.y = z * Math.sin(inc);
+    e.z = z * Math.cos(inc);
+    e.vx = vr * c - vt * s * sentido;
+    e.vy = vz * Math.sin(inc);
+    e.vz = vz * Math.cos(inc);
+    marea.estado = "cae";
+    marea.t = 0;
+    estrellaMarea.visible = true;
+}
+
+function romperEstrella() {
+    const e = marea.estrella;
+    const t = marea.trozos;
+    const v = Math.hypot(e.vx, e.vy, e.vz);
+    for (let i = 0; i < TROZOS; i++) {
+        const k = i * 7;
+        // Repartidos a lo largo de la trayectoria y con velocidades un poco
+        // distintas: unos ligados al agujero y otros no
+        const desfase = (Math.random() - 0.5) * 0.9;
+        const extra = 1 + (Math.random() - 0.5) * 0.16;
+        t[k] = e.x + (e.vx / v) * desfase + (Math.random() - 0.5) * 0.05;
+        t[k + 1] = e.y + (Math.random() - 0.5) * 0.04;
+        t[k + 2] = e.z + (e.vz / v) * desfase + (Math.random() - 0.5) * 0.05;
+        t[k + 3] = e.vx * extra;
+        t[k + 4] = e.vy * extra;
+        t[k + 5] = e.vz * extra;
+        t[k + 6] = 1;
+    }
+    marea.estado = "rio";
+    marea.t = 0;
+    estrellaMarea.visible = false;
+    rioMarea.visible = true;
+    despertar();
+}
+
+// Un paso de gravedad (y, dentro del disco, rozamiento que va metiendo
+// el gas en órbitas circulares cada vez más pequeñas)
+function gravedad(p, k, dt, conRoce) {
+    const x = p[k];
+    const y = p[k + 1];
+    const z = p[k + 2];
+    const r2 = x * x + y * y + z * z;
+    const r = Math.sqrt(r2);
+    const a = -GM / (r2 * r);
+    p[k + 3] += a * x * dt;
+    p[k + 4] += a * y * dt;
+    p[k + 5] += a * z * dt;
+    if (conRoce && r < 5.2) {
+        // Velocidad circular en el plano del disco
+        const vc = Math.sqrt(GM / r) * 0.97;
+        const sentido = Math.sign(x * p[k + 5] - z * p[k + 3]) || 1;
+        const tx = (-z / r) * vc * sentido;
+        const tz = (x / r) * vc * sentido;
+        const roce = Math.min(1, dt * 0.9);
+        p[k + 3] += (tx - p[k + 3]) * roce;
+        p[k + 5] += (tz - p[k + 5]) * roce;
+        p[k + 4] += (-y * 1.2 - p[k + 4]) * roce * 0.5;
+    }
+    p[k] += p[k + 3] * dt;
+    p[k + 1] += p[k + 4] * dt;
+    p[k + 2] += p[k + 5] * dt;
+    return r;
+}
+
+const estadoEstrella = new Float32Array(6);
+
+function moverMarea(delta) {
+    if (marea.estado === "nada") {
+        marea.espera -= delta;
+        if (marea.espera <= 0 && comunes.uEncendido.value > 0.95 && !pocoMovimiento) {
+            lanzarEstrella();
+            marea.espera = 55 + Math.random() * 35;
+        }
+        return;
+    }
+    marea.t += delta;
+    const pasos = 4;
+    const dt = delta / pasos;
+    if (marea.estado === "cae") {
+        const e = marea.estrella;
+        const s = estadoEstrella;
+        s.set([e.x, e.y, e.z, e.vx, e.vy, e.vz]);
+        let r = 99;
+        for (let i = 0; i < pasos; i++) r = gravedad(s, 0, dt, false);
+        [e.x, e.y, e.z, e.vx, e.vy, e.vz] = s;
+        estrellaMarea.position.set(e.x, e.y, e.z);
+        // Se va estirando y calentando al acercarse
+        const cerca = THREE.MathUtils.smoothstep(r, 9, 3);
+        estrellaMarea.scale.setScalar(0.8 + cerca * 1.2);
+        estrellaMarea.material.opacity = Math.min(1, marea.t * 0.8);
+        if (r < 3.1) romperEstrella();
+        return;
+    }
+    const p = marea.trozos;
+    const pos = geometriaMarea.attributes.position.array;
+    const brilloT = geometriaMarea.attributes.aBrillo.array;
+    let vivos = 0;
+    for (let i = 0; i < TROZOS; i++) {
+        const k = i * 7;
+        if (p[k + 6] <= 0) {
+            brilloT[i] = 0;
+            continue;
+        }
+        let r = 99;
+        for (let j = 0; j < pasos; j++) r = gravedad(p, k, dt, marea.t > 2.5);
+        // Se apaga al entrar en el disco interior o al alejarse mucho
+        if (r < 1.5) p[k + 6] -= delta * 1.5;
+        else if (r > 25) p[k + 6] -= delta * 0.6;
+        else if (marea.t > 14) p[k + 6] -= delta * 0.12;
+        pos[i * 3] = p[k];
+        pos[i * 3 + 1] = p[k + 1];
+        pos[i * 3 + 2] = p[k + 2];
+        // Al principio, con todo el gas junto, brilla menos cada trozo para
+        // no hacer una mancha blanca
+        const junto = THREE.MathUtils.smoothstep(marea.t, 0, 1.5);
+        brilloT[i] = Math.max(0, p[k + 6]) * (0.25 + 0.75 * junto) * (0.55 + 0.9 * Math.exp(-marea.t * 0.3) + 0.5 / Math.max(r - 0.8, 0.6));
+        if (p[k + 6] > 0) vivos++;
+    }
+    geometriaMarea.attributes.position.needsUpdate = true;
+    geometriaMarea.attributes.aBrillo.needsUpdate = true;
+    if (!vivos || marea.t > 30) {
+        marea.estado = "nada";
+        marea.ultima = comunes.uTiempo.value;
+        rioMarea.visible = false;
+    }
+}
 
 
 // =====================================================================
@@ -751,29 +988,52 @@ compositor.addPass(acabado);
 
 // =====================================================================
 // 9. LA VISTA
-// No se gira alrededor: el ratón (o el dedo arrastrando) solo inclina
-// la cámara un poco, y cuando no tocas nada se mece sola muy despacio.
-// El agujero sigue casi del todo a la cámara.
+// Arrastrando se gira alrededor del agujero, y al soltar sigue girando
+// un poco y se frena solo (inercia). Con la rueda o pellizcando te
+// acercas: la luz se dobla más, el anillo brilla más, el gas va más
+// lento (el tiempo pasa más despacio cerca) y el sonido se hace más
+// grave. Sin tocar nada, la cámara se mece muy despacio. El agujero
+// sigue casi del todo a la cámara.
 // =====================================================================
 
-const vista = { giro: 0, altura: 0, objGiro: 0, objAltura: 0, radio: 16.4, arrastrando: false, x: 0, y: 0 };
+const vista = {
+    giro: 0, altura: 0, objGiro: 0, objAltura: 0, radio: 16.4, arrastrando: false, x: 0, y: 0,
+    orbita: 0, orbitaAltura: 0, velGiro: 0, velAltura: 0,
+    zoom: 1, objZoom: 1, giroActual: BASE_GIRO, punteros: new Map(), pellizco: 0
+};
+
+// 0 lejos, 1 lo más cerca posible
+const cercania = () => THREE.MathUtils.clamp((1 - vista.zoom) / (1 - 0.42), 0, 1);
 const auxV = new THREE.Vector3();
 
 function colocarCamara(delta, t) {
     const suave = Math.min(1, delta * 2.5);
     vista.giro += (vista.objGiro - vista.giro) * suave;
     vista.altura += (vista.objAltura - vista.altura) * suave;
+    // Inercia: al soltar sigue girando y se va frenando
+    if (!vista.arrastrando) {
+        vista.orbita += vista.velGiro * delta;
+        vista.orbitaAltura += vista.velAltura * delta;
+        const freno = Math.exp(-delta * 1.6);
+        vista.velGiro *= freno;
+        vista.velAltura *= freno;
+    }
+    vista.orbitaAltura = THREE.MathUtils.clamp(vista.orbitaAltura, -0.14, 0.4);
+    vista.zoom += (vista.objZoom - vista.zoom) * Math.min(1, delta * 3);
     const acercar = 1 + 0.22 * Math.pow(1 - comunes.uEncendido.value, 2);
     const balanceo = pocoMovimiento ? 0 : 1;
-    const giro = BASE_GIRO + vista.giro + Math.sin(t * 0.12) * 0.05 * balanceo;
-    const altura = Math.max(0.04, BASE_ALTURA + vista.altura + Math.sin(t * 0.09) * 0.015 * balanceo);
-    camara.position.set(Math.sin(giro) * Math.cos(altura), Math.sin(altura), Math.cos(giro) * Math.cos(altura)).multiplyScalar(vista.radio * acercar).add(OBJETIVO);
+    const giro = BASE_GIRO + vista.orbita + vista.giro + Math.sin(t * 0.12) * 0.05 * balanceo;
+    const altura = Math.max(0.04, BASE_ALTURA + vista.orbitaAltura + vista.altura + Math.sin(t * 0.09) * 0.015 * balanceo);
+    vista.giroActual = giro;
+    camara.position.set(Math.sin(giro) * Math.cos(altura), Math.sin(altura), Math.cos(giro) * Math.cos(altura)).multiplyScalar(vista.radio * acercar * vista.zoom).add(OBJETIVO);
     camara.lookAt(OBJETIVO);
 }
 
 function orientarAgujero() {
     auxV.subVectors(camara.position, CENTRO);
-    const giro = Math.atan2(auxV.x, auxV.z);
+    // El giro sin cortes (atan2 saltaría de -180 a 180 grados al dar la vuelta)
+    let giro = Math.atan2(auxV.x, auxV.z);
+    giro += Math.round((vista.giroActual - giro) / (Math.PI * 2)) * Math.PI * 2;
     const elevacion = Math.atan2(auxV.y, Math.hypot(auxV.x, auxV.z));
     const g = BASE_GIRO + (giro - BASE_GIRO) * 0.75;
     const e = BASE_ALTURA + (elevacion - BASE_ALTURA) * 0.75;
@@ -819,7 +1079,7 @@ const pista = document.getElementById("pista");
 // El sonido: un zumbido grave como de órgano (varias notas suaves con
 // eco) que solo empieza al pulsar el botón. Al despertar al agujero se
 // abre y sube un momento.
-const sonido = { ctx: null, activo: false, maestro: null, filtro: null };
+const sonido = { ctx: null, activo: false, maestro: null, filtro: null, osciladores: [], base: 520 };
 const botonSonido = document.getElementById("boton-sonido");
 
 function impulsoEco(ctx, segundos) {
@@ -855,6 +1115,8 @@ function crearSonido() {
             osc.type = tipo;
             osc.frequency.value = frecuencia;
             osc.detune.value = desafinar;
+            osc.userData = desafinar;
+            sonido.osciladores.push(osc);
             const voz = ctx.createGain();
             voz.gain.value = volumen / 2;
             osc.connect(voz).connect(filtro);
@@ -879,13 +1141,26 @@ function cambiarSonido() {
     botonSonido.classList.toggle("activo", sonido.activo);
 }
 
+// Cerca del agujero el zumbido baja de tono y se apaga lo agudo
+function sonidoCercania() {
+    if (!sonido.ctx || !sonido.activo) return;
+    const c = cercania();
+    const ahora = sonido.ctx.currentTime;
+    sonido.base = 520 * (1 - 0.55 * c);
+    sonido.osciladores.forEach((o) => o.detune.setTargetAtTime(o.userData - c * 500, ahora, 0.4));
+    if (comunes.uPulso.value < 0.05) {
+        sonido.filtro.frequency.setTargetAtTime(sonido.base, ahora, 0.4);
+        sonido.maestro.gain.setTargetAtTime(0.22 * (1 + c * 0.5), ahora, 0.4);
+    }
+}
+
 function sonarDespertar() {
     if (!sonido.activo) return;
     const ahora = sonido.ctx.currentTime;
     const f = sonido.filtro.frequency;
     f.cancelScheduledValues(ahora);
     f.setTargetAtTime(1700, ahora, 0.08);
-    f.setTargetAtTime(520, ahora + 0.7, 1.3);
+    f.setTargetAtTime(sonido.base, ahora + 0.7, 1.3);
     const g = sonido.maestro.gain;
     g.cancelScheduledValues(ahora);
     g.setTargetAtTime(0.36, ahora, 0.1);
@@ -907,30 +1182,76 @@ function despertar() {
     comunes.uOnda.value = 5.2;
 }
 
+function cambiarZoom(factor) {
+    vista.objZoom = THREE.MathUtils.clamp(vista.objZoom * factor, 0.42, 1.3);
+}
+
 lienzo.addEventListener("pointerdown", (e) => {
     pista.classList.add("oculta");
+    lienzo.setPointerCapture(e.pointerId);
+    vista.punteros.set(e.pointerId, { x: e.clientX, y: e.clientY });
     Object.assign(toque, { x: e.clientX, y: e.clientY, t: performance.now() });
-    vista.arrastrando = e.pointerType !== "mouse";
+    vista.arrastrando = true;
+    vista.velGiro = 0;
+    vista.velAltura = 0;
     vista.x = e.clientX;
     vista.y = e.clientY;
+    if (vista.punteros.size === 2) {
+        const [a, b] = [...vista.punteros.values()];
+        vista.pellizco = Math.hypot(a.x - b.x, a.y - b.y);
+    }
 });
 
 lienzo.addEventListener("pointermove", (e) => {
-    if (e.pointerType === "mouse") {
-        vista.objGiro = -(e.clientX / innerWidth - 0.5) * 0.5;
-        vista.objAltura = (e.clientY / innerHeight - 0.5) * 0.16;
+    if (vista.punteros.has(e.pointerId)) vista.punteros.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // Dos dedos: pellizcar para acercar o alejar
+    if (vista.punteros.size === 2) {
+        const [a, b] = [...vista.punteros.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (vista.pellizco > 0) cambiarZoom(vista.pellizco / d);
+        vista.pellizco = d;
         return;
     }
-    if (!vista.arrastrando) return;
-    vista.objGiro = Math.max(-0.3, Math.min(0.3, vista.objGiro - ((e.clientX - vista.x) / innerWidth) * 0.9));
-    vista.objAltura = Math.max(-0.1, Math.min(0.1, vista.objAltura + ((e.clientY - vista.y) / innerHeight) * 0.3));
+    if (!vista.arrastrando) {
+        // Ratón sin pulsar: solo inclina un poco la vista
+        if (e.pointerType === "mouse") {
+            vista.objGiro = -(e.clientX / innerWidth - 0.5) * 0.3;
+            vista.objAltura = (e.clientY / innerHeight - 0.5) * 0.1;
+        }
+        return;
+    }
+    const dx = (e.clientX - vista.x) / innerWidth;
+    const dy = (e.clientY - vista.y) / innerHeight;
+    vista.orbita -= dx * 3.2;
+    vista.orbitaAltura += dy * 1.2;
+    const dt = Math.max(0.008, (performance.now() - (vista.ultimo || 0)) / 1000);
+    vista.velGiro = THREE.MathUtils.clamp((-dx * 3.2) / dt, -3, 3);
+    vista.velAltura = THREE.MathUtils.clamp((dy * 1.2) / dt, -1, 1);
+    vista.ultimo = performance.now();
     vista.x = e.clientX;
     vista.y = e.clientY;
 });
 
+lienzo.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    pista.classList.add("oculta");
+    cambiarZoom(Math.exp(e.deltaY * 0.0012));
+}, { passive: false });
+
 const soltar = (e) => {
+    vista.punteros.delete(e.pointerId);
+    if (vista.punteros.size < 2) vista.pellizco = 0;
+    if (vista.punteros.size > 0) return;
     vista.arrastrando = false;
-    if (e.type === "pointerup" && Math.hypot(e.clientX - toque.x, e.clientY - toque.y) < 8 && performance.now() - toque.t < 350) despertar();
+    // Si hace rato que no se movía, no se lanza al soltar
+    if (performance.now() - (vista.ultimo || 0) > 120) {
+        vista.velGiro = 0;
+        vista.velAltura = 0;
+    }
+    if (e.type === "pointerup" && Math.hypot(e.clientX - toque.x, e.clientY - toque.y) < 8 && performance.now() - toque.t < 350) {
+        despertar();
+        lanzarEstrella();
+    }
 };
 lienzo.addEventListener("pointerup", soltar);
 lienzo.addEventListener("pointercancel", soltar);
@@ -953,6 +1274,7 @@ function ajustarTamano() {
     camara.updateProjectionMatrix();
     renderizador.setSize(innerWidth, innerHeight);
     compositor.setSize(innerWidth, innerHeight);
+    materialMarea.uniforms.uEscala.value = renderizador.getPixelRatio() * innerHeight * 0.12;
 }
 
 window.addEventListener("resize", () => {
@@ -1003,7 +1325,8 @@ function animar() {
     if (!listo) return;
     const real = reloj.getDelta();
     const delta = Math.min(real, 0.1);
-    const t = (comunes.uTiempo.value += delta);
+    // Cerca del agujero el tiempo pasa más despacio: el gas gira más lento
+    const t = (comunes.uTiempo.value += delta * (1 - cercania() * 0.45));
     if (real < 0.5) adaptarResolucion(real);
     colocarCamara(delta, t);
     orientarAgujero();
@@ -1011,11 +1334,14 @@ function animar() {
     comunes.uOnda.value = Math.max(0.6, comunes.uOnda.value - delta * 2.6);
     const encendido = moverEntrada(delta);
     const luzAnillo = THREE.MathUtils.smoothstep(encendido, 0.6, 1);
-    anillo.material.color.setRGB(1, 0.88, 0.7).multiplyScalar((2.4 + Math.sin(t * 2.2) * 0.4 + pulso * 3) * luzAnillo);
+    const c = cercania();
+    anillo.material.color.setRGB(1, 0.88, 0.7).multiplyScalar((2.4 + Math.sin(t * 2.2) * 0.4 + pulso * 3) * luzAnillo * (1 + c * 0.8));
     anillo2.material.color.setRGB(1, 0.8, 0.6).multiplyScalar(0.45 * luzAnillo);
     halos.forEach((h, i) => (h.material.opacity = h.userData.fuerza * encendido * (0.85 + 0.15 * Math.sin(t * (1.1 + i * 0.7)) + pulso * 0.8)));
-    brillo.mezclar.uniforms.uFuerza.value = 0.55 * (1 + pulso * 0.6);
+    brillo.mezclar.uniforms.uFuerza.value = 0.55 * (1 + pulso * 0.6) * (1 - c * 0.35);
     marcarBola();
+    moverMarea(delta);
+    sonidoCercania();
     destellos.forEach((d) => (d.material.opacity = d.userData.fuerza * fondo.material.uniforms.uAparece.value * (0.8 + 0.2 * Math.sin(t * 1.3 + d.userData.fase))));
     compositor.render();
 }
