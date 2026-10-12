@@ -89,7 +89,7 @@ const suave = (a, b, x) => {
 
 function texturaRuido() {
     const n = 256;
-    const celdas = 16;
+    const celdas = 32;
     const capas = [0, 1, 2, 3].map(() => Array.from({ length: celdas * celdas }, () => Math.random()));
     const valor = (rejilla, x, y, c) => {
         const xi = Math.floor(x);
