@@ -227,24 +227,34 @@ const gasGlsl = `
     uniform float uOnda;
     const float DENTRO = 1.35;
     const float FUERA = 4.8;
-    vec4 gas(float r, float phi) {
+    vec4 gas(float r, float phi, float phiLuz) {
         float x = (r - DENTRO) / (FUERA - DENTRO);
         float omega = 1.5 * pow(r / DENTRO, -1.5);
         float espiral = log(r) * 0.55;
         float ang = (phi - uTiempo * omega) / 6.2832 + uDesfase;
-        float n = texture2D(tRuido, vec2(ang + espiral * 0.3, r * 0.16 + uDesfase)).r;
-        float fino = texture2D(tRuido, vec2(ang * 3.0 + espiral, r * 0.6 + 0.37)).r;
+        #ifdef GAS_SENCILLO
+        vec2 torcer = vec2(0.0);
+        #else
+        vec2 torcer = vec2(
+            texture2D(tRuido, vec2(ang * 2.0 + uTiempo * 0.013, r * 0.3 - uTiempo * 0.021)).r,
+            texture2D(tRuido, vec2(ang * 2.0 + 0.5 - uTiempo * 0.017, r * 0.3 + 0.4 + uTiempo * 0.015)).r
+        ) - 0.5;
+        #endif
+        float angT = ang + torcer.x * 0.018;
+        float rT = r + torcer.y * 0.1;
+        float n = texture2D(tRuido, vec2(angT + espiral * 0.3, rT * 0.16 + uDesfase)).r;
+        float fino = texture2D(tRuido, vec2(angT * 3.0 + espiral, rT * 0.6 + 0.37)).r;
         #ifdef GAS_SENCILLO
         float hebras = 0.5;
         float rizo = 0.5;
         #else
-        float hebras = texture2D(tRuido, vec2(ang * 9.0 + espiral * 2.0, r * 2.2 + 0.11)).r;
-        float rizo = texture2D(tRuido, vec2(ang * 22.0 + espiral * 4.0, r * 5.0 + 0.53)).r;
+        float hebras = texture2D(tRuido, vec2(angT * 9.0 + espiral * 2.0, rT * 2.2 + 0.11)).r;
+        float rizo = texture2D(tRuido, vec2(angT * 22.0 + espiral * 4.0, rT * 5.0 + 0.53)).r;
         #endif
-        float polvo = smoothstep(0.55, 0.8, texture2D(tRuido, vec2(ang + 0.5, r * 0.09 + 0.61)).r) * smoothstep(0.12, 0.6, x);
+        float polvo = smoothstep(0.55, 0.8, texture2D(tRuido, vec2(angT + 0.5, rT * 0.09 + 0.61)).r) * smoothstep(0.12, 0.6, x);
         float perfil = smoothstep(-0.02, 0.05, x) * pow(clamp(1.0 - x, 0.0, 1.0), 1.3);
-        float anillos = 0.6 + 0.4 * sin(r * 14.0 - uTiempo * 1.1 + n * 4.0) * sin(r * 4.6 + uTiempo * 0.4);
-        float densidad = smoothstep(0.25, 0.78, n) * (0.4 + 0.8 * fino) * (0.65 + 0.7 * hebras) * (0.8 + 0.4 * rizo) * anillos;
+        float anillos = 0.6 + 0.4 * sin(rT * 14.0 - uTiempo * 1.1 + n * 4.0) * sin(rT * 4.6 + uTiempo * 0.4);
+        float densidad = smoothstep(0.3, 0.75, n) * (0.4 + 0.8 * fino) * (0.65 + 0.7 * hebras) * (0.8 + 0.4 * rizo) * anillos;
         densidad = mix(densidad, 1.0, smoothstep(0.14, 0.0, x));
         float manchas = 0.0;
         #ifndef GAS_SENCILLO
@@ -259,12 +269,12 @@ const gasGlsl = `
         vec3 col = mix(vec3(0.38, 0.13, 0.05), vec3(1.0, 0.46, 0.16), smoothstep(0.1, 0.42, temperatura));
         col = mix(col, vec3(1.0, 0.78, 0.5), smoothstep(0.42, 0.75, temperatura));
         col = mix(col, vec3(1.0, 0.95, 0.88), smoothstep(0.75, 1.0, temperatura));
-        vec3 vel = vec3(-sin(phi), 0.0, cos(phi));
+        vec3 vel = vec3(-sin(phiLuz), 0.0, cos(phiLuz));
         float v = 0.45 * pow(DENTRO / r, 0.5);
         float doppler = 1.0 / (inversesqrt(1.0 - v * v) * (1.0 - v * dot(vel, uVista)));
         float haz = mix(1.0, pow(doppler, 3.0), 0.8);
-        float brillo = temperatura * 2.0 * haz * (1.0 + 0.12 * sin(uTiempo * 1.3 + r * 2.5)) * (0.85 + 0.3 * rizo);
-        col *= brillo * (1.0 - polvo * 0.75) * (1.0 + manchas * 1.5);
+        float brillo = temperatura * 2.0 * haz * (1.0 + 0.12 * sin(uTiempo * 1.3 + r * 2.5)) * (0.72 + 0.56 * rizo);
+        col *= brillo * (1.0 - polvo * 0.85) * (1.0 + manchas * 1.5);
         col = mix(col, col * vec3(1.1, 0.8, 0.62), smoothstep(1.0, 0.6, doppler) * 0.6);
         col = mix(col, col * vec3(0.95, 1.0, 1.1) + 0.06, smoothstep(1.0, 1.45, doppler) * 0.5);
         col *= 1.0 + uPulso * 0.45 + uPulso * 2.2 * exp(-pow((r - uOnda) / 0.3, 2.0));
@@ -293,13 +303,16 @@ function materialGas(modo, opciones = {}) {
                 `#include <color_fragment>
                 ${modo === "disco" ? `
                 float rG = length(vLocalG.xz);
-                vec4 g = gas(rG, atan(vLocalG.z, vLocalG.x));` : `
+                float fiG = atan(vLocalG.z, vLocalG.x);
+                vec4 g = gas(rG, fiG, fiG);` : `
                 float rho = length(vLocalG.xy);
+                float aG = atan(vLocalG.y, vLocalG.x);
                 float dentroArco = ${modo === "arriba" ? "1.16" : "1.12"};
-                float fueraArco = ${modo === "arriba" ? "2.55" : "1.6"};
-                float rG = DENTRO + max(0.0, rho - dentroArco) * ${modo === "arriba" ? "1.75" : "3.2"};
-                vec4 g = gas(rG, atan(vLocalG.y, vLocalG.x) * 0.9 + 1.4);
-                g.a = clamp(g.a * ${modo === "arriba" ? "2.0" : "1.4"}, 0.0, 1.0) * smoothstep(0.0, 0.22, abs(vLocalG.y) / rho) * smoothstep(dentroArco, dentroArco + 0.06, rho) * smoothstep(fueraArco, fueraArco - ${modo === "arriba" ? "0.95" : "0.4"}, rho);`}
+                float fueraArco = ${modo === "arriba" ? "2.55" : "1.5"};
+                float rG = DENTRO + max(0.0, rho - dentroArco) * ${modo === "arriba" ? "1.75" : "3.6"};
+                vec4 g = gas(rG, ${modo === "arriba" ? "-aG" : "aG"} * 0.9 + 1.4, aG * 0.9 + 1.4);
+                g.rgb *= 1.0 + 0.5 * exp(-(rho - dentroArco) / ${modo === "arriba" ? "0.08" : "0.05"});
+                g.a = clamp(g.a * ${modo === "arriba" ? "2.0" : "1.5"}, 0.0, 1.0) * smoothstep(0.0, 0.22, abs(vLocalG.y) / rho) * smoothstep(dentroArco, dentroArco + 0.05, rho) * smoothstep(fueraArco, fueraArco - ${modo === "arriba" ? "1.05" : "0.35"}, rho);`}
                 g.a *= ${fuerza.toFixed(3)};
                 diffuseColor.rgb = pow(g.rgb, vec3(1.15)) * ${modo === "disco" ? "0.85" : "1.0"};
                 diffuseColor.a = clamp(g.a * 1.7, 0.0, 1.0);`
@@ -313,9 +326,10 @@ function materialGas(modo, opciones = {}) {
 // =====================================================================
 // 6. GARGANTUA
 // La sombra es una bola negra sin ningún reflejo. Alrededor, el disco en
-// tres capas, los dos arcos de luz doblada, dos anillos de fotones muy
-// finos y halos de luz. El grupo mira casi siempre a
-// la cámara para verse como Gargantua.
+// tres capas, los dos
+// arcos de luz doblada, que fluyen en el mismo sentido que el disco de
+// detrás, dos anillos de fotones muy finos y halos de luz. El grupo
+// mira casi siempre a la cámara para verse como Gargantua.
 // =====================================================================
 
 const agujero = new THREE.Group();
@@ -428,6 +442,7 @@ class PaseBrillo extends Pass {
         const op = { type: flotante ? THREE.HalfFloatType : THREE.UnsignedByteType, depthBuffer: false };
         this.escena = new THREE.WebGLRenderTarget(1, 1, { ...op, depthBuffer: true });
         this.niveles = [0, 1, 2].map(() => [new THREE.WebGLRenderTarget(1, 1, op), new THREE.WebGLRenderTarget(1, 1, op)]);
+        this.raya = [new THREE.WebGLRenderTarget(1, 1, op), new THREE.WebGLRenderTarget(1, 1, op)];
         this.difuminar = new THREE.ShaderMaterial({
             uniforms: { tEntrada: { value: null }, uDir: { value: new THREE.Vector2() } },
             vertexShader: VERTICE_PLANO,
@@ -477,6 +492,8 @@ class PaseBrillo extends Pass {
                 tN0: { value: null },
                 tN1: { value: null },
                 tN2: { value: null },
+                tRaya: { value: null },
+                uRaya: { value: 0.22 },
                 uFuerza: { value: 0.55 },
                 uCentro: { value: new THREE.Vector2(0.5, 0.5) },
                 uRadio: { value: new THREE.Vector2(0.1, 0.1) }
@@ -487,14 +504,17 @@ class PaseBrillo extends Pass {
                 uniform sampler2D tN0;
                 uniform sampler2D tN1;
                 uniform sampler2D tN2;
+                uniform sampler2D tRaya;
+                uniform float uRaya;
                 uniform float uFuerza;
                 uniform vec2 uCentro;
                 uniform vec2 uRadio;
                 varying vec2 vUv;
                 void main() {
                     vec4 base = texture2D(tBase, vUv);
-                    vec3 brillo = texture2D(tN0, vUv).rgb * 0.3 + texture2D(tN1, vUv).rgb * 0.55 + texture2D(tN2, vUv).rgb * 0.8;
+                    vec3 brillo = texture2D(tN0, vUv).rgb * 0.22 + texture2D(tN1, vUv).rgb * 0.42 + texture2D(tN2, vUv).rgb * 0.75;
                     float bola = 1.0 - smoothstep(0.8, 1.0, length((vUv - uCentro) / uRadio));
+                    brillo += texture2D(tRaya, vUv).rgb * vec3(0.8, 0.88, 1.0) * uRaya;
                     brillo *= 1.0 - bola * 0.88;
                     gl_FragColor = vec4(base.rgb + brillo * uFuerza, base.a);
                 }
@@ -513,6 +533,7 @@ class PaseBrillo extends Pass {
             const f = 1 << i;
             par.forEach((rt) => rt.setSize(Math.max(1, Math.round(m / f)), Math.max(1, Math.round(n / f))));
         });
+        this.raya.forEach((rt) => rt.setSize(Math.max(1, Math.round(m / 2)), Math.max(1, Math.round(n / 4))));
     }
 
     pasada(renderizador, material, destino) {
@@ -556,11 +577,24 @@ class PaseBrillo extends Pass {
         this.difumina(renderizador, n2, 1.6);
         this.difumina(renderizador, n2, 3.0);
 
+        // El destello horizontal: solo lo más fuerte, estirado de lado
+        const [ra, rb] = this.raya;
+        this.recortar.uniforms.uUmbral.value = 3.0;
+        this.pasada(renderizador, this.recortar, ra);
+        this.recortar.uniforms.uUmbral.value = 0.7;
+        const d = this.difuminar.uniforms;
+        [[ra, rb, 2], [rb, ra, 4.5], [ra, rb, 10], [rb, ra, 22]].forEach(([desde, hacia, escala]) => {
+            d.tEntrada.value = desde.texture;
+            d.uDir.value.set(escala / desde.width, 0);
+            this.pasada(renderizador, this.difuminar, hacia);
+        });
+
         const u = this.mezclar.uniforms;
         u.tBase.value = origen.texture;
         u.tN0.value = n0[0].texture;
         u.tN1.value = n1[0].texture;
         u.tN2.value = n2[0].texture;
+        u.tRaya.value = ra.texture;
         this.pasada(renderizador, this.mezclar, this.renderToScreen ? null : destino);
     }
 }
