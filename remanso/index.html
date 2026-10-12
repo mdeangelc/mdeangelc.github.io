@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>El remanso | Miguel Ángel Calvente Medina</title>
+    <meta name="description" content="Un trozo del río Genal en miniatura hecho con three.js: una poza con agua que se mueve, truchas, hojas de castaño, una cascada y luciérnagas de noche. Por Miguel Ángel Calvente Medina.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;1,9..144,400&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="estilo.css?v=1">
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <header class="cabecera">
+        <p class="etiqueta">Estudio</p>
+        <h1>El remanso.</h1>
+        <p class="texto">Un trozo del Genal en miniatura. El agua baja por la cascada, las truchas dan vueltas por la poza y el castaño suelta hojas.</p>
+        <a class="volver" href="../">Volver al portfolio</a>
+    </header>
+
+    <button class="modo" id="boton-modo" aria-pressed="false">Noche</button>
+
+    <p class="pista" id="pista">Arrastra para girar, toca el agua o el castaño</p>
+    <p class="cargando" id="cargando">Llenando la poza...</p>
+
+    <script type="module" src="escena.js?v=1"></script>
+</body>
+</html>
