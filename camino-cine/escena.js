@@ -3,6 +3,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { PaseBrillo, crearAcabado, crearZumbido } from "./cine.js";
 
 // =====================================================================
@@ -25,7 +26,7 @@ const parametros = new URLSearchParams(location.search);
 const movil = window.innerWidth < 760 || window.matchMedia("(pointer: coarse)").matches;
 const movimientoReducido = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const tocarHierba = parametros.get("tocar") !== "no";
-const factorCalidad = (parametros.get("calidad") === "baja" ? 0.4 : 1) * (movil ? 0.45 : 1);
+const factorCalidad = (parametros.get("calidad") === "baja" ? 0.4 : 1) * (movil ? 0.32 : 1);
 
 // Carteles del portfolio a lo largo del camino (?carteles=si para verlos).
 // Cada uno salta al pasar por su metro y se cierra al seguir andando.
@@ -247,8 +248,8 @@ const momentos = {
         reflejoAlto: "#120e2a", reflejoBajo: "#6a4a88",
         cieloAlto: "#02040c", cieloMedio: "#0a1228", cieloBajo: "#1e2a4c", colorSol: "#dfe8ff",
         nubeLuz: "#8a98c0", nubeMedia: "#3a466e", nubeSombra: "#141a34",
-        montanaLejos: "#1e2848", montanaCerca: "#131a34", nieve: "#9aa8d0",
-        bosqueLejos: "#0c1224", bosqueCerca: "#070a16"
+        montanaLejos: "#151c3a", montanaCerca: "#0e1428", nieve: "#3a4262",
+        bosqueLejos: "#0a0f1e", bosqueCerca: "#060912"
     },
     noche: {
         noche: 1, dia: 0, solX: 1.34, solY: 0.22, luzX: -60, luzY: 45, fuerzaSol: 0.22, fuerzaCielo: 0.6,
@@ -310,7 +311,11 @@ const comunes = {
     uRaton: { value: new THREE.Vector2(999, 999) },
     uFuerzaRaton: { value: 0 },
     uViento: { value: movimientoReducido ? 0.25 : 1 },
-    uClaros: { value: Array.from({ length: 8 }, () => new THREE.Vector3(9999, 9999, 1)) }
+    uClaros: { value: Array.from({ length: 8 }, () => new THREE.Vector3(9999, 9999, 1)) },
+    uDestello: { value: 0 },
+    uLuzGrieta: { value: new THREE.Color(0, 0, 0) },
+    uDirGrieta: { value: new THREE.Vector3(0, 0.4, -1).normalize() },
+    uDirGrietaVista: { value: new THREE.Vector3(0, 0.4, -1).normalize() }
 };
 
 // Claros: alrededor de la carreta, el pozo, etc. la hierba es más baja
@@ -366,7 +371,7 @@ const uniformesFondo = {
     uCentroGrieta: { value: centroGrieta },
     uApertura: { value: 1 },
     uLargo: { value: 1 },
-    uDestello: { value: 0 }
+    uDestello: comunes.uDestello
 };
 ["cieloAlto", "cieloMedio", "cieloBajo", "colorSol", "nubeLuz", "nubeMedia", "nubeSombra", "montanaLejos", "montanaCerca", "nieve", "bosqueLejos", "bosqueCerca"].forEach((n) => {
     uniformesFondo["u" + n[0].toUpperCase() + n.slice(1)] = { value: actual[n] };
@@ -445,6 +450,16 @@ const fragmentFondo = `
         vec2 centro = vec2(0.5, uLinea);
         marco = (marco - centro) / (1.0 + zoom * uProgreso) + centro;
         return vec2(marco.x * uAspectoMarco, marco.y);
+    }
+
+    const vec3 FILO = vec3(1.0, 0.86, 0.68);
+    const vec3 RESPLANDOR = vec3(1.0, 0.5, 0.36);
+    const vec3 HALO = vec3(0.55, 0.3, 0.85);
+
+    // Cuánto ilumina la grieta un punto del fondo (para teñir nubes y montes)
+    float luzGrieta(vec2 f) {
+        vec2 g = (f - uCentroGrieta) * vec2(1.5, 0.75);
+        return exp(-length(g) / 0.2) * (uApertura + uDestello * 0.8) * uLargo;
     }
 
     vec3 cielo(vec2 f, float t) {
@@ -538,6 +553,8 @@ const fragmentFondo = `
         c = mix(c, colorNieve, nieve);
         float bajo = 1.0 - smoothstep(uLinea, h, f.y);
         c = mix(c, uCieloBajo, aire + bajo * 0.35);
+        float lg = luzGrieta(f);
+        c += mix(RESPLANDOR, FILO, 0.3) * lg * (smoothstep(0.012, 0.0, h - f.y) * 0.9 + smoothstep(0.08, 0.0, h - f.y) * 0.15);
         return vec4(c, 1.0);
     }
 
@@ -570,10 +587,6 @@ const fragmentFondo = `
     // distinto, cálido y vivo. El borde arde, alrededor el cielo se
     // agrieta como un cristal y se escapan chispas. Se abre al llegar
     // y se va abriendo más conforme caminas.
-    const vec3 FILO = vec3(1.0, 0.86, 0.68);
-    const vec3 RESPLANDOR = vec3(1.0, 0.5, 0.36);
-    const vec3 HALO = vec3(0.55, 0.3, 0.85);
-
     // Zigzag de tramos rectos, como un cristal roto
     float zigzag(float y, float tramos, float semilla) {
         float s = y * tramos;
@@ -651,10 +664,43 @@ const fragmentFondo = `
         return exp(-dot(d, d) * 260.0) * (0.5 + 0.5 * sin(uTiempo * 2.3 + h * 60.0));
     }
 
-    // Cuánto ilumina la grieta un punto del fondo (para teñir nubes y montes)
-    float luzGrieta(vec2 f) {
-        vec2 g = (f - uCentroGrieta) * vec2(1.5, 0.75);
-        return exp(-length(g) / 0.2) * (uApertura + uDestello * 0.8) * uLargo;
+    // Triángulo (distancia con signo), para los trozos de cielo
+    float triangulo(vec2 p) {
+        const float k = 1.7320508;
+        p.x = abs(p.x) - 1.0;
+        p.y = p.y + 1.0 / k;
+        if (p.x + k * p.y > 0.0) p = vec2(p.x - k * p.y, -k * p.x - p.y) / 2.0;
+        p.x -= clamp(p.x, -2.0, 0.0);
+        return -length(p) * sign(p.y);
+    }
+
+    // Trozos de cielo que se desprenden del borde y caen girando: por
+    // dentro tienen el color del otro cielo y el filo les brilla
+    vec3 fragmentos(vec3 c, vec2 f) {
+        if (uApertura < 0.2 || abs(f.x - uCentroGrieta.x) > 0.4) return c;
+        float px = fwidth(f.y);
+        for (int i = 0; i < 7; i++) {
+            float fi = float(i);
+            float vida = fract(uTiempo * (0.025 + 0.015 * hash(vec2(fi, 1.0))) + hash(vec2(fi, 4.0)));
+            float y0 = uCentroGrieta.y + (hash(vec2(fi, 7.0)) - 0.4) * 0.5;
+            float tam = (0.006 + 0.011 * hash(vec2(fi, 5.0))) * uApertura;
+            float yPos = y0 - vida * vida * 0.42;
+            if (abs(f.y - yPos) > tam * 3.0) continue;
+            float lado = hash(vec2(fi, 9.0)) < 0.5 ? -1.0 : 1.0;
+            vec2 pos = vec2(lineaGrieta(y0) + lado * (0.015 + vida * (0.05 + 0.08 * hash(vec2(fi, 3.0)))), yPos);
+            vec2 q = f - pos;
+            if (dot(q, q) > tam * tam * 9.0) continue;
+            float giro = uTiempo * (0.5 + hash(vec2(fi, 2.0))) * lado + fi;
+            q = mat2(cos(giro), -sin(giro), sin(giro), cos(giro)) * q;
+            q.y *= 1.0 + hash(vec2(fi, 6.0)) * 0.8;
+            float d = triangulo(q / tam) * tam;
+            float aparece = smoothstep(0.0, 0.06, vida) * (1.0 - smoothstep(0.7, 1.0, vida));
+            float dentro = smoothstep(px, -px, d) * aparece;
+            vec3 trozo = mix(vec3(0.55, 0.12, 0.3), vec3(1.0, 0.55, 0.25), hash(vec2(fi, 8.0))) * (0.8 + 0.4 * sin(uTiempo * 3.0 + fi));
+            c = mix(c, trozo, dentro);
+            c += FILO * exp(-abs(d) / (px * 1.5)) * aparece * 1.3;
+        }
+        return c;
     }
 
     vec3 grieta(vec3 c, vec2 f) {
@@ -699,10 +745,17 @@ const fragmentFondo = `
     void main() {
         float t = tramado();
         vec2 marco = (vUv - 0.5) * uVisible + 0.5;
+        // Muy por debajo del horizonte todo lo tapa el suelo 3D
+        if (marco.y < uLinea - 0.09) {
+            gl_FragColor = vec4(uNiebla, 1.0);
+            #include <colorspace_fragment>
+            return;
+        }
 
         vec3 c = cielo(enCapa(marco, 0.004, 0.0), t);
         vec2 fg = enCapa(marco, 0.006, 0.03);
         c = grieta(c, fg);
+        c = fragmentos(c, fg);
         float luz = luzGrieta(fg);
 
         vec4 capa = montana(enCapa(marco, 0.01, 0.03), t, 3.0, 0.03, 0.62, 1.25, uMontanaLejos, 0.16, 0.24);
@@ -780,6 +833,29 @@ function moverEntrada() {
         entrada.abierta = true;
         relampago.t = 0;
     }
+}
+
+// Hacia dónde queda la grieta vista desde la cámara (siempre delante, en
+// el centro de la pantalla) y con qué color y fuerza alumbra la escena
+const pantallaGrieta = new THREE.Vector2();
+const auxGrieta = new THREE.Vector3();
+
+function luzDeLaGrieta() {
+    camara.updateMatrixWorld();
+    pantallaGrieta.set((centroGrieta.x / aspectoMarco - 0.5) / visible.x + 0.5, (centroGrieta.y - 0.5) / visible.y + 0.5);
+    const mitad = Math.tan(THREE.MathUtils.degToRad(camara.fov / 2));
+    auxGrieta.set((pantallaGrieta.x * 2 - 1) * mitad * camara.aspect, (pantallaGrieta.y * 2 - 1) * mitad, -1).normalize();
+    comunes.uDirGrietaVista.value.copy(auxGrieta);
+    comunes.uDirGrieta.value.copy(auxGrieta).transformDirection(camara.matrixWorld);
+    const u = uniformesFondo;
+    const fuerza = (u.uApertura.value * 0.9 + u.uDestello.value * 1.8) * u.uLargo.value;
+    comunes.uLuzGrieta.value.setRGB(1.0, 0.55, 0.45).multiplyScalar(fuerza);
+    paseRayos.uniforms.uCentro.value.copy(pantallaGrieta);
+    const adelante = auxGrieta.set(0, 0, -1).transformDirection(camara.matrixWorld);
+    hierba.material.uniforms.uAdelante.value.set(adelante.x, adelante.z).normalize();
+    hierba.material.uniforms.uTanMedio.value = mitad * camara.aspect * 1.08;
+    paseRayos.uniforms.uHorizonte.value = (1 - HORIZONTE_EN_MARCO - 0.5) / visible.y + 0.5;
+    paseRayos.uniforms.uFuerza.value = fuerza * (movimientoReducido ? 0.6 : 1);
 }
 
 // Relámpagos: un fogonazo doble que se apaga rápido
@@ -872,6 +948,9 @@ const fragmentSuelo = `
     uniform vec3 uMusgo;
     uniform vec3 uReflejoAlto;
     uniform vec3 uReflejoBajo;
+    uniform float uDestello;
+    uniform vec3 uLuzGrieta;
+    uniform vec3 uDirGrieta;
     varying vec3 vMundo;
     ${terrenoGLSL}
     ${clarosGLSL}
@@ -967,6 +1046,8 @@ const fragmentSuelo = `
                 float luzLado = dot(normalize(-haciaCentro + 0.0001), vec2(0.8, 0.6));
                 float cercaJunta = 1.0 - smoothstep(0.02, 0.18, a.x);
                 piedra *= 1.0 + luzLado * cercaJunta * 0.25 * detalle;
+                float haciaGrieta = dot(normalize(haciaCentro + 0.0001), normalize(uDirGrieta.xz));
+                piedra += uLuzGrieta * max(haciaGrieta, 0.0) * cercaJunta * 0.05 * detalle;
                 piedra *= 1.0 - a.z * 0.22;
 
                 piedra *= 1.0 + (1.0 - smoothstep(0.0, 0.5, lado)) * 0.1;
@@ -1014,13 +1095,25 @@ const fragmentSuelo = `
         if (abs(normal.y) < 0.6) color *= 0.55;
         #endif
 
+        // El relámpago lo ilumina todo un instante
+        color *= 1.0 + uDestello * 0.55;
+
         // Charco: refleja el cielo (cerca, la parte alta; lejos, el horizonte)
+        // y la grieta: una raya de luz que tiembla con las ondas del agua.
+        // Las piedras mojadas también recogen un poco de su brillo.
+        vec3 rayoVista = normalize(vMundo - cameraPosition);
+        vec2 haciaG = normalize(uDirGrieta.xz);
+        float tiembla = (ruido(w * 3.0 + vec2(uTiempo * 0.7, 0.0)) - 0.5) * 0.004;
+        float alineado = dot(normalize(rayoVista.xz), haciaG) + tiembla;
         if (charco > 0.0) {
             vec3 cielo = mix(uReflejoAlto, uReflejoBajo, smoothstep(2.0, 30.0, d));
             float brillo = step(0.965, fract(v * 1.4 + ruido(w * 2.0 + uTiempo * 0.3) * 0.6));
             cielo += brillo * uReflejoBajo * 0.5;
+            float reflejo = smoothstep(0.9988, 0.99985, alineado) * 3.0 + smoothstep(0.985, 1.0, alineado) * 0.35;
+            cielo += uLuzGrieta * reflejo;
             color = mix(color, cielo, charco * 0.92);
         }
+        color += uLuzGrieta * smoothstep(0.97, 1.0, alineado) * (mojado - charco) * 0.25;
 
         // Arroyo
         #ifndef PUENTE
@@ -1095,12 +1188,14 @@ escena.add(suelo);
 // Briznas repetidas con "instancing" en una franja alrededor del
 // camino. Cuando una brizna se queda atrás, el shader la vuelve a
 // colocar delante (operación módulo), así nunca se acaba la hierba.
-// Unas pocas crecen en el bordillo y entre los adoquines.
+// Unas pocas crecen en el bordillo.
 // =====================================================================
 
 function crearHierba() {
-    const brizna = new THREE.PlaneGeometry(1, 1, 1, 3);
-    brizna.translate(0, 0.5, 0);
+    // Cada brizna son 5 vértices: dos tramos y la punta
+    const brizna = new THREE.BufferGeometry();
+    brizna.setAttribute("position", new THREE.Float32BufferAttribute([-0.5, 0, 0, 0.5, 0, 0, -0.5, 0.45, 0, 0.5, 0.45, 0, 0, 1, 0], 3));
+    brizna.setIndex([0, 1, 2, 1, 3, 2, 2, 3, 4]);
 
     const geometria = new THREE.InstancedBufferGeometry();
     geometria.index = brizna.index;
@@ -1114,10 +1209,7 @@ function crearHierba() {
         const signo = azar() < 0.5 ? -1 : 1;
         let x;
         let alto = entre(0.35, 0.75);
-        if (tipo < 0.003) {
-            x = entre(-1.1, 1.1);
-            alto *= 0.25;
-        } else if (tipo < 0.045) {
+        if (tipo < 0.045) {
             x = signo * entre(1.25, 1.6);
             alto *= 0.75;
         } else {
@@ -1127,7 +1219,7 @@ function crearHierba() {
         posiciones[i * 2 + 1] = azar() * ajustes.largoHierba;
         datos[i * 4] = azar() * Math.PI * 2;
         datos[i * 4 + 1] = alto;
-        datos[i * 4 + 2] = entre(0.06, 0.11);
+        datos[i * 4 + 2] = entre(0.06, 0.11) * (movil ? 1.25 : 1);
         datos[i * 4 + 3] = azar();
     }
     geometria.setAttribute("aPosicion", new THREE.InstancedBufferAttribute(posiciones, 2));
@@ -1140,7 +1232,9 @@ function crearHierba() {
             ...comunes,
             uBase: { value: actual.hierbaBase },
             uPunta: { value: actual.hierbaPunta },
-            uLargo: { value: ajustes.largoHierba }
+            uLargo: { value: ajustes.largoHierba },
+            uAdelante: { value: new THREE.Vector2(0, -1) },
+            uTanMedio: { value: 1 }
         },
         vertexShader: `
             attribute vec2 aPosicion;
@@ -1151,6 +1245,8 @@ function crearHierba() {
             uniform float uFuerzaRaton;
             uniform float uViento;
             uniform float uLargo;
+            uniform vec2 uAdelante;
+            uniform float uTanMedio;
             ${clarosGLSL}
             varying float vAltura;
             varying float vAzar;
@@ -1162,6 +1258,14 @@ function crearHierba() {
                 float delante = mod(uCamara.z + 4.0 - aPosicion.y, uLargo);
                 float z = uCamara.z + 4.0 - delante;
                 float x = caminoX(z) + aPosicion.x;
+
+                // Fuera de lo que ve la cámara: se descarta antes de calcular nada
+                vec2 rel = vec2(x, z) - uCamara.xz;
+                float alFrente = dot(rel, uAdelante);
+                if (alFrente < -1.0 || abs(dot(rel, vec2(-uAdelante.y, uAdelante.x))) > alFrente * uTanMedio + 1.6) {
+                    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+                    return;
+                }
 
                 float hastaAgua = abs(arroyo(x, z));
                 if (hastaAgua < 1.7) {
@@ -1208,6 +1312,9 @@ function crearHierba() {
             uniform vec3 uAmbiente;
             uniform vec3 uNiebla;
             uniform float uNoche;
+            uniform float uDestello;
+            uniform vec3 uLuzGrieta;
+            uniform vec3 uDirGrieta;
             varying float vAltura;
             varying float vAzar;
             varying float vMancha;
@@ -1221,12 +1328,13 @@ function crearHierba() {
                 if (vAzar > 0.93) punta *= vec3(1.35, 1.1, 0.6);
                 punta = mix(punta, punta * vec3(1.18, 1.08, 0.72), smoothstep(0.6, 0.85, vMancha));
                 punta = mix(punta, punta * vec3(0.78, 0.9, 1.0), 1.0 - smoothstep(0.15, 0.35, vMancha));
-                vec3 color = mix(uBase, punta, vAltura);
-                // Florecillas sueltas en la punta de algunas briznas
-                if (vAzar > 0.984 && vAltura > 0.8) {
-                    color = vMancha > 0.66 ? vec3(1.0, 0.86, 0.45) : (vMancha > 0.33 ? vec3(0.95, 0.62, 0.8) : vec3(0.92, 0.92, 1.0));
-                }
+                vec3 color = mix(uBase, punta, vAltura * vAltura);
                 color *= uAmbiente * 1.3 + uLuz * (0.3 + 0.5 * vAltura);
+                color *= 1.0 + uDestello * 0.6;
+                // A contraluz de la grieta las puntas se encienden
+                vec3 rayoVista = normalize(vMundo - cameraPosition);
+                float delante = max(dot(normalize(rayoVista.xz), normalize(uDirGrieta.xz)), 0.0);
+                color += uLuzGrieta * pow(vAltura, 4.0) * pow(delante, 12.0) * smoothstep(6.0, 30.0, d) * 0.12;
                 // Las puntas brillan con la luz del sol (a contraluz, al atardecer)
                 color += uLuz * pow(vAltura, 4.0) * 0.16 * (1.0 - uNoche);
                 color += vec3(1.0, 0.55, 0.22) * luzFarolas(vMundo) * uNoche * (0.03 + vAltura * 0.13);
@@ -1251,10 +1359,31 @@ const hierba = crearHierba();
 // por vértice: así cada trozo es una sola llamada de dibujo.
 // =====================================================================
 
+// Filo de luz de la grieta: lo que queda entre la cámara y la grieta
+// se ve a contraluz, con el borde encendido. El relámpago lo aclara todo.
+function contraluzGrieta(shader) {
+    shader.uniforms.uLuzGrieta = comunes.uLuzGrieta;
+    shader.uniforms.uDirGrietaVista = comunes.uDirGrietaVista;
+    shader.uniforms.uDestello = comunes.uDestello;
+    shader.fragmentShader = shader.fragmentShader
+        .replace("#include <common>", "#include <common>\nuniform vec3 uLuzGrieta;\nuniform vec3 uDirGrietaVista;\nuniform float uDestello;")
+        .replace(
+            "#include <opaque_fragment>",
+            `vec3 haciaOjo = normalize(vViewPosition);
+            float filoG = pow(1.0 - clamp(dot(normal, haciaOjo), 0.0, 1.0), 3.0);
+            float miraG = smoothstep(-0.1, 0.6, dot(normal, uDirGrietaVista));
+            float detrasG = pow(max(dot(-haciaOjo, uDirGrietaVista), 0.0), 2.0);
+            outgoingLight += uLuzGrieta * filoG * miraG * (0.25 + 0.75 * detrasG) * 0.9;
+            outgoingLight *= 1.0 + uDestello * 0.4;
+            #include <opaque_fragment>`
+        );
+}
+
 // Lo que está lejos se desvanece con un ruido fino
 // para fundirse con el fondo pintado, en vez de cortarse de golpe.
 function desvanecerLejos(material, cerca, lejos) {
     material.onBeforeCompile = (shader) => {
+        contraluzGrieta(shader);
         shader.fragmentShader = shader.fragmentShader.replace(
             "#include <clipping_planes_fragment>",
             `#include <clipping_planes_fragment>
@@ -1267,7 +1396,20 @@ function desvanecerLejos(material, cerca, lejos) {
 
 const materialMundo = desvanecerLejos(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true, emissive: "#141c26" }), 60, 95);
 const materialFarol = new THREE.MeshBasicMaterial({ color: "#2a2230" });
-const materialFlores = new THREE.PointsMaterial({ size: 0.13, vertexColors: true });
+// Las flores son puntos redondos (sin textura serían cuadrados)
+function texturaRedonda() {
+    const lienzo = document.createElement("canvas");
+    lienzo.width = lienzo.height = 32;
+    const ctx = lienzo.getContext("2d");
+    const degradado = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+    degradado.addColorStop(0, "rgba(255, 255, 255, 1)");
+    degradado.addColorStop(0.55, "rgba(255, 255, 255, 1)");
+    degradado.addColorStop(1, "rgba(255, 255, 255, 0)");
+    ctx.fillStyle = degradado;
+    ctx.fillRect(0, 0, 32, 32);
+    return new THREE.CanvasTexture(lienzo);
+}
+const materialFlores = new THREE.PointsMaterial({ size: 0.11, vertexColors: true, map: texturaRedonda(), alphaTest: 0.5 });
 
 const colores = {
     tronco: "#2b2019",
@@ -1423,8 +1565,22 @@ function crearObra(aleatorio) {
 // =====================================================================
 
 const tonosPino = [["#06120f", "#1d4234"], ["#071210", "#1a3a3c"], ["#08140e", "#244a32"]];
-const tonosHoja = [["#0a1a0e", "#2c5a2c"], ["#0c1c10", "#3a6a30"]];
-const tonosOtono = [["#1a0a06", "#8a3a16"], ["#1c0e06", "#9a6a1a"], ["#1a0808", "#7a2420"]];
+const tonosHoja = [["#06100a", "#24482a"], ["#08120a", "#2e5428"], ["#071010", "#24443e"]];
+const tonosOtono = [["#120804", "#5a2a12"], ["#140a04", "#5e4416"], ["#120606", "#4e1c1a"]];
+
+// Oscurece cada bola de la copa por abajo y por dentro, como si las
+// hojas de fuera taparan la luz a las de dentro
+function sombrearBola(g, cx, cy, cz, r) {
+    const pos = g.attributes.position;
+    const col = g.attributes.color;
+    for (let i = 0; i < pos.count; i++) {
+        const ny = (pos.getY(i) - cy) / r;
+        const fuera = Math.min(1, Math.hypot(pos.getX(i) - cx, pos.getZ(i) - cz) / r);
+        const k = (0.45 + 0.55 * THREE.MathUtils.smoothstep(ny, -1, 0.9)) * (0.7 + 0.3 * fuera);
+        col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k);
+    }
+    return g;
+}
 
 // Deforma un poco los vértices para que no parezcan formas perfectas
 function abollar(geometria, fuerza, frecuencia, semilla) {
@@ -1472,14 +1628,24 @@ function juntar(lista) {
 function geometriaPino(alto, a) {
     const [oscuro, claro] = tonosPino[Math.floor(a() * tonosPino.length)];
     const partes = [tenir(new THREE.CylinderGeometry(0.03 * alto, 0.045 * alto, 0.3 * alto, 7).translate(0, 0.15 * alto, 0), "#120c08", "#2a1e16", 0, alto, a, 0.3)];
-    const pisos = 5;
+    const pisos = 7;
     for (let i = 0; i < pisos; i++) {
         const t = i / pisos;
-        const radio = 0.27 * alto * (1 - t * 0.78) * (0.9 + a() * 0.2);
-        const altoPiso = 0.3 * alto * (1 - t * 0.25);
-        const cono = abollar(new THREE.ConeGeometry(radio, altoPiso, 11, 2), 0.12, 9 / alto, a() * 10);
-        cono.translate(0, 0.2 * alto + t * 0.68 * alto + altoPiso / 2, 0);
-        partes.push(tenir(cono, oscuro, claro, 0.1 * alto, alto * 1.05, a));
+        const radio = 0.28 * alto * (1 - t * 0.8) * (0.88 + a() * 0.24);
+        const altoPiso = 0.24 * alto * (1 - t * 0.3);
+        const cono = abollar(new THREE.ConeGeometry(radio, altoPiso, 13, 3), 0.16, 11 / alto, a() * 10);
+        cono.rotateY(a() * 6.28);
+        const y0 = 0.2 * alto + t * 0.7 * alto + altoPiso / 2;
+        cono.translate(0, y0, 0);
+        const g = tenir(cono, oscuro, claro, 0.1 * alto, alto * 1.05, a);
+        // La parte de abajo de cada piso queda en sombra
+        const pos = g.attributes.position;
+        const col = g.attributes.color;
+        for (let k = 0; k < pos.count; k++) {
+            const f = 0.55 + 0.45 * THREE.MathUtils.smoothstep(pos.getY(k), y0 - altoPiso * 0.5, y0 + altoPiso * 0.2);
+            col.setXYZ(k, col.getX(k) * f, col.getY(k) * f, col.getZ(k) * f);
+        }
+        partes.push(g);
     }
     return juntar(partes);
 }
@@ -1488,14 +1654,26 @@ function geometriaFrondoso(alto, a, otono) {
     const lista = otono ? tonosOtono : tonosHoja;
     const [oscuro, claro] = lista[Math.floor(a() * lista.length)];
     const partes = [tenir(new THREE.CylinderGeometry(0.035 * alto, 0.06 * alto, 0.55 * alto, 7).translate(0, 0.275 * alto, 0), "#140e0a", "#33261c", 0, alto, a, 0.3)];
-    const copas = 6;
+    // Dos ramas que salen del tronco
+    for (let i = 0; i < 2; i++) {
+        const rama = new THREE.CylinderGeometry(0.012 * alto, 0.025 * alto, 0.32 * alto, 5).translate(0, 0.16 * alto, 0);
+        rama.rotateZ((i ? 1 : -1) * (0.6 + a() * 0.3)).rotateY(a() * 6.28).translate(0, 0.45 * alto, 0);
+        partes.push(tenir(rama, "#140e0a", "#2a1e16", 0, alto, a, 0.4));
+    }
+    // La copa: muchas bolas abolladas de tamaños distintos, más
+    // apretadas arriba, con huecos entre ellas
+    const copas = 11;
     for (let i = 0; i < copas; i++) {
-        const ang = (i / copas) * Math.PI * 2 + a();
-        const r = 0.2 * alto * (0.7 + a() * 0.5);
-        const bola = abollar(new THREE.IcosahedronGeometry(r, 2), 0.18, 6 / alto, a() * 10);
-        const lejos = i === 0 ? 0 : 0.17 * alto;
-        bola.translate(Math.cos(ang) * lejos, 0.66 * alto + (a() - 0.3) * 0.18 * alto, Math.sin(ang) * lejos);
-        partes.push(tenir(bola, oscuro, claro, 0.4 * alto, 0.95 * alto, a));
+        const ang = i * 2.39996 + a();
+        const altura = 0.52 + (i / copas) * 0.38 + (a() - 0.5) * 0.08;
+        const r = 0.16 * alto * (0.65 + a() * 0.55) * (1.15 - (i / copas) * 0.35);
+        const bola = abollar(abollar(new THREE.IcosahedronGeometry(r, 2), 0.22, 6 / alto, a() * 10), 0.08, 17 / alto, a() * 10);
+        const lejos = (i === 0 ? 0 : 0.21 * alto) * (1.05 - (i / copas) * 0.5);
+        const cx = Math.cos(ang) * lejos;
+        const cy = altura * alto;
+        const cz = Math.sin(ang) * lejos;
+        bola.translate(cx, cy, cz);
+        partes.push(sombrearBola(tenir(bola, oscuro, claro, 0.4 * alto, 0.98 * alto, a), cx, cy, cz, r));
     }
     return juntar(partes);
 }
@@ -1505,9 +1683,11 @@ function geometriaArbusto(tam, a, conFlores) {
     const partes = [];
     for (let i = 0; i < 3; i++) {
         const r = 0.45 * tam * (0.7 + a() * 0.5);
-        const bola = abollar(new THREE.IcosahedronGeometry(r, 2), 0.2, 8 / tam, a() * 10);
-        bola.scale(1, 0.8, 1).translate((a() - 0.5) * 0.7 * tam, r * 0.6, (a() - 0.5) * 0.7 * tam);
-        partes.push(tenir(bola, oscuro, claro, 0, tam * 1.1, a, 0.4));
+        const bola = abollar(abollar(new THREE.IcosahedronGeometry(r, 2), 0.2, 8 / tam, a() * 10), 0.08, 20 / tam, a() * 10);
+        const cx = (a() - 0.5) * 0.7 * tam;
+        const cz = (a() - 0.5) * 0.7 * tam;
+        bola.scale(1, 0.8, 1).translate(cx, r * 0.6, cz);
+        partes.push(sombrearBola(tenir(bola, oscuro, claro, 0, tam * 1.1, a, 0.4), cx, r * 0.6, cz, r));
     }
     if (conFlores) {
         const color = coloresFlor[Math.floor(a() * coloresFlor.length)].getHexString();
@@ -1568,6 +1748,7 @@ materialPlantas.onBeforeCompile = (shader) => {
             `#include <clipping_planes_fragment>
             if (smoothstep(60.0, 95.0, length(vViewPosition)) > tramado(gl_FragCoord.xy)) discard;`
         );
+    contraluzGrieta(shader);
 };
 materialPlantas.customProgramCacheKey = () => "plantas";
 
@@ -2067,6 +2248,55 @@ geometriaPetalos.setAttribute("position", new THREE.BufferAttribute(posicionesPe
 geometriaPetalos.setAttribute("color", new THREE.BufferAttribute(coloresPetalos, 3));
 const materialPetalos = new THREE.PointsMaterial({ size: 0.05, vertexColors: true, transparent: true, opacity: 1 });
 const petalos = new THREE.Points(geometriaPetalos, materialPetalos);
+
+// Polvo de luz: motas que suben despacio y se alejan hacia la grieta.
+// Viven en una caja alrededor de la cámara y al salir vuelven a entrar.
+const cuantoPolvo = movil ? 160 : 320;
+const geometriaPolvo = new THREE.BufferGeometry();
+const posicionesPolvo = new Float32Array(cuantoPolvo * 3);
+const azarPolvo = new Float32Array(cuantoPolvo);
+for (let i = 0; i < cuantoPolvo; i++) {
+    posicionesPolvo.set([entre(-10, 10), entre(-2, 5), entre(-28, 2)], i * 3);
+    azarPolvo[i] = azar();
+}
+geometriaPolvo.setAttribute("position", new THREE.BufferAttribute(posicionesPolvo, 3));
+geometriaPolvo.setAttribute("aAzar", new THREE.BufferAttribute(azarPolvo, 1));
+const materialPolvo = new THREE.ShaderMaterial({
+    uniforms: { uTiempo: comunes.uTiempo, uCamara: comunes.uCamara, uLuzGrieta: comunes.uLuzGrieta, uEscala: { value: 1 } },
+    vertexShader: `
+        attribute float aAzar;
+        uniform float uTiempo;
+        uniform vec3 uCamara;
+        uniform float uEscala;
+        varying float vBrillo;
+        void main() {
+            vec3 caja = vec3(20.0, 7.0, 30.0);
+            vec3 esquina = vec3(-10.0, -2.0, -28.0);
+            vec3 p = position + vec3(sin(uTiempo * 0.3 + aAzar * 20.0) * 0.6, uTiempo * (0.08 + aAzar * 0.14), -uTiempo * (0.2 + aAzar * 0.2));
+            vec3 rel = mod(p - uCamara - esquina, caja) + esquina;
+            vec4 vista = viewMatrix * vec4(uCamara + rel, 1.0);
+            float borde = smoothstep(-2.0, -0.5, rel.y) * smoothstep(5.0, 3.5, rel.y) * smoothstep(-28.0, -22.0, rel.z) * smoothstep(2.0, -0.5, rel.z) * smoothstep(10.0, 7.0, abs(rel.x));
+            vBrillo = borde * (0.4 + 0.6 * pow(0.5 + 0.5 * sin(uTiempo * (1.0 + aAzar * 2.0) + aAzar * 40.0), 3.0));
+            gl_PointSize = uEscala * (0.5 + aAzar) / -vista.z;
+            gl_Position = projectionMatrix * vista;
+        }
+    `,
+    fragmentShader: `
+        uniform vec3 uLuzGrieta;
+        varying float vBrillo;
+        void main() {
+            float r = length(gl_PointCoord - 0.5) * 2.0;
+            float a = exp(-r * r * 7.0);
+            gl_FragColor = vec4((uLuzGrieta * 0.8 + vec3(0.12, 0.1, 0.18)) * a * vBrillo * 1.5, 1.0);
+        }
+    `,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+});
+const polvo = new THREE.Points(geometriaPolvo, materialPolvo);
+polvo.frustumCulled = false;
+escena.add(polvo);
 petalos.frustumCulled = false;
 escena.add(petalos);
 
@@ -2531,6 +2761,54 @@ function revisarRendimiento() {
 // 18. TAMAÑO DE LA VENTANA
 // =====================================================================
 
+// Rayos de luz: desde cada píxel se avanza hacia la grieta sumando lo
+// que brilla en el cielo. Los árboles y montes tapan esa luz y dejan
+// haces entre ellos, como la luz entre la niebla.
+const paseRayos = new ShaderPass({
+    uniforms: {
+        tDiffuse: { value: null },
+        uCentro: { value: new THREE.Vector2(0.5, 0.75) },
+        uHorizonte: { value: 0.4 },
+        uFuerza: { value: 0 }
+    },
+    vertexShader: `
+        varying vec2 vUv;
+        void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: `
+        uniform sampler2D tDiffuse;
+        uniform vec2 uCentro;
+        uniform float uHorizonte;
+        uniform float uFuerza;
+        varying vec2 vUv;
+        #define PASOS ${movil ? 16 : 22}
+        void main() {
+            vec4 base = texture2D(tDiffuse, vUv);
+            if (uFuerza < 0.01) {
+                gl_FragColor = base;
+                return;
+            }
+            vec2 paso = (uCentro - vUv) / float(PASOS);
+            float j = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+            vec2 p = vUv + paso * j * 0.7;
+            vec3 suma = vec3(0.0);
+            float peso = 1.0;
+            for (int i = 0; i < PASOS; i++) {
+                vec3 c = texture2D(tDiffuse, p).rgb;
+                float l = dot(c, vec3(0.3, 0.5, 0.2));
+                suma += c * smoothstep(0.45, 1.3, l) * smoothstep(uHorizonte, uHorizonte + 0.06, p.y) * peso;
+                peso *= 0.92;
+                p += paso;
+            }
+            float lejos = length((vUv - uCentro) * vec2(1.6, 1.0));
+            gl_FragColor = vec4(base.rgb + suma / float(PASOS) * uFuerza * 0.8 * (1.0 - smoothstep(0.2, 1.0, lejos) * 0.6), base.a);
+        }
+    `
+});
+
 // El compositor limpia cada pasada él solo
 renderizador.autoClear = true;
 const compositor = new EffectComposer(renderizador, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: hayFlotantes ? THREE.HalfFloatType : THREE.UnsignedByteType }));
@@ -2540,6 +2818,7 @@ paseEscena.clear = false;
 paseEscena.clearDepth = true;
 compositor.addPass(paseFondo);
 compositor.addPass(paseEscena);
+compositor.addPass(paseRayos);
 compositor.addPass(new PaseBrillo({ flotantes: hayFlotantes, escala: movil ? 3 : 2, umbral: 0.62, umbralRaya: 0.85, fuerza: 0.5, raya: 0.18 }));
 compositor.addPass(new OutputPass());
 compositor.addPass(crearAcabado(comunes.uTiempo));
@@ -2549,8 +2828,10 @@ window.addEventListener("resize", () => {
     compositor.setPixelRatio(renderizador.getPixelRatio());
     compositor.setSize(innerWidth, innerHeight);
     ajustarEncuadre();
+    materialPolvo.uniforms.uEscala.value = renderizador.getPixelRatio() * innerHeight / 22;
 });
 ajustarEncuadre();
+materialPolvo.uniforms.uEscala.value = renderizador.getPixelRatio() * innerHeight / 22;
 
 // =====================================================================
 // 19. CARGA DE LAS CAPAS Y BUCLE PRINCIPAL
@@ -2589,6 +2870,7 @@ function animar() {
 
     moverEntrada();
     moverRayo(delta);
+    luzDeLaGrieta();
     paseEscena.enabled = !soloFondo;
     compositor.render();
 
