@@ -53,14 +53,14 @@ const factorCalidad = (parametros.get("calidad") === "baja" ? 0.4 : 1) * (movil 
 // Cada uno salta al pasar por su metro y se cierra al seguir andando.
 const conCarteles = parametros.get("carteles") !== "no";
 const CARTELES = [
-    { metro: 14, id: "cartel-sobre-mi" },
-    { metro: 40, id: "cartel-habilidades" },
-    { metro: 68, id: "cartel-formacion" },
-    { metro: 96, id: "cartel-contacto" }
+    { metro: 18, id: "cartel-sobre-mi" },
+    { metro: 78, id: "cartel-habilidades" },
+    { metro: 140, id: "cartel-formacion" },
+    { metro: 202, id: "cartel-contacto" }
 ];
 
 // El final del camino: un mirador desde el que se ve Gargantua grande
-const FIN = 130;
+const FIN = 270;
 
 // Largo de cada trozo del mundo (en metros)
 const LARGO_TROZO = 25;
@@ -752,19 +752,19 @@ const fragmentFondo = `
         c = nubesLuna(c, fl);
         float luz = luzLuna(fl);
 
-        vec4 capa = montana(enPlano(dm, 2600.0), t, 3.0, 0.03, 0.62, 1.25, uMontanaLejos, 0.16, 0.24);
+        vec4 capa = montana(enPlano(dm, 4200.0), t, 3.0, 0.03, 0.62, 1.25, uMontanaLejos, 0.16, 0.24);
         c = mix(c, capa.rgb, capa.a);
 
-        capa = nubes(enPlano(dm, 1900.0), t, 7.0, uLinea + 0.1, uLinea + 0.3, 0.58, 2.2);
+        capa = nubes(enPlano(dm, 3000.0), t, 7.0, uLinea + 0.1, uLinea + 0.3, 0.58, 2.2);
         c = mix(c, capa.rgb + vec3(0.6, 0.66, 0.85) * luz * 0.35 + vec3(1.0, 0.6, 0.3) * luzGargantua(fg) * 0.22, capa.a);
 
-        capa = montana(enPlano(dm, 1100.0), t, 11.0, 0.0, 0.36, 2.0, uMontanaCerca, 0.05, 0.19);
+        capa = montana(enPlano(dm, 1900.0), t, 11.0, 0.0, 0.36, 2.0, uMontanaCerca, 0.05, 0.19);
         c = mix(c, capa.rgb, capa.a);
 
-        capa = colina(enPlano(dm, 420.0), t, 21.0, 0.0, 0.05, 0.012, uBosqueLejos, 0.18);
+        capa = colina(enPlano(dm, 800.0), t, 21.0, 0.0, 0.05, 0.012, uBosqueLejos, 0.18);
         c = mix(c, capa.rgb, capa.a);
 
-        capa = colina(enPlano(dm, 260.0), t, 33.0, -0.015, 0.045, 0.02, uBosqueCerca, 0.0);
+        capa = colina(enPlano(dm, 560.0), t, 33.0, -0.015, 0.045, 0.02, uBosqueCerca, 0.0);
         c = mix(c, capa.rgb, capa.a);
 
         c += vec3(0.5, 0.56, 0.75) * luz * 0.04;
@@ -2505,7 +2505,10 @@ function crearTrozo(indice) {
     const ladoFarola = indice % 2 === 0 ? 1 : -1;
 
     // El suceso del trozo y, a veces, algo pequeño más
-    const huecos = [zInicio - entre(3, 8, a), zInicio - entre(17, 22, a)].filter((z) => lejosDelAgua(z));
+    // Lejos del agua y de los postes del portfolio (un arco o un muro
+    // encima de un poste lo atravesaba)
+    const zPostes = conCarteles ? CARTELES.map((c) => -c.metro - 6) : [];
+    const huecos = [zInicio - entre(3, 8, a), zInicio - entre(17, 22, a)].filter((z) => lejosDelAgua(z) && zPostes.every((zp) => Math.abs(z - zp) > 8));
     // En el trozo del final no hay otro suceso: está el mirador
     const trozoFin = Math.floor((FIN + 3) / largo) === indice;
     const tipo = trozoFin ? null : sucesoDeTrozo(indice);
@@ -3363,7 +3366,7 @@ const textoVolver = enlaceVolver.textContent;
 let alFinal = false;
 
 function moverFinal() {
-    const fin = THREE.MathUtils.smoothstep(metros, FIN - 40, FIN - 2);
+    const fin = THREE.MathUtils.smoothstep(metros, FIN - 60, FIN - 2);
     gargantua.lerpVectors(gargantuaBase, gargantuaFinal, fin * fin * (3 - 2 * fin));
     uniformesFondo.uAmanecer.value = fin;
     const ahora = metros > FIN - 3;
@@ -3678,10 +3681,10 @@ function mostrarCartel(c) {
 }
 
 function actualizarCarteles() {
-    // El cartel que toca es el último que has pasado, mientras no te alejes más de 18 m
+    // El cartel que toca es el último que has pasado, mientras no te alejes más de 26 m
     let toca = null;
     CARTELES.forEach((c) => {
-        if (metros >= c.metro && metros < c.metro + 18 && !cartelesCerrados.has(c.id)) toca = c;
+        if (metros >= c.metro && metros < c.metro + 26 && !cartelesCerrados.has(c.id)) toca = c;
         // Las letras del poste se encienden al acercarte
         const m = materialesPoste.get(c.id);
         if (m) {
@@ -3795,8 +3798,14 @@ const botonesParada = paradas.map((parada) => {
 });
 if (!conCarteles) recorrido.hidden = true;
 
+// Solo se toca el HTML cuando cambia algo (no en cada fotograma)
+let ultimoRecorrido = -1;
+
 function moverRecorrido() {
-    recorridoHecho.style.transform = `scaleX(${Math.min(1, metros / FIN)})`;
+    const hecho = Math.round(Math.min(1, metros / FIN) * 400) / 400;
+    if (hecho === ultimoRecorrido) return;
+    ultimoRecorrido = hecho;
+    recorridoHecho.style.transform = `scaleX(${hecho})`;
     paradas.forEach((parada, i) => botonesParada[i].classList.toggle("pasada", metros >= parada.metro - 1));
 }
 
@@ -4039,7 +4048,7 @@ function animar() {
     comunes.uTiempo.value = tiempo;
 
 
-    if (caminandoSolo) metrosObjetivo = Math.min(FIN, metrosObjetivo + 1.4 * delta);
+    if (caminandoSolo) metrosObjetivo = Math.min(FIN, metrosObjetivo + 1.8 * delta);
     moverFinal(delta);
     metros += (metrosObjetivo - metros) * Math.min(1, delta * 2.5);
 
