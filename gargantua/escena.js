@@ -19,7 +19,8 @@ import { Pass, FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 // Opciones en la dirección:
 //   ?sinentrada  -> sin la llegada
 //   ?fijo        -> sin llegada ni cambios de resolución
-//   ?marea=si    -> el planeta cae enseguida
+//   ?marea=si    -> el planeta que se come Gargantua (quitado por ahora)
+//                   vuelve y cae enseguida
 //   ?pulso       -> despierta el agujero al cargar
 // =====================================================================
 
@@ -915,7 +916,12 @@ function moverPlaneta(delta, pasos, dt) {
     if (r < 2.7) romperPlaneta();
 }
 
+// El planeta que se come Gargantua está quitado por ahora: solo sale
+// con ?marea=si (el código se queda para más adelante)
+const comerPlanetas = parametros.get("marea") === "si";
+
 function moverMarea(delta) {
+    if (!comerPlanetas) return;
     if (marea.estado === "nada") {
         marea.espera -= delta;
         if (marea.espera <= 0 && comunes.uEncendido.value > 0.95 && !pocoMovimiento) {
@@ -1987,7 +1993,7 @@ const soltar = (e) => {
             return;
         }
         despertar();
-        lanzarPlaneta();
+        if (comerPlanetas) lanzarPlaneta();
     }
 };
 lienzo.addEventListener("pointerup", soltar);
