@@ -19,7 +19,7 @@ import { PaseBrillo, crearAcabado, crearZumbido } from "./cine.js?v=2";
 //   ?ciervo=si       -> el ciervo cruza enseguida
 //   ?entrada=2       -> congela la entrada en ese segundo (para ajustarla)
 //   ?metros=120      -> empieza más adelante en el camino
-//   ?calidad=baja    -> menos hierba
+//   ?calidad=baja    -> modo ligero: menos hierba, sin desenfoque ni rayos
 //   ?fps=si          -> contador de fotogramas
 //   ?tocar=no        -> la hierba no reacciona al ratón
 //   ?fondo=solo      -> solo el fondo, sin la escena 3D (para ajustarlo)
@@ -44,6 +44,9 @@ if (parametros.get("dentro") === "si" && window.parent !== window) {
 const movil = window.innerWidth < 760 || window.matchMedia("(pointer: coarse)").matches;
 const movimientoReducido = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const tocarHierba = parametros.get("tocar") !== "no";
+// Modo ligero: móviles con poca memoria o pocos núcleos, o ?calidad=baja.
+// Sin el paso de cine (desenfoque y rayos de luna) y sombras más pequeñas
+const ligero = parametros.get("calidad") === "baja" || (movil && ((navigator.deviceMemory || 8) <= 4 || (navigator.hardwareConcurrency || 8) <= 4));
 const factorCalidad = (parametros.get("calidad") === "baja" ? 0.4 : 1) * (movil ? 0.32 : 1);
 
 // Carteles del portfolio a lo largo del camino (?carteles=no para quitarlos).
@@ -55,6 +58,9 @@ const CARTELES = [
     { metro: 68, id: "cartel-formacion" },
     { metro: 96, id: "cartel-contacto" }
 ];
+
+// El final del camino: un mirador desde el que se ve Gargantua grande
+const FIN = 130;
 
 // Largo de cada trozo del mundo (en metros)
 const LARGO_TROZO = 25;
@@ -346,6 +352,8 @@ const luna = new THREE.Vector3(1.4, 0.58, 0.05);
 const DIR_LUNA = new THREE.Vector3(0.5, 0.3, -0.8).normalize();
 // Gargantua, el agujero negro de la portada, a lo lejos a la izquierda
 const gargantua = new THREE.Vector3(0.6, 0.66, 0.026);
+const gargantuaBase = new THREE.Vector3();
+const gargantuaFinal = new THREE.Vector3();
 
 const escenaFondo = new THREE.Scene();
 const camaraFondo = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -366,6 +374,8 @@ const uniformesFondo = {
     uGiroCamara: { value: new THREE.Matrix3() },
     uBase: { value: new THREE.Matrix3() },
     uTanMedio: { value: new THREE.Vector2(1, 1) },
+    uCamPos: { value: new THREE.Vector3() },
+    uInicio: { value: new THREE.Vector3() },
     uGargantua: { value: gargantua },
     uSubida: { value: 1 },
     uFugaz: { value: new THREE.Vector4(0, 0, 0, 0) },
@@ -400,6 +410,8 @@ const fragmentFondo = `
     uniform mat3 uGiroCamara;
     uniform mat3 uBase;
     uniform vec2 uTanMedio;
+    uniform vec3 uCamPos;
+    uniform vec3 uInicio;
     uniform vec3 uGargantua;
     uniform float uSubida;
     uniform vec4 uFugaz;
@@ -436,6 +448,20 @@ const fragmentFondo = `
     // Ruido fino por píxel
     float tramado() {
         return fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    }
+
+    // Montañas y colinas en 3D de verdad: cada fila es un plano de pie a su
+    // distancia del principio del camino. Se busca dónde corta el rayo del
+    // píxel (desde donde está la cámara ahora) y ese punto se lleva al
+    // dibujo tal y como se ve desde el principio. Así al andar las colinas
+    // cercanas crecen y se mueven más que las montañas lejanas.
+    vec2 enPlano(vec3 dm, float distancia) {
+        float zPlano = uInicio.z - distancia;
+        float t = (zPlano - uCamPos.z) / min(dm.z, -0.0001);
+        vec3 rel = uBase * (uCamPos + dm * t - uInicio);
+        vec2 b = rel.xy / max(-rel.z, 0.05) / uTanMedio * 0.5 + 0.5;
+        vec2 m = (b - 0.5) * uVisible + 0.5;
+        return vec2(m.x * uAspectoMarco, m.y);
     }
 
     // Coordenadas del marco para una capa con su paralaje y su zoom al caminar
@@ -659,7 +685,8 @@ const fragmentFondo = `
     // encima y el disco plano cruzando por delante
     float luzGargantua(vec2 f) {
         vec2 g = (f - uGargantua.xy) * vec2(0.55, 1.0);
-        return exp(-length(g) / 0.16);
+        float tam = uGargantua.z / 0.028;
+        return exp(-length(g) / (0.16 * tam)) * min(tam, 1.8);
     }
 
     vec3 gargantuaLejos(vec3 c, vec2 f) {
@@ -697,7 +724,8 @@ const fragmentFondo = `
         // o mirar con el ratón el cielo se queda en su sitio, como las
         // montañas de verdad, y no se mueve pegado a la pantalla
         vec4 v = uInvProy * vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
-        vec3 dir = uBase * (uGiroCamara * normalize(v.xyz / v.w));
+        vec3 dm = uGiroCamara * normalize(v.xyz / v.w);
+        vec3 dir = uBase * dm;
         vec2 enBase = dir.xy / max(-dir.z, 0.05) / uTanMedio * 0.5 + 0.5;
         vec2 marco = (enBase - 0.5) * uVisible + 0.5;
         // Muy por debajo del horizonte todo lo tapa el suelo 3D
@@ -710,27 +738,27 @@ const fragmentFondo = `
         vec2 fc = enCapa(marco, 0.0, 0.0);
         vec3 c = cielo(fc, t);
         c = viaLactea(c, fc, clamp((fc.y - uLinea) / (1.0 - uLinea), 0.0, 1.0));
-        vec2 fl = enCapa(marco, 0.0, 0.015);
+        vec2 fl = fc;
         c = estrellaFugaz(c, fc);
-        vec2 fg = enCapa(marco, 0.0, 0.01);
+        vec2 fg = fc;
         c = gargantuaLejos(c, fg);
         c = dibujarLuna(c, fl);
         c = nubesLuna(c, fl);
         float luz = luzLuna(fl);
 
-        vec4 capa = montana(enCapa(marco, 0.01, 0.03), t, 3.0, 0.03, 0.62, 1.25, uMontanaLejos, 0.16, 0.24);
+        vec4 capa = montana(enPlano(dm, 2600.0), t, 3.0, 0.03, 0.62, 1.25, uMontanaLejos, 0.16, 0.24);
         c = mix(c, capa.rgb, capa.a);
 
-        capa = nubes(enCapa(marco, 0.012, 0.04), t, 7.0, uLinea + 0.1, uLinea + 0.3, 0.58, 2.2);
+        capa = nubes(enPlano(dm, 1900.0), t, 7.0, uLinea + 0.1, uLinea + 0.3, 0.58, 2.2);
         c = mix(c, capa.rgb + vec3(0.6, 0.66, 0.85) * luz * 0.35 + vec3(1.0, 0.6, 0.3) * luzGargantua(fg) * 0.22, capa.a);
 
-        capa = montana(enCapa(marco, 0.014, 0.05), t, 11.0, 0.0, 0.36, 2.0, uMontanaCerca, 0.05, 0.19);
+        capa = montana(enPlano(dm, 1100.0), t, 11.0, 0.0, 0.36, 2.0, uMontanaCerca, 0.05, 0.19);
         c = mix(c, capa.rgb, capa.a);
 
-        capa = colina(enCapa(marco, 0.022, 0.15), t, 21.0, 0.0, 0.05, 0.012, uBosqueLejos, 0.18);
+        capa = colina(enPlano(dm, 420.0), t, 21.0, 0.0, 0.05, 0.012, uBosqueLejos, 0.18);
         c = mix(c, capa.rgb, capa.a);
 
-        capa = colina(enCapa(marco, 0.03, 0.22), t, 33.0, -0.015, 0.045, 0.02, uBosqueCerca, 0.0);
+        capa = colina(enPlano(dm, 260.0), t, 33.0, -0.015, 0.045, 0.02, uBosqueCerca, 0.0);
         c = mix(c, capa.rgb, capa.a);
 
         c += vec3(0.5, 0.56, 0.75) * luz * 0.04;
@@ -837,6 +865,8 @@ function luzDeLaLuna() {
     const uf = uniformesFondo;
     uf.uInvProy.value.copy(camara.projectionMatrixInverse);
     uf.uGiroCamara.value.setFromMatrix4(camara.matrixWorld);
+    uf.uCamPos.value.copy(camara.position);
+    uf.uInicio.value.set(caminoX(0) * 0.92, ajustes.alturaOjos + alturaPuente(0), 0);
     paseCine.uniforms.uHorizonte.value = (1 - HORIZONTE_EN_MARCO - 0.5) / visible.y + 0.5;
     paseCine.uniforms.uFuerza.value = subida;
     const adelante = auxLuna.set(0, 0, -1).transformDirection(camara.matrixWorld);
@@ -894,7 +924,9 @@ function ajustarEncuadre() {
     const lunaY = Math.min(0.88, (0.79 - 0.5) / visible.y + 0.5);
     luna.set(((lunaX - 0.5) * visible.x + 0.5) * aspectoMarco, (lunaY - 0.5) * visible.y + 0.5, aspecto < 0.8 ? 0.06 : 0.055);
     const gargantuaX = aspecto < 0.8 ? 0.3 : 0.4;
-    gargantua.set(((gargantuaX - 0.5) * visible.x + 0.5) * aspectoMarco, 0.655, aspecto < 0.8 ? 0.032 : 0.028);
+    gargantuaBase.set(((gargantuaX - 0.5) * visible.x + 0.5) * aspectoMarco, 0.655, aspecto < 0.8 ? 0.032 : 0.028);
+    gargantuaFinal.set(((aspecto < 0.8 ? 0.27 : 0.47) - 0.5) * visible.x * aspectoMarco + 0.5 * aspectoMarco, aspecto < 0.8 ? 0.765 : 0.74, aspecto < 0.8 ? 0.05 : 0.085);
+    gargantua.copy(gargantuaBase);
     const mitad = Math.tan(THREE.MathUtils.degToRad(camara.fov / 2));
     // La vista de partida (sin girar y con la inclinación de siempre): el
     // cielo se dibuja tal cual se ve desde ahí y queda fijo en el mundo
@@ -912,7 +944,7 @@ function ajustarEncuadre() {
 // cámara y cubre lo que hay delante
 const luzLunar = new THREE.DirectionalLight("#b4c6ee", 1.25);
 luzLunar.castShadow = true;
-luzLunar.shadow.mapSize.set(movil ? 1024 : 2048, movil ? 1024 : 2048);
+luzLunar.shadow.mapSize.setScalar(ligero ? 512 : movil ? 1024 : 2048);
 Object.assign(luzLunar.shadow.camera, { left: -26, right: 26, top: 26, bottom: -26, near: 1, far: 160 });
 luzLunar.shadow.bias = -0.0006;
 luzLunar.shadow.normalBias = 0.05;
@@ -2465,7 +2497,10 @@ function crearTrozo(indice) {
 
     // El suceso del trozo y, a veces, algo pequeño más
     const huecos = [zInicio - entre(3, 8, a), zInicio - entre(17, 22, a)].filter((z) => lejosDelAgua(z));
-    const tipo = sucesoDeTrozo(indice);
+    // En el trozo del final no hay otro suceso: está el mirador
+    const trozoFin = Math.floor((FIN + 3) / largo) === indice;
+    const tipo = trozoFin ? null : sucesoDeTrozo(indice);
+    if (trozoFin) ponerSuceso(o, "mirador", -(FIN + 3), 1);
     if (tipo && huecos.length) {
         const lado = tipo === "hito" && indice === 0 ? 1 : a() < 0.5 ? -1 : 1;
         ponerSuceso(o, tipo, indice === 0 ? -9 : huecos[0], lado);
@@ -3135,7 +3170,7 @@ const pista = document.getElementById("pista");
 if (movil) pista.textContent = "Desliza hacia arriba para caminar";
 
 function avanzar(cantidad) {
-    metrosObjetivo = Math.max(0, metrosObjetivo + cantidad);
+    metrosObjetivo = THREE.MathUtils.clamp(metrosObjetivo + cantidad, 0, FIN);
     pista.classList.add("oculta");
 }
 
@@ -3159,9 +3194,31 @@ botonCaminar.addEventListener("click", () => {
     pista.classList.add("oculta");
 });
 
-// Para probar: ?metros=150 empieza ya caminado
+// Para probar: ?metros=120 empieza ya caminado
 if (parametros.has("metros")) {
-    metros = metrosObjetivo = Math.max(0, Number(parametros.get("metros")) || 0);
+    metros = metrosObjetivo = THREE.MathUtils.clamp(Number(parametros.get("metros")) || 0, 0, FIN);
+}
+
+// Al llegar al final, Gargantua sube y crece en el cielo y el botón de
+// volver se pone en grande en el centro
+const enlaceVolver = document.querySelector(".volver");
+const textoVolver = enlaceVolver.textContent;
+let alFinal = false;
+
+function moverFinal() {
+    const fin = THREE.MathUtils.smoothstep(metros, FIN - 40, FIN - 2);
+    gargantua.lerpVectors(gargantuaBase, gargantuaFinal, fin * fin * (3 - 2 * fin));
+    const ahora = metros > FIN - 3;
+    if (ahora !== alFinal) {
+        alFinal = ahora;
+        document.body.classList.toggle("al-final", ahora);
+        enlaceVolver.textContent = ahora ? "Volver volando a Gargantua" : textoVolver;
+        if (ahora) {
+            caminandoSolo = false;
+            botonCaminar.classList.remove("activo");
+            botonCaminar.setAttribute("aria-pressed", "false");
+        }
+    }
 }
 
 // =====================================================================
@@ -3313,27 +3370,43 @@ function crearSonido() {
     return { ctx, general, viento: canal("lowpass", 420, 0.5), agua: canal("bandpass", 1100, 0.7), proximo: 0, buho: ctx.currentTime + 8, ultimoPaso: metros };
 }
 
-// Un paso: un golpe corto de ruido; sobre piedra suena seco y agudo, y
-// en el puente de madera, más grave y con algo de eco
-function paso(a, madera) {
+// Un paso: un golpe corto de ruido que cambia según el suelo. Sobre
+// piedra suena seco, con un poco de grava que cruje después; en el
+// puente de madera, más grave y hueco; junto al arroyo, la piedra mojada
+// chapotea un poco. Cada pie suena algo distinto.
+function paso(a, suelo) {
     const t = a.ctx.currentTime;
-    const fuente = a.ctx.createBufferSource();
-    fuente.buffer = a.viento.fuente.buffer;
-    const filtro = a.ctx.createBiquadFilter();
-    filtro.type = madera ? "lowpass" : "bandpass";
-    filtro.frequency.value = madera ? 600 + Math.random() * 120 : 1700 + Math.random() * 700;
-    filtro.Q.value = madera ? 5 : 0.9;
-    const vol = a.ctx.createGain();
-    vol.gain.setValueAtTime(0.0001, t);
-    vol.gain.linearRampToValueAtTime(madera ? 0.32 : 0.2, t + 0.008);
-    vol.gain.exponentialRampToValueAtTime(0.0005, t + (madera ? 0.17 : 0.09));
-    fuente.connect(filtro).connect(vol).connect(a.general);
-    fuente.onended = () => {
-        fuente.disconnect();
-        vol.disconnect();
+    a.pie = -(a.pie || 1);
+    const tono = 1 + a.pie * 0.06 + (Math.random() - 0.5) * 0.08;
+    const golpe = (tipo, frecuencia, q, volumen, largo, retraso = 0) => {
+        const fuente = a.ctx.createBufferSource();
+        fuente.buffer = a.viento.fuente.buffer;
+        const filtro = a.ctx.createBiquadFilter();
+        filtro.type = tipo;
+        filtro.frequency.value = frecuencia * tono;
+        filtro.Q.value = q;
+        const vol = a.ctx.createGain();
+        vol.gain.setValueAtTime(0.0001, t + retraso);
+        vol.gain.linearRampToValueAtTime(volumen, t + retraso + 0.008);
+        vol.gain.exponentialRampToValueAtTime(0.0005, t + retraso + largo);
+        fuente.connect(filtro).connect(vol).connect(a.general);
+        fuente.onended = () => {
+            fuente.disconnect();
+            vol.disconnect();
+        };
+        fuente.start(t + retraso, Math.random() * 1.5);
+        fuente.stop(t + retraso + largo + 0.05);
     };
-    fuente.start(t, Math.random() * 1.5);
-    fuente.stop(t + 0.2);
+    if (suelo === "madera") {
+        golpe("lowpass", 620, 5, 0.32, 0.17);
+        golpe("bandpass", 210, 8, 0.12, 0.28, 0.01);
+    } else if (suelo === "mojado") {
+        golpe("bandpass", 1500, 0.9, 0.16, 0.08);
+        golpe("highpass", 3200, 0.7, 0.07, 0.22, 0.03);
+    } else {
+        golpe("bandpass", 1900, 0.9, 0.2, 0.09);
+        golpe("highpass", 4200, 0.6, 0.035, 0.14, 0.04);
+    }
 }
 
 // Un búho a lo lejos: "uu... u-uuu", dos notas graves y suaves
@@ -3393,7 +3466,7 @@ function actualizarSonido() {
         audio.proximo = ahora + 0.4 + Math.random() * 1.2;
     }
     if (Math.abs(metros - audio.ultimoPaso) > 0.75) {
-        paso(audio, alturaPuente(-metros) > 0.02);
+        paso(audio, alturaPuente(-metros) > 0.02 ? "madera" : cercaAgua > 0.75 ? "mojado" : "piedra");
         audio.ultimoPaso = metros;
     }
     if (ahora > audio.buho) {
@@ -3445,6 +3518,86 @@ function actualizarCarteles() {
         }
     });
     mostrarCartel(toca);
+}
+
+// Al llegar a cada poste, del farolillo salen chispas de luz que suben
+// en espiral y se apagan, como luciérnagas que despiertan
+const CHISPAS = movil ? 30 : 48;
+const chispas = (() => {
+    const n = CARTELES.length * CHISPAS;
+    const origen = new Float32Array(n * 3);
+    const datos = new Float32Array(n * 4);
+    const giro = new THREE.Vector3();
+    CARTELES.forEach((c, j) => {
+        const z = -c.metro - 6;
+        const x = caminoX(z) + 2.0;
+        giro.set(0.42, 1.86, -0.06).applyAxisAngle(new THREE.Vector3(0, 1, 0), -0.64);
+        for (let i = 0; i < CHISPAS; i++) {
+            const k = j * CHISPAS + i;
+            origen.set([x + giro.x, alturaTerreno(x, z) - 0.05 + giro.y, z + giro.z], k * 3);
+            datos.set([j, Math.random(), Math.random(), Math.random()], k * 4);
+        }
+    });
+    const geometria = new THREE.BufferGeometry();
+    geometria.setAttribute("position", new THREE.BufferAttribute(origen, 3));
+    geometria.setAttribute("aDatos", new THREE.BufferAttribute(datos, 4));
+    const material = new THREE.ShaderMaterial({
+        uniforms: { uTiempo: comunes.uTiempo, uInicio: { value: new THREE.Vector4(-99, -99, -99, -99) }, uEscala: { value: 1 } },
+        vertexShader: `
+            attribute vec4 aDatos;
+            uniform float uTiempo;
+            uniform vec4 uInicio;
+            uniform float uEscala;
+            varying float vLuz;
+            void main() {
+                float inicio = aDatos.x < 0.5 ? uInicio.x : aDatos.x < 1.5 ? uInicio.y : aDatos.x < 2.5 ? uInicio.z : uInicio.w;
+                float edad = uTiempo - inicio - aDatos.y * 0.8;
+                if (edad < 0.0 || edad > 7.0) {
+                    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+                    vLuz = 0.0;
+                    return;
+                }
+                float ang = aDatos.z * 6.2832 + edad * (0.8 + aDatos.w);
+                float radio = 0.15 + edad * (0.25 + aDatos.w * 0.35);
+                vec3 p = position + vec3(cos(ang) * radio, edad * (0.25 + aDatos.z * 0.3) + sin(edad * 3.0 + aDatos.y * 9.0) * 0.08, sin(ang) * radio);
+                vec4 vista = modelViewMatrix * vec4(p, 1.0);
+                gl_Position = projectionMatrix * vista;
+                vLuz = smoothstep(0.0, 0.4, edad) * (1.0 - smoothstep(4.0, 7.0, edad)) * (0.6 + 0.4 * sin(uTiempo * 9.0 + aDatos.y * 30.0));
+                gl_PointSize = uEscala * (0.6 + aDatos.w) / -vista.z;
+            }
+        `,
+        fragmentShader: `
+            varying float vLuz;
+            void main() {
+                float d = length(gl_PointCoord - 0.5);
+                float a = smoothstep(0.5, 0.0, d);
+                gl_FragColor = vec4(vec3(1.0, 0.82, 0.48) * a * vLuz * 1.4, 1.0);
+            }
+        `,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+    });
+    const puntos = new THREE.Points(geometria, material);
+    puntos.frustumCulled = false;
+    puntos.renderOrder = 6;
+    escena.add(puntos);
+    return { material, encendidos: new Set() };
+})();
+
+function encenderChispas() {
+    const inicio = chispas.material.uniforms.uInicio.value;
+    chispas.material.uniforms.uEscala.value = renderizador.getPixelRatio() * innerHeight * 0.065;
+    CARTELES.forEach((c, j) => {
+        // Se encienden al llegar al poste; si te alejas mucho, se pueden
+        // volver a encender a la vuelta
+        const cerca = metros > c.metro - 6 && metros < c.metro + 4;
+        if (cerca && !chispas.encendidos.has(c.id)) {
+            chispas.encendidos.add(c.id);
+            inicio.setComponent(j, comunes.uTiempo.value);
+        }
+        if (Math.abs(metros - c.metro) > 30) chispas.encendidos.delete(c.id);
+    });
 }
 
 document.querySelectorAll(".cartel .cerrar").forEach((boton) => {
@@ -3499,8 +3652,10 @@ function revisarRendimiento() {
             compositor.setSize(innerWidth, innerHeight);
             materialPolvo.uniforms.uEscala.value = resolucion * innerHeight / 22;
         } else if (fps < 45) {
+            // Casi lo último: sin desenfoque ni rayos de luna
+            if (calidadHierba <= 0.3 && resolucion <= 0.75 && fps < 34 && paseCine.enabled) paseCine.enabled = false;
             // Último recurso: sin sombras
-            if (calidadHierba <= 0.3 && resolucion <= 0.75 && fps < 30 && luzLunar.castShadow) {
+            else if (calidadHierba <= 0.3 && resolucion <= 0.75 && fps < 30 && luzLunar.castShadow) {
                 luzLunar.castShadow = false;
                 comunes.uConSombra.value = 0;
             }
@@ -3635,6 +3790,7 @@ class PaseCine extends Pass {
     }
 }
 const paseCine = new PaseCine();
+paseCine.enabled = !ligero;
 
 // El compositor limpia cada pasada él solo
 renderizador.autoClear = true;
@@ -3683,7 +3839,8 @@ function animar() {
     comunes.uTiempo.value = tiempo;
 
 
-    if (caminandoSolo) metrosObjetivo += 1.4 * delta;
+    if (caminandoSolo) metrosObjetivo = Math.min(FIN, metrosObjetivo + 1.4 * delta);
+    moverFinal(delta);
     metros += (metrosObjetivo - metros) * Math.min(1, delta * 2.5);
 
     actualizarRaton(delta);
@@ -3697,7 +3854,10 @@ function animar() {
     moverVaho();
     moverCiervo(delta, tiempo);
     actualizarSonido();
-    if (conCarteles) actualizarCarteles();
+    if (conCarteles) {
+        actualizarCarteles();
+        encenderChispas();
+    }
 
     moverEntrada();
     luzDeLaLuna();

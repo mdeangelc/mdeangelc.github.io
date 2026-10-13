@@ -1232,7 +1232,8 @@ function moverPuertas(delta, t) {
         p.malla.material.uniforms.uEncima.value = p.encima;
         p.malla.material.uniforms.uViaje.value = viaje.puerta === p ? Math.min(1, viaje.t * 2) : 0;
         const escala = (radio / p.radio) * (1 + p.encima * 0.06);
-        p.malla.scale.setScalar(escala);
+        p.malla.scale.setScalar(escala * THREE.MathUtils.smoothstep(comunes.uEncendido.value, 0.3, 0.9));
+        p.malla.visible = comunes.uEncendido.value > 0.3;
         p.aro.position.copy(p.malla.position);
         p.aro.scale.setScalar(radio / p.radio);
         const u = p.aro.material.uniforms;

@@ -267,3 +267,30 @@ canvas {
     font-style: italic;
     font-weight: 400;
 }
+
+.al-final .volver {
+    top: auto;
+    right: auto;
+    left: 50%;
+    bottom: 22%;
+    width: max-content;
+    max-width: 90vw;
+    transform: translateX(-50%);
+    font-family: "Fraunces", Georgia, serif;
+    font-style: italic;
+    font-size: 22px;
+    padding: 10px 26px;
+    border-color: var(--oro);
+    animation: aparecer-final 1.6s ease-out both;
+}
+
+.al-final .pista {
+    opacity: 0;
+}
+
+@keyframes aparecer-final {
+    from {
+        opacity: 0;
+        transform: translate(-50%, 12px);
+    }
+}
