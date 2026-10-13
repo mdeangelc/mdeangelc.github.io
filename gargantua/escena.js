@@ -1386,7 +1386,8 @@ function abrirMundo(destino) {
         // Si dentro se ha ido a Gargantua (por ejemplo, el enlace de volver
         // antes de que cargara el camino), se cierra el mundo
         try {
-            if (marco.contentWindow.location.pathname.includes("/gargantua")) {
+            const ruta = marco.contentWindow.location.pathname;
+            if (ruta.endsWith("/gargantua/") || ruta.endsWith("/gargantua/index.html")) {
                 cerrarMundo();
                 return;
             }
