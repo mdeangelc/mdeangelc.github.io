@@ -114,11 +114,13 @@ export function crearCielo({ tRuido, uTiempo, centro, radio = 200 }) {
                     float cara;
                     vec2 uv = caraCubo(d, cara) * escala;
                     vec2 celda = floor(uv);
+                    // Derivadas antes de salir y acotadas: en el cambio de cara del cubo
+                    // saltan y harían líneas de estrellas gordas
+                    float px = min(length(fwidth(uv)) * 0.75, tam * 3.0);
                     vec3 h = hash33(vec3(celda, cara * 17.0 + semilla));
                     if (h.x > densidad) return vec3(0.0);
                     vec2 centro = celda + 0.3 + h.yz * 0.4;
                     float dist = length(uv - centro);
-                    float px = length(fwidth(uv)) * 0.75;
                     float r = max(tam, px);
                     float luz = smoothstep(r, 0.0, dist) * min(1.0, (tam * tam) / (r * r) * 1.6);
                     float fuerza = 0.25 + pow(fract(h.y * 7.31), 4.0) * 2.4;

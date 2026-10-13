@@ -220,7 +220,7 @@ renderizador.domElement.setAttribute("aria-label", "Camino empedrado de noche, e
 
 // Resolución: empieza a la del aparato (con tope) y, si aun quitando
 // hierba no llega, se baja un poco (ver "17. RENDIMIENTO")
-let resolucion = Math.min(window.devicePixelRatio || 1, movil ? 1.5 : 1.25);
+let resolucion = Math.min(window.devicePixelRatio || 1, 1.25);
 
 function aplicarResolucion() {
     renderizador.setPixelRatio(resolucion);
@@ -566,19 +566,24 @@ const fragmentFondo = `
     // con la cabeza brillante y la cola apagándose
     vec3 estrellaFugaz(vec3 c, vec2 f) {
         if (uFugazT < 0.0) return c;
+        // Las derivadas se piden antes de cualquier salida para que todos
+        // los píxeles vecinos las calculen igual
+        float px = fwidth(f.y);
         vec2 cabeza = uFugaz.xy + uFugaz.zw * uFugazT;
         vec2 dir = normalize(uFugaz.zw);
         vec2 d = f - cabeza;
         float atras = -dot(d, dir);
         float largo = 0.12 * sin(uFugazT * 3.1416);
-        if (atras < -0.004 || atras > largo + 0.004) return c;
+        if (atras < -0.03 || atras > largo + 0.03) return c;
         float lado = abs(d.x * dir.y - d.y * dir.x);
         float cola = 1.0 - clamp(atras / max(largo, 0.001), 0.0, 1.0);
-        float px = fwidth(f.y);
         float raya = smoothstep(px * 1.6, 0.0, lado) * cola * cola;
-        // Se queda por debajo del umbral del destello de lente para que
-        // no deje una raya horizontal cruzando la pantalla
-        return min(c + vec3(0.85, 0.92, 1.0) * raya * 1.8 * sin(uFugazT * 3.1416), vec3(0.8));
+        // Se queda por debajo del umbral del resplandor y del destello de
+        // lente para que no deje rayas horizontales; lleva su propio brillo
+        // suave en la cabeza
+        float fuerza = sin(uFugazT * 3.1416);
+        float halo = exp(-length(d) / 0.006) * 0.25;
+        return min(c + vec3(0.85, 0.92, 1.0) * (raya * 1.8 + halo) * fuerza, vec3(0.58));
     }
 
     // Nubes finas que pasan por delante de la luna, oscuras y con el
@@ -630,10 +635,10 @@ const fragmentFondo = `
 
     vec3 gargantuaLejos(vec3 c, vec2 f) {
         vec2 d = (f - uGargantua.xy) / uGargantua.z;
-        if (abs(d.x) > 14.0 || abs(d.y) > 9.0) return c;
         float r = length(d);
-        vec3 calido = vec3(1.0, 0.68, 0.36);
         float px = fwidth(r) * 1.2;
+        if (abs(d.x) > 14.0 || abs(d.y) > 9.0) return c;
+        vec3 calido = vec3(1.0, 0.68, 0.36);
         // Halo que aclara el cielo de alrededor
         c += calido * (exp(-max(r - 1.0, 0.0) * 0.45) * 0.05 + exp(-max(r - 1.0, 0.0) * 1.6) * 0.12);
         // La sombra tapa estrellas y halo
@@ -3605,6 +3610,9 @@ const soloFondo = parametros.get("fondo") === "solo";
 if (parametros.has("depurar")) window.__camino = { comunes, luzLunar, escena, camara, renderizador, sucesoDeTrozo };
 const reloj = new THREE.Clock();
 let tiempo = 0;
+let cuadroSombra = -1;
+renderizador.shadowMap.autoUpdate = false;
+renderizador.shadowMap.needsUpdate = true;
 
 function animar() {
     requestAnimationFrame(animar);
@@ -3633,6 +3641,10 @@ function animar() {
     luzDeLaLuna();
     moverFugaz(delta);
     paseEscena.enabled = !soloFondo;
+    // Las sombras se repintan cada dos fotogramas (cada tres en el móvil):
+    // casi no se nota y es de lo que más cuesta
+    cuadroSombra = (cuadroSombra + 1) % (movil ? 3 : 2);
+    if (cuadroSombra === 0) renderizador.shadowMap.needsUpdate = true;
     compositor.render();
 
     revisarRendimiento();
