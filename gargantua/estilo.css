@@ -443,3 +443,68 @@ body.viajando .sonido {
     opacity: 0;
     pointer-events: none;
 }
+
+.puerta:focus-visible,
+.seccion:focus-visible,
+.sonido:focus-visible,
+.volver:focus-visible,
+.cerrar:focus-visible {
+    outline: 2px solid #f3c58a;
+    outline-offset: 4px;
+}
+
+.puerta:focus-visible {
+    opacity: 1;
+    color: #f3c58a;
+}
+
+.sin-3d {
+    background: #05060a url("fondo-fijo.jpg") center / cover no-repeat;
+}
+
+.sin-3d .puerta,
+.sin-3d .pista,
+.sin-3d .sonido {
+    display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .fundido,
+    .cartel,
+    .cabecera,
+    .puerta {
+        transition: none;
+    }
+}
+
+.cargando {
+    flex-direction: column;
+    gap: 22px;
+    font-family: "Fraunces", Georgia, serif;
+    font-style: italic;
+    font-size: 15px;
+    letter-spacing: 0.04em;
+}
+
+.cargando::before {
+    content: "";
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: #000;
+    box-shadow: 0 0 0 2px rgba(255, 214, 160, 0.9), 0 0 14px 4px rgba(255, 170, 90, 0.55), 0 0 44px 10px rgba(255, 140, 60, 0.18);
+    animation: latir-anillo 2.2s ease-in-out infinite;
+}
+
+@keyframes latir-anillo {
+    50% {
+        box-shadow: 0 0 0 2px rgba(255, 230, 190, 1), 0 0 20px 6px rgba(255, 180, 100, 0.7), 0 0 60px 16px rgba(255, 140, 60, 0.26);
+        transform: scale(1.06);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cargando::before {
+        animation: none;
+    }
+}

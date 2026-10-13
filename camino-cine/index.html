@@ -5,10 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>El camino | Miguel Ángel Calvente Medina</title>
     <meta name="description" content="Un paseo de noche por un camino empedrado a la luz de una luna baja, con sombras, farolas, charcos, niebla, luciérnagas y algún ciervo. Hecho con three.js por Miguel Ángel Calvente Medina.">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="El camino | Miguel Ángel Calvente Medina">
+    <meta property="og:description" content="Un paseo de noche por un camino empedrado con la luna y Gargantua al fondo, donde Miguel Ángel Calvente Medina cuenta quién es.">
+    <meta property="og:url" content="https://mdeangelc.github.io/camino-cine/">
+    <meta property="og:image" content="https://mdeangelc.github.io/camino-cine/portada.jpg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" crossorigin>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;1,9..144,400&family=Inter:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="estilo.css?v=4">
+    <link rel="stylesheet" href="estilo.css?v=5">
     <script type="importmap">
         {
             "imports": {
@@ -68,9 +78,13 @@
 
     <a class="volver" href="../gargantua/">Volver a Gargantua</a>
 
-    <p class="pista" id="pista">Rueda del ratón o flechas para caminar</p>
-    <p class="cargando" id="cargando">Cargando...</p>
+    <nav class="recorrido" id="recorrido" aria-label="Recorrido del camino">
+        <div class="recorrido-hecho" id="recorrido-hecho"></div>
+    </nav>
 
-    <script type="module" src="escena.js?v=14"></script>
+    <p class="pista" id="pista">Rueda del ratón o flechas para caminar</p>
+    <p class="cargando" id="cargando">Encendiendo la noche...</p>
+
+    <script type="module" src="escena.js?v=15"></script>
 </body>
 </html>

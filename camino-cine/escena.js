@@ -222,7 +222,9 @@ let renderizador;
 try {
     renderizador = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
 } catch (error) {
-    document.getElementById("cargando").textContent = "Tu navegador no puede mostrar 3D (WebGL).";
+    // Sin 3D: una imagen fija del camino y los carteles uno debajo de otro
+    document.body.classList.add("sin-3d");
+    document.getElementById("cargando").classList.add("oculta");
     throw error;
 }
 
@@ -377,6 +379,7 @@ const uniformesFondo = {
     uCamPos: { value: new THREE.Vector3() },
     uInicio: { value: new THREE.Vector3() },
     uGargantua: { value: gargantua },
+    uAmanecer: { value: 0 },
     uSubida: { value: 1 },
     uFugaz: { value: new THREE.Vector4(0, 0, 0, 0) },
     uFugazT: { value: -1 }
@@ -413,6 +416,7 @@ const fragmentFondo = `
     uniform vec3 uCamPos;
     uniform vec3 uInicio;
     uniform vec3 uGargantua;
+    uniform float uAmanecer;
     uniform float uSubida;
     uniform vec4 uFugaz;
     uniform float uFugazT;
@@ -495,7 +499,9 @@ const fragmentFondo = `
         vec2 centro = vec2(hash(celda + 7.1), hash(celda + 3.3)) * 0.6 + 0.2;
         float punto = smoothstep(0.32, 0.0, length(fract(rejilla) - centro));
         float estrella = step(0.993, h) * punto * (0.55 + 0.45 * sin(uTiempo * 2.0 + hash(celda + 3.0) * 30.0)) * (0.5 + 2.0 * pow(hash(celda + 9.0), 6.0));
-        estrella *= smoothstep(0.1, 0.45, alto);
+        estrella *= smoothstep(0.1, 0.45, alto) * (1.0 - uAmanecer * 0.55);
+        // Al final del camino empieza a clarear por el horizonte
+        c += vec3(0.62, 0.34, 0.3) * exp(-alto / 0.22) * uAmanecer * 0.32 + vec3(0.05, 0.06, 0.1) * uAmanecer;
         c += vec3(0.85, 0.9, 1.0) * estrella * (1.0 - luzLuna(f) * 0.7);
 
         return c;
@@ -763,6 +769,7 @@ const fragmentFondo = `
 
         c += vec3(0.5, 0.56, 0.75) * luz * 0.04;
         c += vec3(1.0, 0.62, 0.32) * luzGargantua(fg) * 0.035;
+        c += vec3(0.5, 0.3, 0.3) * uAmanecer * 0.06 * (1.0 - smoothstep(0.0, 0.25, marco.y - uLinea));
 
         float sobre = marco.y - uLinea;
         float franjas = ruido(vec2(marco.x * 7.0 + uTiempo * 0.012, marco.y * 34.0)) * 0.7 + ruido(vec2(marco.x * 20.0 - uTiempo * 0.02, marco.y * 70.0)) * 0.3;
@@ -2017,6 +2024,8 @@ profundidadHojas.customProgramCacheKey = () => "profundidadHojas";
 // =====================================================================
 
 function pino(o, x, z, alto) {
+    // Se apunta dónde está cada pino (para posar el búho en uno)
+    (o.pinos = o.pinos || []).push(x, z, alto);
     o.en(x, alturaTerreno(x, z) - 0.15, z, o.aleatorio() * 6.28).planta(geometriaPino(alto, o.aleatorio));
 }
 
@@ -2620,6 +2629,7 @@ function crearTrozo(indice) {
     postes.forEach((p) => grupo.add(p));
     grupo.userData.claros = o.claros;
     grupo.userData.obstaculos = o.obstaculos;
+    grupo.userData.pinos = o.pinos || [];
     escena.add(grupo);
     return grupo;
 }
@@ -3157,6 +3167,153 @@ function moverCiervo(delta, tiempo) {
 }
 
 // =====================================================================
+// 13g. EL ZORRO, EL BÚHO Y LAS RACHAS DE VIENTO
+// Un zorro pequeño cruza al trote más cerca que el ciervo y sin pararse.
+// De vez en cuando, en un pino junto al camino, se encienden los ojos de
+// un búho que parpadea (y ulula si el sonido está puesto). Y alguna
+// racha de viento mueve más los árboles y la hierba.
+// =====================================================================
+
+const materialZorro = new THREE.MeshStandardMaterial({ color: "#a4532a", roughness: 0.85 });
+materialZorro.onBeforeCompile = (shader) => contraluzLuna(shader);
+materialZorro.customProgramCacheKey = () => "zorro";
+const materialZorroClaro = new THREE.MeshStandardMaterial({ color: "#e8dccb", roughness: 0.9 });
+
+function crearZorro() {
+    const zorro = new THREE.Group();
+    const parte = (geometria, x, y, z, material = materialZorro, padre = zorro) => {
+        const m = new THREE.Mesh(geometria, material);
+        m.position.set(x, y, z);
+        m.castShadow = true;
+        padre.add(m);
+        return m;
+    };
+    parte(new THREE.SphereGeometry(0.2, 12, 8).scale(0.75, 0.7, 1.6), 0, 0.42, 0);
+    const cabeza = new THREE.Group();
+    cabeza.position.set(0, 0.55, 0.36);
+    zorro.add(cabeza);
+    parte(new THREE.SphereGeometry(0.11, 10, 8), 0, 0, 0, materialZorro, cabeza);
+    parte(new THREE.ConeGeometry(0.06, 0.2, 8).rotateX(Math.PI / 2), 0, -0.03, 0.13, materialZorroClaro, cabeza);
+    [-1, 1].forEach((l) => parte(new THREE.ConeGeometry(0.045, 0.12, 4), l * 0.06, 0.1, -0.02, materialZorro, cabeza));
+    const cola = new THREE.Group();
+    cola.position.set(0, 0.45, -0.3);
+    zorro.add(cola);
+    parte(new THREE.SphereGeometry(0.09, 8, 6).scale(0.9, 0.9, 3.2).translate(0, 0, -0.26), 0, 0, 0, materialZorro, cola);
+    parte(new THREE.SphereGeometry(0.06, 8, 6).translate(0, 0, -0.55), 0, 0, 0, materialZorroClaro, cola);
+    const patas = [];
+    [[-0.08, 0.16], [0.08, 0.16], [-0.08, -0.16], [0.08, -0.16]].forEach(([x, z]) => {
+        const pata = new THREE.Group();
+        pata.position.set(x, 0.36, z);
+        zorro.add(pata);
+        parte(new THREE.CylinderGeometry(0.025, 0.018, 0.36, 5).translate(0, -0.18, 0), 0, 0, 0, materialZorro, pata);
+        patas.push(pata);
+    });
+    zorro.visible = false;
+    escena.add(zorro);
+    return { grupo: zorro, cola, patas, activo: false, espera: parametros.get("zorro") === "si" ? 3 : entre(40, 70), t: 0 };
+}
+
+const zorro = crearZorro();
+
+function moverZorro(delta, tiempo) {
+    const f = zorro;
+    if (!f.activo) {
+        f.espera -= delta;
+        if (f.espera > 0 || entrada.t < 6 || movimientoReducido || ciervo.activo || metros > FIN - 12) return;
+        const z = camara.position.z - entre(9, 15);
+        if (Math.abs(arroyo(caminoX(z), z)) < 5) {
+            f.espera = 3;
+            return;
+        }
+        const lado = azar() < 0.5 ? -1 : 1;
+        Object.assign(f, { activo: true, t: 0, z, desde: caminoX(z) + lado * 11, hasta: caminoX(z) - lado * 11 });
+        f.grupo.visible = true;
+    }
+    const velocidad = 2.8;
+    f.t += delta;
+    const k = Math.min(1, (f.t * velocidad) / Math.abs(f.hasta - f.desde));
+    const x = f.desde + (f.hasta - f.desde) * k;
+    f.grupo.position.set(x, alturaTerreno(x, f.z) + Math.abs(Math.sin(tiempo * 11)) * 0.04, f.z);
+    f.grupo.rotation.y = f.hasta > f.desde ? Math.PI / 2 : -Math.PI / 2;
+    const trote = Math.sin(tiempo * 11);
+    f.patas.forEach((p, i) => (p.rotation.x = trote * 0.6 * (i === 0 || i === 3 ? 1 : -1)));
+    f.cola.rotation.y = Math.sin(tiempo * 5) * 0.25;
+    if (k >= 1) {
+        f.activo = false;
+        f.grupo.visible = false;
+        f.espera = entre(60, 110);
+    }
+}
+
+// Los ojos del búho: dos puntos amarillos que parpadean
+const materialOjo = new THREE.SpriteMaterial({ map: texturaBrillo(), color: "#ffd36a", transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+const ojosBuho = new THREE.Group();
+[-1, 1].forEach((l) => {
+    const ojo = new THREE.Sprite(materialOjo);
+    ojo.position.x = l * 0.07;
+    ojo.scale.setScalar(0.16);
+    ojosBuho.add(ojo);
+});
+ojosBuho.visible = false;
+escena.add(ojosBuho);
+const buhoVisto = { espera: entre(14, 24), t: -1 };
+
+function moverBuho(delta, tiempo) {
+    const b = buhoVisto;
+    if (b.t < 0) {
+        b.espera -= delta;
+        if (b.espera > 0 || entrada.t < 6) return;
+        b.espera = entre(22, 40);
+        // Un pino de delante, a un lado del camino y no muy lejos
+        const opciones = [];
+        trozos.forEach((g) => {
+            const p = g.userData.pinos || [];
+            for (let i = 0; i < p.length; i += 3) {
+                const dz = camara.position.z - p[i + 1];
+                if (dz > 9 && dz < 30 && Math.abs(p[i] - camara.position.x) < 16) opciones.push(p.slice(i, i + 3));
+            }
+        });
+        if (!opciones.length) return;
+        const [x, z, alto] = opciones[Math.floor(azar() * opciones.length)];
+        // Delante del tronco, del lado de la cámara
+        const hacia = new THREE.Vector3(camara.position.x - x, 0, camara.position.z - z).normalize();
+        ojosBuho.position.set(x + hacia.x * 1.3, alturaTerreno(x, z) + alto * 0.5, z + hacia.z * 1.3);
+        ojosBuho.lookAt(camara.position.x, ojosBuho.position.y, camara.position.z);
+        ojosBuho.visible = true;
+        b.t = 0;
+        if (audio && audio.ctx.state === "running") buho(audio);
+    }
+    b.t += delta;
+    const parpadeo = Math.sin(b.t * 2.3) > 0.97 || Math.sin(b.t * 3.1 + 1) > 0.985 ? 0 : 1;
+    materialOjo.opacity = Math.min(1, b.t * 1.5) * (1 - THREE.MathUtils.smoothstep(b.t, 5, 6)) * parpadeo * 0.9;
+    if (b.t > 6) {
+        b.t = -1;
+        ojosBuho.visible = false;
+    }
+}
+
+// Rachas de viento: cada cierto tiempo el viento sube unos segundos
+const rachas = { espera: entre(12, 25), t: -1, base: comunes.uViento.value };
+
+function moverRachas(delta) {
+    if (movimientoReducido) return;
+    const r = rachas;
+    if (r.t < 0) {
+        r.espera -= delta;
+        if (r.espera <= 0) r.t = 0;
+        comunes.uViento.value = r.base;
+        return;
+    }
+    r.t += delta;
+    const fuerza = Math.sin(Math.min(1, r.t / 5) * Math.PI);
+    comunes.uViento.value = r.base * (1 + fuerza * fuerza * 1.4);
+    if (r.t > 5) {
+        r.t = -1;
+        r.espera = entre(18, 35);
+    }
+}
+
+// =====================================================================
 // 14. CAMINAR
 // "metros" es la distancia recorrida.
 // =====================================================================
@@ -3167,7 +3324,7 @@ let caminandoSolo = false;
 const botonCaminar = document.getElementById("boton-caminar");
 const pista = document.getElementById("pista");
 
-if (movil) pista.textContent = "Desliza hacia arriba para caminar";
+if (movil) pista.textContent = "Desliza arriba para andar y de lado para mirar";
 
 function avanzar(cantidad) {
     metrosObjetivo = THREE.MathUtils.clamp(metrosObjetivo + cantidad, 0, FIN);
@@ -3208,6 +3365,7 @@ let alFinal = false;
 function moverFinal() {
     const fin = THREE.MathUtils.smoothstep(metros, FIN - 40, FIN - 2);
     gargantua.lerpVectors(gargantuaBase, gargantuaFinal, fin * fin * (3 - 2 * fin));
+    uniformesFondo.uAmanecer.value = fin;
     const ahora = metros > FIN - 3;
     if (ahora !== alFinal) {
         alFinal = ahora;
@@ -3233,7 +3391,11 @@ const rayo = new THREE.Raycaster();
 const puntoSuelo = new THREE.Vector3();
 let punteroDentro = false;
 let dedoY = null;
+let dedoX = null;
 let dedoId = null;
+// En el móvil, arrastrar el dedo de lado gira la vista; al soltar vuelve
+// despacio hacia delante
+const giroDedo = { objetivo: 0, actual: 0, soltado: 0 };
 
 function moverPuntero(evento) {
     // Con dos dedos solo cuenta el primero
@@ -3241,8 +3403,13 @@ function moverPuntero(evento) {
     puntero.set((evento.clientX / window.innerWidth) * 2 - 1, -(evento.clientY / window.innerHeight) * 2 + 1);
     punteroDentro = true;
     if (evento.pointerType === "touch" && dedoY !== null) {
-        avanzar((dedoY - evento.clientY) * 0.04);
+        const dy = dedoY - evento.clientY;
+        const dx = evento.clientX - dedoX;
+        // Lo que más se mueva decide: andar (vertical) o mirar (de lado)
+        if (Math.abs(dy) >= Math.abs(dx) * 0.8) avanzar(dy * 0.04);
+        else giroDedo.objetivo = THREE.MathUtils.clamp(giroDedo.objetivo - (dx / window.innerWidth) * 1.6, -0.75, 0.75);
         dedoY = evento.clientY;
+        dedoX = evento.clientX;
     }
 }
 
@@ -3250,7 +3417,9 @@ function soltarDedo(evento) {
     if (evento.pointerType !== "touch" || evento.pointerId !== dedoId) return;
     punteroDentro = false;
     dedoY = null;
+    dedoX = null;
     dedoId = null;
+    giroDedo.soltado = 0;
 }
 
 renderizador.domElement.addEventListener("pointermove", moverPuntero);
@@ -3259,6 +3428,7 @@ renderizador.domElement.addEventListener("pointerdown", (evento) => {
         if (dedoId !== null) return;
         dedoId = evento.pointerId;
         dedoY = evento.clientY;
+        dedoX = evento.clientX;
     }
     moverPuntero(evento);
 });
@@ -3267,6 +3437,11 @@ renderizador.domElement.addEventListener("pointerup", soltarDedo);
 renderizador.domElement.addEventListener("pointercancel", soltarDedo);
 
 function actualizarRaton(delta) {
+    if (dedoId === null) {
+        giroDedo.soltado += delta;
+        if (giroDedo.soltado > 2) giroDedo.objetivo *= Math.exp(-delta * 0.8);
+    }
+    giroDedo.actual += (giroDedo.objetivo - giroDedo.actual) * Math.min(1, delta * 6);
     punteroSuave.lerp(punteroDentro && !movil ? puntero : punteroCero, Math.min(1, delta * 2.5));
     desplazamientoRaton.copy(punteroSuave);
 
@@ -3298,7 +3473,7 @@ function colocarCamara() {
         z
     );
     const mirar = Math.atan2(caminoX(z - 10) - caminoX(z), 10) * (movil ? 0.5 : 0.3);
-    camara.rotation.set(inclinacion + punteroSuave.y * 0.02 + Math.sin(tiempo * 0.37) * 0.003 * respira, -punteroSuave.x * 0.04 - mirar + Math.sin(tiempo * 0.19) * 0.006 * respira, Math.sin(tiempo * 0.29) * 0.002 * respira);
+    camara.rotation.set(inclinacion + punteroSuave.y * 0.02 + Math.sin(tiempo * 0.37) * 0.003 * respira, -punteroSuave.x * 0.04 - mirar + giroDedo.actual + Math.sin(tiempo * 0.19) * 0.006 * respira, Math.sin(tiempo * 0.29) * 0.002 * respira);
     comunes.uCamara.value.copy(camara.position);
 }
 
@@ -3469,10 +3644,7 @@ function actualizarSonido() {
         paso(audio, alturaPuente(-metros) > 0.02 ? "madera" : cercaAgua > 0.75 ? "mojado" : "piedra");
         audio.ultimoPaso = metros;
     }
-    if (ahora > audio.buho) {
-        buho(audio);
-        audio.buho = ahora + 18 + Math.random() * 25;
-    }
+
 }
 
 const botonSonido = document.getElementById("boton-sonido");
@@ -3598,6 +3770,34 @@ function encenderChispas() {
         }
         if (Math.abs(metros - c.metro) > 30) chispas.encendidos.delete(c.id);
     });
+}
+
+// La barra del recorrido: un punto por poste y otro para el mirador del
+// final. Se rellena según avanzas y, al tocar un punto, caminas hasta él
+const recorrido = document.getElementById("recorrido");
+const recorridoHecho = document.getElementById("recorrido-hecho");
+const paradas = [...CARTELES.map((c) => ({ metro: c.metro + 2, nombre: document.querySelector(`#${c.id} h2`).textContent })), { metro: FIN, nombre: "Mirador" }];
+const botonesParada = paradas.map((parada) => {
+    const b = document.createElement("button");
+    b.className = "parada";
+    b.textContent = parada.nombre;
+    b.title = parada.nombre;
+    b.style.left = (parada.metro / FIN) * 100 + "%";
+    b.addEventListener("click", () => {
+        caminandoSolo = false;
+        botonCaminar.classList.remove("activo");
+        botonCaminar.setAttribute("aria-pressed", "false");
+        cartelesCerrados.clear();
+        avanzar(parada.metro - metrosObjetivo);
+    });
+    recorrido.appendChild(b);
+    return b;
+});
+if (!conCarteles) recorrido.hidden = true;
+
+function moverRecorrido() {
+    recorridoHecho.style.transform = `scaleX(${Math.min(1, metros / FIN)})`;
+    paradas.forEach((parada, i) => botonesParada[i].classList.toggle("pasada", metros >= parada.metro - 1));
 }
 
 document.querySelectorAll(".cartel .cerrar").forEach((boton) => {
@@ -3853,10 +4053,14 @@ function animar() {
     moverFarolas(tiempo);
     moverVaho();
     moverCiervo(delta, tiempo);
+    moverZorro(delta, tiempo);
+    moverBuho(delta, tiempo);
+    moverRachas(delta);
     actualizarSonido();
     if (conCarteles) {
         actualizarCarteles();
         encenderChispas();
+        moverRecorrido();
     }
 
     moverEntrada();

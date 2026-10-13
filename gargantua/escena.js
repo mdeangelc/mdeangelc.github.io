@@ -49,8 +49,29 @@ let renderizador;
 try {
     renderizador = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
 } catch (error) {
-    document.getElementById("cargando").textContent = "Tu navegador no puede mostrar el agujero negro.";
+    sin3D();
     throw error;
+}
+
+// Sin 3D (navegador o tarjeta gráfica que no puede): una imagen fija de
+// Gargantua de fondo y el menú sigue funcionando con paneles normales
+function sin3D() {
+    document.body.classList.add("sin-3d");
+    document.getElementById("cargando").classList.add("oculta");
+    const paneles = [...document.querySelectorAll(".cartel")];
+    const cerrar = () => paneles.forEach((c) => c.classList.remove("visible"));
+    document.querySelectorAll(".seccion").forEach((b) =>
+        b.addEventListener("click", () => {
+            if (b.dataset.puerta) {
+                location.href = "../camino-cine/";
+                return;
+            }
+            const abierto = document.getElementById(b.dataset.cartel).classList.contains("visible");
+            cerrar();
+            if (!abierto) document.getElementById(b.dataset.cartel).classList.add("visible");
+        })
+    );
+    paneles.forEach((c) => c.querySelector(".cerrar").addEventListener("click", cerrar));
 }
 renderizador.setPixelRatio(Math.min(devicePixelRatio || 1, ajustes.resolucionMax));
 renderizador.setSize(innerWidth, innerHeight);
@@ -1213,7 +1234,13 @@ function crearPuertas() {
         arcos.add(aro);
         puertas.push({ ...datos, malla, aro, nombre: nombresPuerta.get(datos.id), encima: 0, objEncima: 0, fase: Math.random() * 6 });
         const boton = nombresPuerta.get(datos.id);
-        if (boton) boton.addEventListener("click", () => entrarPuerta(puertas[puertas.length - 1]));
+        if (boton) {
+            const esta = puertas[puertas.length - 1];
+            boton.addEventListener("click", () => entrarPuerta(esta));
+            // Con el teclado (Tab) el planeta se ilumina igual que con el ratón
+            boton.addEventListener("focus", () => (esta.objEncima = 1));
+            boton.addEventListener("blur", () => (esta.objEncima = 0));
+        }
     });
 }
 
@@ -2053,10 +2080,17 @@ function adaptarResolucion(delta) {
 // La entrada: primero aparecen las estrellas y la sombra negra, y
 // después el gas se va encendiendo en espiral de fuera hacia dentro
 // mientras la cámara se acerca un poco
-const entrada = { t: parametros.has("fijo") || parametros.has("sinentrada") || pocoMovimiento ? 10 : 0 };
+// Dura unos 4 segundos; si ya se ha visto otra vez, unos 2
+const entrada = { t: parametros.has("fijo") || parametros.has("sinentrada") || pocoMovimiento ? 10 : 0, ritmo: 1.7 };
+try {
+    if (localStorage.getItem("gargantua-visto") === "si") entrada.ritmo = 3.4;
+    localStorage.setItem("gargantua-visto", "si");
+} catch (error) {
+    entrada.ritmo = 1.7;
+}
 
 function moverEntrada(delta) {
-    entrada.t += delta;
+    entrada.t += delta * entrada.ritmo;
     const gas = THREE.MathUtils.smoothstep(entrada.t, 0.9, 6);
     fondo.material.uniforms.uAparece.value = THREE.MathUtils.smoothstep(entrada.t, 0.2, 1.6);
     comunes.uEncendido.value = gas;
