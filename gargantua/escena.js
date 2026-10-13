@@ -1275,7 +1275,7 @@ function crearPuertas() {
         );
         aro.renderOrder = 12;
         arcos.add(aro);
-        puertas.push({ ...datos, malla, aro, nombre: nombresPuerta.get(datos.id), encima: 0, objEncima: 0, fase: Math.random() * 6 });
+        puertas.push({ ...datos, malla, aro, nombre: nombresPuerta.get(datos.id), encima: 0, objEncima: 0, mostrar: 1, fase: Math.random() * 6 });
         const boton = nombresPuerta.get(datos.id);
         if (boton) {
             const esta = puertas[puertas.length - 1];
@@ -1302,16 +1302,22 @@ function moverPuertas(delta, t) {
         p.malla.rotation.y += delta * 0.08;
         const enMovil = innerWidth < innerHeight;
         const sitio = enMovil ? p.movil : p.posicion;
-        const radio = enMovil ? p.radioMovil : p.radio;
-        p.malla.position.set(sitio[0], sitio[1] + Math.sin(t * 0.6 + p.fase) * 0.05, sitio[2]);
+        // Con el zoom, el planeta se acerca o aleja igual que el agujero y
+        // no se sale de la pantalla; en las secciones y muy de cerca se
+        // esconde para no tapar el disco
+        const z = vista.zoom;
+        const esconder = document.body.classList.contains("con-seccion") || vista.objZoom < 0.72;
+        p.mostrar += ((esconder ? 0 : 1) - p.mostrar) * Math.min(1, delta * 4);
+        const radio = (enMovil ? p.radioMovil : p.radio) * z;
+        p.malla.position.set(sitio[0] * z, (sitio[1] + Math.sin(t * 0.6 + p.fase) * 0.05) * z, sitio[2] * z);
         p.encima += (p.objEncima - p.encima) * Math.min(1, delta * 6);
         p.malla.material.uniforms.uEncima.value = p.encima;
         p.malla.material.uniforms.uViaje.value = viaje.puerta === p ? Math.min(1, viaje.t * 2) : 0;
         const escala = (radio / p.radio) * (1 + p.encima * 0.06);
-        p.malla.scale.setScalar(escala * THREE.MathUtils.smoothstep(comunes.uEncendido.value, 0.3, 0.9));
-        p.malla.visible = comunes.uEncendido.value > 0.3;
+        p.malla.scale.setScalar(escala * THREE.MathUtils.smoothstep(comunes.uEncendido.value, 0.3, 0.9) * Math.max(p.mostrar, 0.001));
+        p.malla.visible = comunes.uEncendido.value > 0.3 && p.mostrar > 0.02;
         p.aro.position.copy(p.malla.position);
-        p.aro.scale.setScalar(radio / p.radio);
+        p.aro.scale.setScalar((radio / p.radio) * Math.max(p.mostrar, 0.001));
         const u = p.aro.material.uniforms;
         u.uFase.value = (t * 0.4 + p.fase) % 1;
         const pista = !puertaVista && listo && comunes.uEncendido.value > 0.8 && !viaje.activo && p.objEncima === 0 ? 1 : 0;
@@ -1325,7 +1331,7 @@ function moverPuertas(delta, t) {
         const x = (auxPuerta.x * 0.5 + 0.5) * innerWidth;
         const y = (-auxPuerta.y * 0.5 + 0.5) * innerHeight;
         p.nombre.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, 0)`;
-        p.nombre.classList.toggle("visible", listo && comunes.uEncendido.value > 0.8 && !viaje.activo && !vuelta.activo);
+        p.nombre.classList.toggle("visible", listo && comunes.uEncendido.value > 0.8 && !viaje.activo && !vuelta.activo && p.mostrar > 0.9);
         p.nombre.classList.toggle("encima", p.objEncima > 0);
     });
 }
@@ -1333,7 +1339,7 @@ function moverPuertas(delta, t) {
 function puertaBajo(e) {
     punteroPuerta.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
     rayoPuerta.setFromCamera(punteroPuerta, camara);
-    const corte = rayoPuerta.intersectObjects(puertas.map((p) => p.malla.userData.zona), false)[0];
+    const corte = rayoPuerta.intersectObjects(puertas.filter((p) => p.mostrar > 0.5).map((p) => p.malla.userData.zona), false)[0];
     return corte ? puertas.find((p) => p.malla.userData.zona === corte.object) : null;
 }
 const rayoPuerta = new THREE.Raycaster();
