@@ -84,6 +84,7 @@ canvas {
     font-weight: 400;
     font-size: 3.4rem;
     line-height: 1;
+    white-space: nowrap;
     letter-spacing: -0.01em;
 }
 
