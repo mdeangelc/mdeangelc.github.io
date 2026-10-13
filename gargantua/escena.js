@@ -295,9 +295,9 @@ const fondo = new THREE.Mesh(
                 estrellas += capaEstrellas(d, 40.0, 0.22, 0.05, 2.0) * 1.6;
                 estrellas += capaEstrellas(d, 14.0, 0.12, 0.035, 3.0) * 3.6;
                 estrellas *= 0.7 + nebulosa * 1.5;
-                float lejosDelCentro = smoothstep(0.1, 0.4, abs(beta) / uRadioLente) * smoothstep(1.1, 1.7, theta * 2.1 / uRadioLente);
+                float lejosDelCentro = smoothstep(0.05, 0.3, abs(beta) / uRadioLente) * smoothstep(0.95, 1.4, theta * 2.4 / uRadioLente);
                 cielo += estrellas * min(aumento, 3.0) * lejosDelCentro;
-                cielo += andromeda(d) * min(aumento, 4.0) * smoothstep(0.02, 0.25, abs(beta) / uRadioLente) * smoothstep(0.9, 1.3, theta * 2.1 / uRadioLente);
+                cielo += andromeda(d) * min(aumento, 4.0) * smoothstep(0.02, 0.25, abs(beta) / uRadioLente) * smoothstep(0.9, 1.3, theta * 2.4 / uRadioLente);
                 gl_FragColor = vec4(cielo * uAparece, 1.0);
             }
         `,
@@ -1091,6 +1091,65 @@ function moverToma(delta) {
 }
 
 // =====================================================================
+// 6c2. POLVO CERCA DE LA CÁMARA
+// Motas finas flotando entre la cámara y el agujero. Al girar se mueven
+// más que las estrellas y dan sensación de profundidad. Las que quedan
+// del lado del disco se tiñen de su luz cálida.
+// =====================================================================
+
+const polvo = (() => {
+    const n = movil ? 220 : 420;
+    const pos = new Float32Array(n * 3);
+    const azarPolvo = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+        const r = 5 + Math.random() * 10;
+        const a = Math.random() * Math.PI * 2;
+        const y = (Math.random() - 0.5) * 7;
+        pos.set([CENTRO.x + Math.cos(a) * r, CENTRO.y + y, CENTRO.z + Math.sin(a) * r], i * 3);
+        azarPolvo[i] = Math.random();
+    }
+    const geometria = new THREE.BufferGeometry();
+    geometria.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    geometria.setAttribute("aAzar", new THREE.BufferAttribute(azarPolvo, 1));
+    const material = new THREE.ShaderMaterial({
+        uniforms: { uTiempo: comunes.uTiempo, uEncendido: comunes.uEncendido, uEscala: { value: 1 } },
+        vertexShader: `
+            attribute float aAzar;
+            uniform float uTiempo;
+            uniform float uEscala;
+            varying float vLuz;
+            varying float vCalido;
+            void main() {
+                vec3 p = position + vec3(sin(uTiempo * 0.11 + aAzar * 40.0), sin(uTiempo * 0.07 + aAzar * 17.0) * 0.6, cos(uTiempo * 0.09 + aAzar * 23.0)) * 0.35;
+                vec4 vista = modelViewMatrix * vec4(p, 1.0);
+                gl_Position = projectionMatrix * vista;
+                gl_PointSize = uEscala * (0.5 + aAzar) / -vista.z;
+                vLuz = (0.35 + 0.65 * sin(uTiempo * (0.6 + aAzar) + aAzar * 30.0) * 0.5 + 0.5) * smoothstep(2.0, 6.0, -vista.z);
+                vCalido = smoothstep(9.0, 4.0, length(p - vec3(${CENTRO.x.toFixed(2)}, ${CENTRO.y.toFixed(2)}, ${CENTRO.z.toFixed(2)})));
+            }
+        `,
+        fragmentShader: `
+            uniform float uEncendido;
+            varying float vLuz;
+            varying float vCalido;
+            void main() {
+                float a = smoothstep(0.5, 0.0, length(gl_PointCoord - 0.5));
+                vec3 color = mix(vec3(0.55, 0.62, 0.8), vec3(1.0, 0.7, 0.42), vCalido);
+                gl_FragColor = vec4(color * a * vLuz * 0.55 * uEncendido, 1.0);
+            }
+        `,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+    });
+    const puntos = new THREE.Points(geometria, material);
+    puntos.frustumCulled = false;
+    puntos.renderOrder = 9;
+    escena.add(puntos);
+    return material;
+})();
+
+// =====================================================================
 // 6d. LOS PLANETAS-PUERTA
 // Delante de Gargantua flotan los planetas del portfolio. Van colgados
 // del grupo que mira siempre a la cámara, así que se quedan quietos en
@@ -1761,7 +1820,7 @@ function marcarBola() {
     camara.updateMatrixWorld();
     const distancia = camara.position.distanceTo(CENTRO);
     const angulo = Math.asin(1 / distancia);
-    fondo.material.uniforms.uRadioLente.value = angulo * 2.1;
+    fondo.material.uniforms.uRadioLente.value = angulo * 2.4;
     // Círculo de contacto de la bola vista desde la cámara
     const haciaOjo = auxV.subVectors(camara.position, CENTRO).normalize();
     auxCentroSil.copy(CENTRO).addScaledVector(haciaOjo, 1 / distancia);
@@ -2061,6 +2120,7 @@ function ajustarTamano() {
     renderizador.setSize(innerWidth, innerHeight);
     compositor.setSize(innerWidth, innerHeight);
     materialMarea.uniforms.uEscala.value = renderizador.getPixelRatio() * innerHeight * 0.12;
+    polvo.uniforms.uEscala.value = renderizador.getPixelRatio() * innerHeight * 0.04;
 }
 
 window.addEventListener("resize", () => {

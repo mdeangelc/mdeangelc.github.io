@@ -404,6 +404,7 @@ const uniformesFondo = {
     uInicio: { value: new THREE.Vector3() },
     uGargantua: { value: gargantua },
     uAmanecer: { value: 0 },
+    uTapada: { value: 0 },
     uSubida: { value: 1 },
     uFugaz: { value: new THREE.Vector4(0, 0, 0, 0) },
     uFugazT: { value: -1 }
@@ -441,6 +442,7 @@ const fragmentFondo = `
     uniform vec3 uInicio;
     uniform vec3 uGargantua;
     uniform float uAmanecer;
+    uniform float uTapada;
     uniform float uSubida;
     uniform vec4 uFugaz;
     uniform float uFugazT;
@@ -640,7 +642,7 @@ const fragmentFondo = `
         float limbo = sqrt(max(0.0, 1.0 - r * r));
         vec3 superficie = mix(vec3(1.0, 0.97, 0.9), vec3(0.6, 0.62, 0.68), mares * 0.7 + crateres) * (0.6 + 0.4 * limbo);
         superficie *= mix(vec3(1.0, 0.85, 0.7), vec3(1.0), smoothstep(uLinea, uLinea + 0.2, centro.y));
-        return mix(c, superficie * 1.7, disco);
+        return mix(c, superficie * 1.7 * (1.0 - uTapada * 0.55), disco);
     }
 
     // Estrella fugaz: una raya que cruza el cielo en menos de un segundo,
@@ -671,7 +673,7 @@ const fragmentFondo = `
     // borde plateado donde les da su luz. Al entrar son espesas y la tapan;
     // se van abriendo y la luna aparece
     vec3 nubesLuna(vec3 c, vec2 f) {
-        float cubre = 1.0 - uSubida;
+        float cubre = max(1.0 - uSubida, uTapada);
         vec2 centro = centroLuna();
         vec2 q = (f - centro) / uLuna.z;
         if (abs(q.y) > 3.0 || abs(q.x) > 9.0) return c;
@@ -857,6 +859,27 @@ function moverEntrada() {
 // Estrellas fugaces: de vez en cuando una cruza el cielo
 const fugaz = { espera: 6, t: -1 };
 
+// De vez en cuando pasa una nube por delante de la luna: la escena se
+// oscurece unos segundos, las sombras se apagan y luego vuelve la luz
+const nubeLuna = { espera: parametros.get("nube") === "si" ? 1 : entre(30, 50), t: -1 };
+
+function moverNubeLuna(delta) {
+    const n = nubeLuna;
+    if (n.t < 0) {
+        n.espera -= delta;
+        if (n.espera <= 0 && !movimientoReducido) n.t = 0;
+        uniformesFondo.uTapada.value = 0;
+        return;
+    }
+    n.t += delta / 14;
+    const s = Math.sin(Math.min(1, n.t) * Math.PI);
+    uniformesFondo.uTapada.value = s * s * 0.85;
+    if (n.t >= 1) {
+        n.t = -1;
+        n.espera = entre(45, 80);
+    }
+}
+
 function moverFugaz(delta) {
     const u = uniformesFondo;
     if (movimientoReducido) return;
@@ -887,7 +910,8 @@ function luzDeLaLuna() {
     camara.updateMatrixWorld();
     const subida = uniformesFondo.uSubida.value;
     // Mientras sale la luna la escena ya se ve un poco, no a oscuras
-    const luz = 0.35 + 0.65 * subida;
+    const tapada = uniformesFondo.uTapada.value;
+    const luz = (0.35 + 0.65 * subida) * (1 - tapada * 0.5);
     comunes.uDirLuna.value.copy(DIR_LUNA);
     comunes.uDirLunaVista.value.copy(DIR_LUNA).transformDirection(camara.matrixWorldInverse);
     comunes.uLuzLuna.value.setRGB(0.62, 0.72, 1.0).multiplyScalar(luz);
@@ -899,7 +923,7 @@ function luzDeLaLuna() {
     uf.uCamPos.value.copy(camara.position);
     uf.uInicio.value.set(caminoX(0) * 0.92, ajustes.alturaOjos + alturaPuente(0), 0);
     paseCine.uniforms.uHorizonte.value = (1 - HORIZONTE_EN_MARCO - 0.5) / visible.y + 0.5;
-    paseCine.uniforms.uFuerza.value = subida;
+    paseCine.uniforms.uFuerza.value = subida * (1 - tapada * 0.85);
     const adelante = auxLuna.set(0, 0, -1).transformDirection(camara.matrixWorld);
     hierba.material.uniforms.uAdelante.value.set(adelante.x, adelante.z).normalize();
     hierba.material.uniforms.uTanMedio.value = Math.tan(THREE.MathUtils.degToRad(camara.fov / 2)) * camara.aspect * 1.08;
@@ -2127,6 +2151,44 @@ function valla(o, desde, hasta, lado) {
     }
 }
 
+// El haz de luz de las farolas: un cono abierto, muy suave, que se apaga
+// hacia el suelo y por los bordes, con motas de polvo que suben despacio
+const materialHaz = new THREE.ShaderMaterial({
+    uniforms: { uTiempo: comunes.uTiempo, uParpadeo: comunes.uParpadeo, uNoche: comunes.uNoche },
+    vertexShader: `
+        varying vec2 vUv;
+        varying vec3 vMundo;
+        varying vec3 vNormal;
+        void main() {
+            vUv = uv;
+            vec4 m = modelMatrix * vec4(position, 1.0);
+            vMundo = m.xyz;
+            vNormal = normalize(mat3(modelMatrix) * normal);
+            gl_Position = projectionMatrix * viewMatrix * m;
+        }
+    `,
+    fragmentShader: `
+        uniform float uTiempo;
+        uniform float uParpadeo;
+        uniform float uNoche;
+        varying vec2 vUv;
+        varying vec3 vMundo;
+        varying vec3 vNormal;
+        void main() {
+            vec3 ojo = normalize(cameraPosition - vMundo);
+            float borde = pow(abs(dot(normalize(vNormal), ojo)), 1.6);
+            float alto = pow(vUv.y, 1.4);
+            float motas = 0.75 + 0.25 * sin(vMundo.y * 7.0 - uTiempo * 0.6 + vMundo.x * 3.0) * sin(vMundo.z * 5.0 + uTiempo * 0.4);
+            float lejos = 1.0 - smoothstep(30.0, 70.0, distance(cameraPosition, vMundo));
+            gl_FragColor = vec4(vec3(1.0, 0.66, 0.34) * alto * borde * motas * lejos * uParpadeo * uNoche * 0.09, 1.0);
+        }
+    `,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending
+});
+
 function farola(o, z, lado) {
     const x = caminoX(z) + lado * SEPARACION_FAROLA;
     const y = alturaTerreno(x, z);
@@ -2612,8 +2674,12 @@ function crearTrozo(indice) {
         lados.forEach((lado) => valla(o, desde, hasta, lado));
     }
 
-    // Farola
+    // Farola, con su haz de luz cayendo en la niebla
     farola(o, zFarola, ladoFarola);
+    const xHaz = caminoX(zFarola) + ladoFarola * SEPARACION_FAROLA - ladoFarola * BRAZO_FAROLA;
+    const haz = new THREE.Mesh(new THREE.ConeGeometry(1.25, 2.05, 20, 1, true), materialHaz);
+    haz.position.set(xHaz, alturaTerreno(xHaz, zFarola) + 2.05 / 2 + 0.02, zFarola);
+    haz.renderOrder = 7;
 
     // Puente si el arroyo cruza este trozo
     [indiceArroyo(zInicio), indiceArroyo(zInicio - largo)].forEach((k) => {
@@ -2667,6 +2733,7 @@ function crearTrozo(indice) {
     }
 
     postes.forEach((p) => grupo.add(p));
+    grupo.add(haz);
     grupo.userData.claros = o.claros;
     grupo.userData.obstaculos = o.obstaculos;
     grupo.userData.pinos = o.pinos || [];
@@ -4189,6 +4256,7 @@ function animar() {
     moverEntrada();
     luzDeLaLuna();
     moverFugaz(delta);
+    moverNubeLuna(delta);
     paseEscena.enabled = !soloFondo;
     paseFondo.enabled = soloFondo;
     // Las sombras se repintan cada dos fotogramas (cada tres en el móvil):
