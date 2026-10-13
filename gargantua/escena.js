@@ -1468,7 +1468,7 @@ const acabado = new ShaderPass({
             c.b = texture2D(tDiffuse, vUv + desvio).b;
             c.rgb = mix(c.rgb, c.rgb * c.rgb * (3.0 - 2.0 * c.rgb), 0.2);
             c.rgb *= 1.0 - dot(q, q) * 0.55;
-            float grano = fract(sin(dot(gl_FragCoord.xy + fract(uTiempo * 7.0) * 61.0, vec2(12.9898, 78.233))) * 43758.5453);
+            vec3 g3 = fract(vec3(gl_FragCoord.xyx + fract(uTiempo * 7.0) * 61.0) * 0.1031); g3 += dot(g3, g3.yzx + 33.33); float grano = fract((g3.x + g3.y) * g3.z);
             c.rgb += (grano - 0.5) / 255.0 * 1.5;
             gl_FragColor = c;
         }

@@ -4,7 +4,7 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { Pass, FullScreenQuad } from "three/addons/postprocessing/Pass.js";
-import { PaseBrillo, crearAcabado, crearZumbido } from "./cine.js";
+import { PaseBrillo, crearAcabado, crearZumbido } from "./cine.js?v=2";
 
 // =====================================================================
 // 1. AJUSTES GENERALES
@@ -352,6 +352,10 @@ const uniformesFondo = {
     uAspectoMarco: { value: aspectoMarco },
     uLinea: { value: 1 - HORIZONTE_EN_MARCO },
     uLuna: { value: luna },
+    uInvProy: { value: new THREE.Matrix4() },
+    uGiroCamara: { value: new THREE.Matrix3() },
+    uBase: { value: new THREE.Matrix3() },
+    uTanMedio: { value: new THREE.Vector2(1, 1) },
     uGargantua: { value: gargantua },
     uSubida: { value: 1 },
     uFugaz: { value: new THREE.Vector4(0, 0, 0, 0) },
@@ -382,6 +386,10 @@ const fragmentFondo = `
     uniform vec3 uBosqueLejos;
     uniform vec3 uBosqueCerca;
     uniform vec3 uLuna;
+    uniform mat4 uInvProy;
+    uniform mat3 uGiroCamara;
+    uniform mat3 uBase;
+    uniform vec2 uTanMedio;
     uniform vec3 uGargantua;
     uniform float uSubida;
     uniform vec4 uFugaz;
@@ -389,7 +397,11 @@ const fragmentFondo = `
     varying vec2 vUv;
 
     float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        // Sin senos: con números grandes el seno pierde precisión en la
+        // tarjeta gráfica y las estrellas salían en un enrejado
+        vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+        p3 += dot(p3, p3.yzx + 33.33);
+        return fract((p3.x + p3.y) * p3.z);
     }
 
     float ruido(vec2 p) {
@@ -424,9 +436,10 @@ const fragmentFondo = `
         return vec2(marco.x * uAspectoMarco, marco.y);
     }
 
-    // Centro de la luna (sube durante la entrada)
+    // Centro de la luna: quieta en el cielo; al entrar la tapan nubes
+    // que se van abriendo
     vec2 centroLuna() {
-        return uLuna.xy - vec2(0.0, (1.0 - uSubida) * 0.3);
+        return uLuna.xy;
     }
 
     // Cuánto ilumina la luna un punto del fondo (para nubes y crestas)
@@ -550,6 +563,8 @@ const fragmentFondo = `
         vec2 d = (f - centro) / uLuna.z;
         float r = length(d);
         c += vec3(0.45, 0.55, 0.8) * exp(-max(r - 1.0, 0.0) * 0.55) * 0.07 + vec3(0.7, 0.75, 0.9) * exp(-max(r - 1.0, 0.0) * 3.0) * 0.16;
+        // Un anillo de halo muy suave, como cuando hay humedad en el aire
+        c += vec3(0.6, 0.66, 0.8) * exp(-pow((r - 6.5) / 0.7, 2.0)) * 0.018 * uSubida;
         float borde = fwidth(r) * 1.5;
         float disco = smoothstep(1.0 + borde, 1.0 - borde, r);
         if (disco <= 0.0) return c;
@@ -587,21 +602,25 @@ const fragmentFondo = `
     }
 
     // Nubes finas que pasan por delante de la luna, oscuras y con el
-    // borde plateado donde les da su luz
+    // borde plateado donde les da su luz. Al entrar son espesas y la tapan;
+    // se van abriendo y la luna aparece
     vec3 nubesLuna(vec3 c, vec2 f) {
+        float cubre = 1.0 - uSubida;
         vec2 centro = centroLuna();
         vec2 q = (f - centro) / uLuna.z;
         if (abs(q.y) > 3.0 || abs(q.x) > 9.0) return c;
         vec2 p = vec2(q.x * 0.28 - uTiempo * 0.05, q.y * 0.9);
         float n = fbm(p + vec2(3.0, 7.0)) * 0.7 + fbm(p * 2.3 + 11.0) * 0.3;
         float banda = smoothstep(3.0, 1.2, abs(q.y + 0.4)) * smoothstep(9.0, 5.0, abs(q.x));
-        float nube = smoothstep(0.5, 0.68, n) * banda;
+        banda = max(banda, cubre * smoothstep(3.0, 1.4, length(q * vec2(0.4, 1.0))));
+        float umbral = 0.5 - cubre * 0.2;
+        float nube = smoothstep(umbral, umbral + 0.18, n) * banda;
         if (nube <= 0.0) return c;
         float r = length(q);
-        float borde = smoothstep(0.5, 0.56, n) - smoothstep(0.56, 0.66, n);
+        float borde = smoothstep(umbral, umbral + 0.06, n) - smoothstep(umbral + 0.06, umbral + 0.16, n);
         vec3 color = vec3(0.05, 0.06, 0.1) + vec3(0.75, 0.8, 0.95) * borde * exp(-max(r - 1.0, 0.0) * 0.8) * 1.4;
         color += vec3(0.25, 0.28, 0.36) * exp(-r * 0.6) * 0.5;
-        return mix(c, color, nube * 0.9);
+        return mix(c, color, nube * (0.9 + cubre * 0.08));
     }
 
     // La Vía Láctea: una banda en diagonal con polvo oscuro en medio y
@@ -663,7 +682,14 @@ const fragmentFondo = `
 
     void main() {
         float t = tramado();
-        vec2 marco = (vUv - 0.5) * uVisible + 0.5;
+        // El cielo está fijo en el mundo: se calcula hacia dónde mira cada
+        // píxel y se lleva a la vista de partida de la cámara. Así al girar
+        // o mirar con el ratón el cielo se queda en su sitio, como las
+        // montañas de verdad, y no se mueve pegado a la pantalla
+        vec4 v = uInvProy * vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
+        vec3 dir = uBase * (uGiroCamara * normalize(v.xyz / v.w));
+        vec2 enBase = dir.xy / max(-dir.z, 0.05) / uTanMedio * 0.5 + 0.5;
+        vec2 marco = (enBase - 0.5) * uVisible + 0.5;
         // Muy por debajo del horizonte todo lo tapa el suelo 3D
         if (marco.y < uLinea - 0.09) {
             gl_FragColor = vec4(uNiebla, 1.0);
@@ -671,12 +697,12 @@ const fragmentFondo = `
             return;
         }
 
-        vec2 fc = enCapa(marco, 0.004, 0.0);
+        vec2 fc = enCapa(marco, 0.0, 0.0);
         vec3 c = cielo(fc, t);
         c = viaLactea(c, fc, clamp((fc.y - uLinea) / (1.0 - uLinea), 0.0, 1.0));
-        vec2 fl = enCapa(marco, 0.006, 0.015);
+        vec2 fl = enCapa(marco, 0.0, 0.015);
         c = estrellaFugaz(c, fc);
-        vec2 fg = enCapa(marco, 0.005, 0.01);
+        vec2 fg = enCapa(marco, 0.0, 0.01);
         c = gargantuaLejos(c, fg);
         c = dibujarLuna(c, fl);
         c = nubesLuna(c, fl);
@@ -685,7 +711,7 @@ const fragmentFondo = `
         vec4 capa = montana(enCapa(marco, 0.01, 0.03), t, 3.0, 0.03, 0.62, 1.25, uMontanaLejos, 0.16, 0.24);
         c = mix(c, capa.rgb, capa.a);
 
-        capa = nubes(enCapa(marco, 0.012, 0.04), t, 7.0, uLinea + 0.1, uLinea + 0.3, 0.52, 2.2);
+        capa = nubes(enCapa(marco, 0.012, 0.04), t, 7.0, uLinea + 0.1, uLinea + 0.3, 0.58, 2.2);
         c = mix(c, capa.rgb + vec3(0.6, 0.66, 0.85) * luz * 0.35 + vec3(1.0, 0.6, 0.3) * luzGargantua(fg) * 0.22, capa.a);
 
         capa = montana(enCapa(marco, 0.014, 0.05), t, 11.0, 0.0, 0.36, 2.0, uMontanaCerca, 0.05, 0.19);
@@ -737,7 +763,7 @@ function actualizarFondo(metros) {
 
 // =====================================================================
 // 5b. LA ENTRADA Y LA LUZ DE LA LUNA
-// Al cargar, la luna sube despacio por la derecha. Su luz en 3D sale de
+// Al cargar, la luna está tapada por nubes que se van abriendo. Su luz en 3D sale de
 // donde se ve en el fondo: cada fotograma se pasa a los shaders su
 // dirección (en el mundo y vista desde la cámara) y su fuerza.
 // =====================================================================
@@ -790,7 +816,10 @@ function luzDeLaLuna() {
     comunes.uDirLunaVista.value.copy(DIR_LUNA).transformDirection(camara.matrixWorldInverse);
     comunes.uLuzLuna.value.setRGB(0.62, 0.72, 1.0).multiplyScalar(luz);
     pantallaLuna.copy(camara.position).addScaledVector(DIR_LUNA, 100).project(camara);
-    paseCine.uniforms.uCentro.value.set(pantallaLuna.x * 0.5 + 0.5, pantallaLuna.y * 0.5 + 0.5 - (1 - subida) * 0.3);
+    paseCine.uniforms.uCentro.value.set(pantallaLuna.x * 0.5 + 0.5, pantallaLuna.y * 0.5 + 0.5);
+    const uf = uniformesFondo;
+    uf.uInvProy.value.copy(camara.projectionMatrixInverse);
+    uf.uGiroCamara.value.setFromMatrix4(camara.matrixWorld);
     paseCine.uniforms.uHorizonte.value = (1 - HORIZONTE_EN_MARCO - 0.5) / visible.y + 0.5;
     paseCine.uniforms.uFuerza.value = subida;
     const adelante = auxLuna.set(0, 0, -1).transformDirection(camara.matrixWorld);
@@ -850,6 +879,10 @@ function ajustarEncuadre() {
     const gargantuaX = aspecto < 0.8 ? 0.3 : 0.4;
     gargantua.set(((gargantuaX - 0.5) * visible.x + 0.5) * aspectoMarco, 0.625, aspecto < 0.8 ? 0.03 : 0.026);
     const mitad = Math.tan(THREE.MathUtils.degToRad(camara.fov / 2));
+    // La vista de partida (sin girar y con la inclinación de siempre): el
+    // cielo se dibuja tal cual se ve desde ahí y queda fijo en el mundo
+    uniformesFondo.uTanMedio.value.set(mitad * aspecto, mitad);
+    uniformesFondo.uBase.value.setFromMatrix4(new THREE.Matrix4().makeRotationX(inclinacion)).transpose();
     DIR_LUNA.set((lunaX * 2 - 1) * mitad * aspecto, (lunaY * 2 - 1) * mitad, -1).normalize().applyAxisAngle(new THREE.Vector3(1, 0, 0), inclinacion);
     // La luz se gira un poco más hacia el lado y se baja: así las sombras
     // de los árboles cruzan el camino en vez de ir hacia la cámara
