@@ -726,7 +726,8 @@ estelas.visible = false;
 agujero.add(estelas);
 const anteriores = new Float32Array(TROZOS * 3);
 
-// El planeta: roca con grietas por las que asoma la lava. Lo ilumina el
+// El planeta: roca rojiza y seca, muy distinta del planeta azul de
+// "Sobre mí", con grietas por las que asoma la lava. Lo ilumina el
 // disco por el lado que mira al agujero.
 const materialPlaneta = new THREE.ShaderMaterial({
     uniforms: { tRuido, uGrietas: { value: 0 }, uTiempo: comunes.uTiempo },
@@ -753,7 +754,11 @@ const materialPlaneta = new THREE.ShaderMaterial({
             vec3 d = normalize(vLocal);
             vec2 uv = vec2(atan(d.z, d.x) / 6.2832, d.y * 0.5 + 0.5);
             float roca = texture2D(tRuido, uv * vec2(2.0, 1.0)).r * 0.6 + texture2D(tRuido, uv * vec2(7.0, 3.5) + 0.3).r * 0.4;
-            vec3 base = mix(vec3(0.16, 0.13, 0.12), vec3(0.55, 0.45, 0.36), smoothstep(0.3, 0.75, roca));
+            vec3 base = mix(vec3(0.2, 0.08, 0.05), vec3(0.66, 0.33, 0.18), smoothstep(0.3, 0.75, roca));
+            // Cráteres: manchas oscuras con el borde algo más claro
+            float hueco = texture2D(tRuido, uv * vec2(9.0, 4.5) + 0.17).r;
+            base *= 1.0 - smoothstep(0.68, 0.74, hueco) * 0.45;
+            base += vec3(0.08, 0.04, 0.02) * (smoothstep(0.62, 0.68, hueco) - smoothstep(0.68, 0.72, hueco));
             vec3 n = normalize(vNormal);
             vec3 haciaDisco = normalize(vec3(${CENTRO.x.toFixed(2)}, ${CENTRO.y.toFixed(2)}, ${CENTRO.z.toFixed(2)}) - vMundo);
             vec3 color = base * (vec3(1.0, 0.6, 0.3) * max(dot(n, haciaDisco), 0.0) * 1.8 + 0.03);
@@ -803,6 +808,13 @@ function lanzarPlaneta() {
     e.vx = vr * c - vt * s;
     e.vy = vz * Math.sin(inc);
     e.vz = vz * Math.cos(inc);
+    // Se gira la órbita para que llegue por la derecha y abajo, lejos del
+    // planeta de "Sobre mí", y no se confundan
+    const giro = -1.6;
+    const cg = Math.cos(giro);
+    const sg = Math.sin(giro);
+    [e.x, e.z] = [e.x * cg + e.z * sg, -e.x * sg + e.z * cg];
+    [e.vx, e.vz] = [e.vx * cg + e.vz * sg, -e.vx * sg + e.vz * cg];
     marea.estado = "cae";
     marea.t = 0;
     marea.siguiente = 0;
@@ -981,7 +993,7 @@ function moverMarea(delta) {
 
 // =====================================================================
 // 6c. LAS SECCIONES DEL PORTFOLIO
-// Un menú fijo con las cuatro partes. Al elegir una, la cámara viaja a
+// Un menú fijo con las partes del portfolio ("Sobre mí" lleva al camino). Al elegir una, la cámara viaja a
 // su propia toma del agujero (más cerca, más lejos, desde otro lado),
 // el agujero se aparta hacia un lado y aparece el panel con el texto.
 // =====================================================================
@@ -989,7 +1001,6 @@ function moverMarea(delta) {
 const botonesSeccion = [...document.querySelectorAll(".seccion")];
 const carteles = [...document.querySelectorAll(".cartel")];
 const tomas = {
-    "cartel-sobre-mi": { orbita: 0.7, altura: 0.06, zoom: 0.62 },
     "cartel-habilidades": { orbita: -1.2, altura: -0.07, zoom: 0.82 },
     "cartel-formacion": { orbita: 2.5, altura: 0.1, zoom: 1.12 },
     "cartel-contacto": { orbita: -2.7, altura: 0.0, zoom: 0.5 }
@@ -1019,7 +1030,9 @@ function cerrarCartel() {
 
 botonesSeccion.forEach((b) =>
     b.addEventListener("click", () => {
-        if (b.classList.contains("elegida")) cerrarCartel();
+        // "Sobre mí" no abre panel: lleva al planeta y de ahí al camino
+        if (b.dataset.puerta) entrarPuerta(puertas.find((p) => p.id === b.dataset.puerta));
+        else if (b.classList.contains("elegida")) cerrarCartel();
         else abrirCartel(b.dataset.cartel);
     })
 );
@@ -1160,13 +1173,53 @@ function crearPuertas() {
         malla.add(zona);
         malla.userData.zona = zona;
         arcos.add(malla);
-        puertas.push({ ...datos, malla, nombre: nombresPuerta.get(datos.id), encima: 0, objEncima: 0, fase: Math.random() * 6 });
+        // Un aro fino que sale del planeta y se apaga, para que se vea que
+        // se puede tocar (solo hasta la primera vez que se entra)
+        const aro = new THREE.Mesh(
+            new THREE.PlaneGeometry(datos.radio * 5, datos.radio * 5),
+            new THREE.ShaderMaterial({
+                uniforms: { uFase: { value: 0 }, uFuerza: { value: 0 } },
+                vertexShader: `
+                    varying vec2 vUv;
+                    void main() {
+                        vUv = uv;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform float uFase;
+                    uniform float uFuerza;
+                    varying vec2 vUv;
+                    void main() {
+                        float r = length(vUv - 0.5) * 2.0;
+                        float radio = mix(0.42, 0.95, uFase);
+                        float linea = exp(-pow((r - radio) / 0.018, 2.0));
+                        float apaga = (1.0 - uFase) * smoothstep(0.0, 0.12, uFase);
+                        gl_FragColor = vec4(vec3(0.55, 0.75, 1.0) * linea * apaga * uFuerza, 1.0);
+                    }
+                `,
+                transparent: true,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
+            })
+        );
+        aro.renderOrder = 12;
+        arcos.add(aro);
+        puertas.push({ ...datos, malla, aro, nombre: nombresPuerta.get(datos.id), encima: 0, objEncima: 0, fase: Math.random() * 6 });
         const boton = nombresPuerta.get(datos.id);
         if (boton) boton.addEventListener("click", () => entrarPuerta(puertas[puertas.length - 1]));
     });
 }
 
 const auxPuerta = new THREE.Vector3();
+
+// Si ya se ha entrado alguna vez en un planeta, no hace falta la pista
+let puertaVista = false;
+try {
+    puertaVista = localStorage.getItem("gargantua-puerta") === "si";
+} catch (error) {
+    puertaVista = false;
+}
 
 function moverPuertas(delta, t) {
     puertas.forEach((p) => {
@@ -1180,6 +1233,13 @@ function moverPuertas(delta, t) {
         p.malla.material.uniforms.uViaje.value = viaje.puerta === p ? Math.min(1, viaje.t * 2) : 0;
         const escala = (radio / p.radio) * (1 + p.encima * 0.06);
         p.malla.scale.setScalar(escala);
+        p.aro.position.copy(p.malla.position);
+        p.aro.scale.setScalar(radio / p.radio);
+        const u = p.aro.material.uniforms;
+        u.uFase.value = (t * 0.4 + p.fase) % 1;
+        const pista = !puertaVista && listo && comunes.uEncendido.value > 0.8 && !viaje.activo && p.objEncima === 0 ? 1 : 0;
+        u.uFuerza.value += (pista - u.uFuerza.value) * Math.min(1, delta * 2);
+        p.aro.visible = u.uFuerza.value > 0.01;
         // El nombre, centrado debajo del planeta
         if (!p.nombre) return;
         p.malla.getWorldPosition(auxPuerta);
@@ -1202,13 +1262,33 @@ function puertaBajo(e) {
 const rayoPuerta = new THREE.Raycaster();
 const punteroPuerta = new THREE.Vector2();
 
+// El ratón cerca de la sombra: el anillo de luz se aviva y el gas va más
+// despacio, como si el tiempo se estirara al acercarse
+const ratonCerca = { x: 0.5, y: 0.5, dentro: false, fuerza: 0 };
+document.addEventListener("pointerleave", () => (ratonCerca.dentro = false));
+document.documentElement.addEventListener("mouseleave", () => (ratonCerca.dentro = false));
+
+function moverRatonCerca(delta) {
+    const centro = brillo.mezclar.uniforms.uCentro.value;
+    const dx = (ratonCerca.x - centro.x) * (innerWidth / innerHeight);
+    const dy = ratonCerca.y - centro.y;
+    const objetivo = ratonCerca.dentro && !viaje.activo ? 1 - THREE.MathUtils.smoothstep(Math.hypot(dx, dy), 0.1, 0.42) : 0;
+    ratonCerca.fuerza += (objetivo - ratonCerca.fuerza) * Math.min(1, delta * 2.5);
+}
+
 // El viaje: la cámara se acerca al planeta y todo se funde a negro;
 // entonces se abre su página
 const viaje = { activo: false, t: 0, desde: new THREE.Vector3(), hacia: new THREE.Vector3(), puerta: null };
 const fundido = document.getElementById("fundido");
 
 function entrarPuerta(p) {
-    if (viaje.activo) return;
+    if (viaje.activo || !p) return;
+    puertaVista = true;
+    try {
+        localStorage.setItem("gargantua-puerta", "si");
+    } catch (error) {
+        puertaVista = true;
+    }
     cerrarCartel();
     viaje.activo = true;
     viaje.t = 0;
@@ -1229,10 +1309,78 @@ function moverViaje(delta) {
     camara.lookAt(auxPuerta.copy(viaje.hacia).lerp(CENTRO, 1 - k));
     if (viaje.t >= 1.1 && !viaje.ido) {
         viaje.ido = true;
-        location.href = viaje.puerta.destino;
+        abrirMundo(viaje.puerta.destino);
     }
     return true;
 }
+
+// El mundo del planeta se abre dentro de esta misma página, encima y a
+// pantalla completa, sin cambiar de página. Mientras está abierto,
+// Gargantua deja de pintarse. Se vuelve con su botón o con el de atrás
+// del navegador. Si el destino es otra web (una dirección completa), se
+// va a ella sin más.
+const mundo = { marco: null, abierto: false };
+
+function abrirMundo(destino) {
+    if (/^https?:/.test(destino)) {
+        try {
+            window.top.location.href = destino;
+        } catch (error) {
+            window.open(destino, "_blank");
+        }
+        return;
+    }
+    const marco = document.createElement("iframe");
+    marco.className = "mundo";
+    marco.title = "Sobre mí";
+    marco.src = destino + (destino.includes("?") ? "&" : "?") + "dentro=si";
+    marco.addEventListener("load", () => {
+        // Si dentro se ha ido a Gargantua (por ejemplo, el enlace de volver
+        // antes de que cargara el camino), se cierra el mundo
+        try {
+            if (marco.contentWindow.location.pathname.includes("/gargantua")) {
+                cerrarMundo();
+                return;
+            }
+        } catch (error) {
+            marco.focus();
+        }
+        marco.focus();
+    });
+    document.body.appendChild(marco);
+    mundo.marco = marco;
+    mundo.abierto = true;
+    if (sonido.ctx && sonido.activo) sonido.ctx.suspend();
+    history.pushState({ mundo: true }, "", "#sobre-mi");
+}
+
+function cerrarMundo() {
+    if (!mundo.abierto) return;
+    mundo.abierto = false;
+    const marco = mundo.marco;
+    if (location.hash === "#sobre-mi") history.replaceState(null, "", location.pathname + location.search);
+    // Detrás del negro la cámara vuelve a su sitio; el mundo se apaga y
+    // después se quita el negro para que Gargantua aparezca
+    viaje.activo = false;
+    viaje.puerta = null;
+    viaje.ido = false;
+    reloj.getDelta();
+    marco.classList.add("saliendo");
+    if (sonido.ctx && sonido.activo) sonido.ctx.resume();
+    setTimeout(() => {
+        marco.remove();
+        mundo.marco = null;
+        fundido.classList.remove("activo");
+        document.body.classList.remove("viajando");
+    }, 650);
+}
+
+window.addEventListener("message", (e) => {
+    if (e.data === "volver-gargantua" && mundo.abierto) cerrarMundo();
+});
+window.addEventListener("popstate", () => {
+    if (mundo.abierto) cerrarMundo();
+});
 
 // =====================================================================
 // 7. RESPLANDOR EN VARIAS CAPAS
@@ -1797,6 +1945,9 @@ lienzo.addEventListener("pointermove", (e) => {
             lienzo.style.cursor = puerta ? "pointer" : "";
             vista.objGiro = -(e.clientX / innerWidth - 0.5) * 0.3;
             vista.objAltura = (e.clientY / innerHeight - 0.5) * 0.1;
+            ratonCerca.x = e.clientX / innerWidth;
+            ratonCerca.y = 1 - e.clientY / innerHeight;
+            ratonCerca.dentro = true;
         }
         return;
     }
@@ -1908,11 +2059,16 @@ function moverEntrada(delta) {
 
 function animar() {
     requestAnimationFrame(animar);
-    if (!listo) return;
+    if (!listo || mundo.abierto) {
+        reloj.getDelta();
+        return;
+    }
     const real = reloj.getDelta();
     const delta = Math.min(real, 0.1);
     // Cerca del agujero el tiempo pasa más despacio: el gas gira más lento
-    const t = (comunes.uTiempo.value += delta * (1 - cercania() * 0.45));
+    // y también cuando el ratón se acerca a la sombra
+    moverRatonCerca(delta);
+    const t = (comunes.uTiempo.value += delta * (1 - cercania() * 0.45 - ratonCerca.fuerza * 0.3));
     if (real < 0.5) adaptarResolucion(real);
     moverToma(delta);
     colocarCamara(delta, t);
@@ -1924,9 +2080,9 @@ function animar() {
     const encendido = moverEntrada(delta);
     const luzAnillo = THREE.MathUtils.smoothstep(encendido, 0.6, 1);
     const c = cercania();
-    anillo.material.uniforms.uColor.value.setRGB(1, 0.88, 0.7).multiplyScalar((2.4 + Math.sin(t * 2.2) * 0.4 + pulso * 3) * luzAnillo * (1 + c * 0.8));
+    anillo.material.uniforms.uColor.value.setRGB(1, 0.88, 0.7).multiplyScalar((2.4 + Math.sin(t * 2.2) * 0.4 + pulso * 3) * luzAnillo * (1 + c * 0.8 + ratonCerca.fuerza * 0.6));
     anillo2.material.uniforms.uColor.value.setRGB(1, 0.8, 0.6).multiplyScalar(0.45 * luzAnillo);
-    halos.forEach((h, i) => (h.material.opacity = h.userData.fuerza * encendido * (0.85 + 0.15 * Math.sin(t * (1.1 + i * 0.7)) + pulso * 0.8)));
+    halos.forEach((h, i) => (h.material.opacity = h.userData.fuerza * encendido * (0.85 + 0.15 * Math.sin(t * (1.1 + i * 0.7)) + pulso * 0.8 + ratonCerca.fuerza * 0.35)));
     brillo.mezclar.uniforms.uFuerza.value = 0.55 * (1 + pulso * 0.6) * (1 - c * 0.3);
     // Al acercarte el disco ocupa más pantalla: se baja la exposición para
     // que no se queme de blanco

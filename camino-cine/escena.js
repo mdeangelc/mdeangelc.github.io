@@ -24,6 +24,7 @@ import { PaseBrillo, crearAcabado, crearZumbido } from "./cine.js?v=2";
 //   ?tocar=no        -> la hierba no reacciona al ratón
 //   ?fondo=solo      -> solo el fondo, sin la escena 3D (para ajustarlo)
 //   ?desde=gargantua -> se llega desde Gargantua: se abre desde negro
+//   ?dentro=si       -> abierto dentro de Gargantua: volver lo cierra
 // =====================================================================
 
 const parametros = new URLSearchParams(location.search);
@@ -31,6 +32,15 @@ const parametros = new URLSearchParams(location.search);
 // Si se llega volando desde Gargantua, la pantalla sigue en negro y se
 // abre despacio, como si se saliera del planeta
 if (parametros.get("desde") === "gargantua") document.body.classList.add("desde-gargantua");
+
+// Abierto dentro de Gargantua (sin cambiar de página): el botón de volver
+// le avisa para que cierre el camino y vuelva a enseñarse
+if (parametros.get("dentro") === "si" && window.parent !== window) {
+    document.querySelector(".volver").addEventListener("click", (e) => {
+        e.preventDefault();
+        window.parent.postMessage("volver-gargantua", "*");
+    });
+}
 const movil = window.innerWidth < 760 || window.matchMedia("(pointer: coarse)").matches;
 const movimientoReducido = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const tocarHierba = parametros.get("tocar") !== "no";
