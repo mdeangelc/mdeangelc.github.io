@@ -3401,6 +3401,7 @@ if (parametros.has("metros")) {
 const enlaceVolver = document.querySelector(".volver");
 const textoVolver = enlaceVolver.textContent;
 let alFinal = false;
+let andando = false;
 
 function moverFinal() {
     const fin = THREE.MathUtils.smoothstep(metros, FIN - 80, FIN - 2);
@@ -3906,6 +3907,14 @@ function moverRecorrido() {
     paradas.forEach((parada, i) => botonesParada[i].classList.toggle("pasada", metros >= parada.metro - 1));
 }
 
+// Escape cierra el cartel abierto
+window.addEventListener("keydown", (evento) => {
+    if (evento.key === "Escape" && cartelAbierto) {
+        cartelesCerrados.add(cartelAbierto.id);
+        mostrarCartel(null);
+    }
+});
+
 document.querySelectorAll(".cartel .cerrar").forEach((boton) => {
     boton.addEventListener("click", () => {
         cartelesCerrados.add(boton.closest(".cartel").id);
@@ -4147,6 +4156,13 @@ function animar() {
 
     if (caminandoSolo) metrosObjetivo = Math.min(FIN, metrosObjetivo + 1.8 * delta);
     moverFinal(delta);
+    // Mientras andas los carteles se vuelven más transparentes para ver el
+    // camino; al pararte se ven enteros
+    const andandoAhora = caminandoSolo || Math.abs(metrosObjetivo - metros) > 0.25;
+    if (andandoAhora !== andando) {
+        andando = andandoAhora;
+        document.body.classList.toggle("andando", andando);
+    }
     metros += (metrosObjetivo - metros) * Math.min(1, delta * 2.5);
 
     actualizarRaton(delta);
