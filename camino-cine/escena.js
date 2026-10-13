@@ -576,7 +576,9 @@ const fragmentFondo = `
         float cola = 1.0 - clamp(atras / max(largo, 0.001), 0.0, 1.0);
         float px = fwidth(f.y);
         float raya = smoothstep(px * 1.6, 0.0, lado) * cola * cola;
-        return c + vec3(0.85, 0.92, 1.0) * raya * 1.8 * sin(uFugazT * 3.1416);
+        // Se queda por debajo del umbral del destello de lente para que
+        // no deje una raya horizontal cruzando la pantalla
+        return min(c + vec3(0.85, 0.92, 1.0) * raya * 1.8 * sin(uFugazT * 3.1416), vec3(0.8));
     }
 
     // Nubes finas que pasan por delante de la luna, oscuras y con el
@@ -651,7 +653,7 @@ const fragmentFondo = `
         float brillo = (0.7 + 0.3 * sin(re * 3.4)) * (1.0 + 0.5 * clamp(-d.x / 6.0, -1.0, 1.0));
         float delante = step(0.0, -(d.y + d.x * 0.08 + 0.12)) + step(1.0, r);
         c += calido * disco * brillo * 0.55 * min(delante, 1.0);
-        return c;
+        return min(c, vec3(0.8));
     }
 
     void main() {

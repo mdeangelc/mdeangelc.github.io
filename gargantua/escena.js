@@ -35,6 +35,7 @@ const ALTURA = 3.6;
 const CENTRO = new THREE.Vector3(0, ALTURA, 0);
 const OBJETIVO = new THREE.Vector3(0, ALTURA - 0.2, 0);
 const CAPA_BRILLO = 1;
+const CAPA_FUGAZ = 2;
 const BASE_GIRO = 0.16;
 const BASE_ALTURA = 0.19;
 
@@ -403,6 +404,13 @@ const brillar = (o) => {
     return o;
 };
 
+// Lo que brilla solo un momento (el planeta que se rompe, sus trozos y
+// el fogonazo) tiene resplandor pero no hace el destello horizontal
+const brillarFugaz = (o) => {
+    o.layers.enable(CAPA_FUGAZ);
+    return o;
+};
+
 // Durante la llegada la sombra aparece poco a poco con el gas, para que
 // no se vea una bola negra sola
 const sombra = brillar(new THREE.Mesh(new THREE.SphereGeometry(1, 64, 48), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0 })));
@@ -680,7 +688,7 @@ const materialMarea = new THREE.ShaderMaterial({
     depthWrite: false,
     blending: THREE.AdditiveBlending
 });
-const rioMarea = brillar(new THREE.Points(geometriaMarea, materialMarea));
+const rioMarea = brillarFugaz(new THREE.Points(geometriaMarea, materialMarea));
 rioMarea.frustumCulled = false;
 rioMarea.renderOrder = 8;
 rioMarea.visible = false;
@@ -709,7 +717,7 @@ const materialEstelas = new THREE.ShaderMaterial({
     depthWrite: false,
     blending: THREE.AdditiveBlending
 });
-const estelas = brillar(new THREE.LineSegments(geometriaEstelas, materialEstelas));
+const estelas = brillarFugaz(new THREE.LineSegments(geometriaEstelas, materialEstelas));
 estelas.frustumCulled = false;
 estelas.renderOrder = 8;
 estelas.visible = false;
@@ -758,14 +766,14 @@ const materialPlaneta = new THREE.ShaderMaterial({
         }
     `
 });
-const planeta = brillar(new THREE.Mesh(new THREE.SphereGeometry(0.36, 48, 32), materialPlaneta));
+const planeta = brillarFugaz(new THREE.Mesh(new THREE.SphereGeometry(0.36, 48, 32), materialPlaneta));
 planeta.visible = false;
 planeta.renderOrder = 8;
 agujero.add(planeta);
 const ejeZ = new THREE.Vector3(0, 0, 1);
 const haciaAgujero = new THREE.Vector3();
 
-const fogonazo = brillar(new THREE.Sprite(new THREE.SpriteMaterial({ map: mapaHalo, color: new THREE.Color(1, 0.7, 0.45).multiplyScalar(1.6), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
+const fogonazo = brillarFugaz(new THREE.Sprite(new THREE.SpriteMaterial({ map: mapaHalo, color: new THREE.Color(1, 0.7, 0.45).multiplyScalar(1.6), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
 fogonazo.visible = false;
 fogonazo.renderOrder = 8;
 agujero.add(fogonazo);
@@ -1054,10 +1062,10 @@ const PUERTAS = [
     {
         id: "camino",
         destino: "../camino-cine/?desde=gargantua",
-        posicion: [-1.9, -1.45, 3.6],
-        movil: [-0.5, -2.2, 3.6],
-        radio: 0.75,
-        radioMovil: 1.15,
+        posicion: [-2.5, -0.85, 1.3],
+        movil: [-0.7, -2.0, 1.3],
+        radio: 0.33,
+        radioMovil: 0.4,
         mar: [0.03, 0.09, 0.16],
         tierra: [0.09, 0.16, 0.08],
         cumbre: [0.33, 0.3, 0.23],
@@ -1145,6 +1153,10 @@ function crearPuertas() {
         malla.position.set(...datos.posicion);
         malla.rotation.z = 0.35;
         malla.renderOrder = 11;
+        // Zona invisible más grande para que sea fácil de tocar en el móvil
+        const zona = new THREE.Mesh(new THREE.SphereGeometry(datos.radio * 1.9, 16, 12), new THREE.MeshBasicMaterial({ visible: false }));
+        malla.add(zona);
+        malla.userData.zona = zona;
         arcos.add(malla);
         puertas.push({ ...datos, malla, nombre: nombresPuerta.get(datos.id), encima: 0, objEncima: 0, fase: Math.random() * 6 });
         const boton = nombresPuerta.get(datos.id);
@@ -1182,8 +1194,8 @@ function moverPuertas(delta, t) {
 function puertaBajo(e) {
     punteroPuerta.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
     rayoPuerta.setFromCamera(punteroPuerta, camara);
-    const corte = rayoPuerta.intersectObjects(puertas.map((p) => p.malla), false)[0];
-    return corte ? puertas.find((p) => p.malla === corte.object) : null;
+    const corte = rayoPuerta.intersectObjects(puertas.map((p) => p.malla.userData.zona), false)[0];
+    return corte ? puertas.find((p) => p.malla.userData.zona === corte.object) : null;
 }
 const rayoPuerta = new THREE.Raycaster();
 const punteroPuerta = new THREE.Vector2();
@@ -1366,12 +1378,27 @@ class PaseBrillo extends Pass {
         renderizador.setRenderTarget(this.escena);
         renderizador.clear();
         renderizador.render(escena, camara);
+
+        // El destello horizontal se saca antes de pintar lo fugaz: solo lo
+        // más fuerte del disco, estirado de lado
+        const [ra, rb] = this.raya;
+        this.recortar.uniforms.tEntrada.value = this.escena.texture;
+        this.recortar.uniforms.uPaso.value.set(1 / this.escena.width, 1 / this.escena.height);
+        this.recortar.uniforms.uUmbral.value = 3.0;
+        this.pasada(renderizador, this.recortar, ra);
+        this.recortar.uniforms.uUmbral.value = 0.7;
+
+        // Lo fugaz se suma encima, respetando lo que tapa la sombra
+        camara.layers.set(CAPA_FUGAZ);
+        const limpiarAntes = renderizador.autoClear;
+        renderizador.autoClear = false;
+        renderizador.setRenderTarget(this.escena);
+        renderizador.render(escena, camara);
+        renderizador.autoClear = limpiarAntes;
         camara.layers.mask = mascara;
         renderizador.setClearColor(this.antes, alfaAntes);
 
         const [n0, n1, n2] = this.niveles;
-        this.recortar.uniforms.tEntrada.value = this.escena.texture;
-        this.recortar.uniforms.uPaso.value.set(1 / this.escena.width, 1 / this.escena.height);
         this.pasada(renderizador, this.recortar, n0[0]);
         this.difumina(renderizador, n0, 1.0);
         this.copiar.uniforms.tEntrada.value = n0[0].texture;
@@ -1382,11 +1409,6 @@ class PaseBrillo extends Pass {
         this.difumina(renderizador, n2, 1.6);
         this.difumina(renderizador, n2, 3.0);
 
-        // El destello horizontal: solo lo más fuerte, estirado de lado
-        const [ra, rb] = this.raya;
-        this.recortar.uniforms.uUmbral.value = 3.0;
-        this.pasada(renderizador, this.recortar, ra);
-        this.recortar.uniforms.uUmbral.value = 0.7;
         const d = this.difuminar.uniforms;
         [[ra, rb, 2], [rb, ra, 4.5], [ra, rb, 10], [rb, ra, 22]].forEach(([desde, hacia, escala]) => {
             d.tEntrada.value = desde.texture;

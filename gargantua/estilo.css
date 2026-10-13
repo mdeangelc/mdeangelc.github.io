@@ -196,7 +196,7 @@ body.viajando .sonido {
     font-family: var(--titulo);
     font-style: italic;
     font-weight: 400;
-    font-size: 1.6rem;
+    font-size: 1.25rem;
     letter-spacing: 0;
     text-transform: none;
     color: var(--texto);
