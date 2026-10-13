@@ -60,7 +60,7 @@ const CARTELES = [
 ];
 
 // El final del camino: un mirador desde el que se ve Gargantua grande
-const FIN = 270;
+const FIN = 330;
 
 // Largo de cada trozo del mundo (en metros)
 const LARGO_TROZO = 25;
@@ -758,13 +758,13 @@ const fragmentFondo = `
         capa = nubes(enPlano(dm, 3000.0), t, 7.0, uLinea + 0.1, uLinea + 0.3, 0.58, 2.2);
         c = mix(c, capa.rgb + vec3(0.6, 0.66, 0.85) * luz * 0.35 + vec3(1.0, 0.6, 0.3) * luzGargantua(fg) * 0.22, capa.a);
 
-        capa = montana(enPlano(dm, 1900.0), t, 11.0, 0.0, 0.36, 2.0, uMontanaCerca, 0.05, 0.19);
+        capa = montana(enPlano(dm, 2300.0), t, 11.0, 0.0, 0.36, 2.0, uMontanaCerca, 0.05, 0.19);
         c = mix(c, capa.rgb, capa.a);
 
-        capa = colina(enPlano(dm, 800.0), t, 21.0, 0.0, 0.05, 0.012, uBosqueLejos, 0.18);
+        capa = colina(enPlano(dm, 1000.0), t, 21.0, 0.0, 0.05, 0.012, uBosqueLejos, 0.18);
         c = mix(c, capa.rgb, capa.a);
 
-        capa = colina(enPlano(dm, 560.0), t, 33.0, -0.015, 0.045, 0.02, uBosqueCerca, 0.0);
+        capa = colina(enPlano(dm, 700.0), t, 33.0, -0.015, 0.045, 0.02, uBosqueCerca, 0.0);
         c = mix(c, capa.rgb, capa.a);
 
         c += vec3(0.5, 0.56, 0.75) * luz * 0.04;
@@ -3366,7 +3366,7 @@ const textoVolver = enlaceVolver.textContent;
 let alFinal = false;
 
 function moverFinal() {
-    const fin = THREE.MathUtils.smoothstep(metros, FIN - 60, FIN - 2);
+    const fin = THREE.MathUtils.smoothstep(metros, FIN - 80, FIN - 2);
     gargantua.lerpVectors(gargantuaBase, gargantuaFinal, fin * fin * (3 - 2 * fin));
     uniformesFondo.uAmanecer.value = fin;
     const ahora = metros > FIN - 3;
