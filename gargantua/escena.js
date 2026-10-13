@@ -230,31 +230,48 @@ const fondo = new THREE.Mesh(
                 if (dot(d, g) < 0.9) return vec3(0.0);
                 vec3 e1 = normalize(cross(g, vec3(0.0, 1.0, 0.0)));
                 vec3 e2 = cross(e1, g);
-                vec2 p = vec2(dot(d, e1), dot(d, e2)) / 0.22;
-                p = mat2(0.83, -0.56, 0.56, 0.83) * p;
+                vec2 p = vec2(dot(d, e1), dot(d, e2)) / 0.18;
+                // Inclinada unos 35 grados y muy aplastada, como se ve de verdad
+                p = mat2(0.82, -0.57, 0.57, 0.82) * p;
                 vec2 q = vec2(p.x, p.y / 0.3);
                 float r = length(q);
                 vec3 col = vec3(0.0);
-                if (r < 1.7) {
+                if (r < 1.8) {
+                    float ruidoA = texture2D(tRuido, q * 0.6 + 0.3).r;
+                    float ruidoB = texture2D(tRuido, q * 2.2 + 0.7).r;
+                    float ruidoC = texture2D(tRuido, q * 5.0 + 0.11).r;
+                    // Núcleo blanco y bulbo amplio, cálido
+                    float nucleo = exp(-r * r * 90.0) * 2.2;
+                    float bulbo = exp(-r * r * 6.0);
+                    // Disco: se apaga hacia fuera y es más azul en los bordes
+                    float disco = exp(-r * 1.9) * smoothstep(1.75, 1.15, r) * (0.75 + 0.5 * ruidoA);
+                    vec3 colDisco = mix(vec3(0.5, 0.62, 1.0), vec3(1.0, 0.72, 0.42), smoothstep(0.85, 0.25, r));
+                    col = vec3(1.0, 0.95, 0.86) * nucleo + vec3(1.0, 0.7, 0.34) * bulbo + colDisco * disco * 0.95;
+                    // Bandas de polvo: anillos oscuros, marrones, más marcados
+                    // en el lado de arriba (el que queda más cerca)
                     float ang = atan(q.y, q.x);
-                    float ruidoA = texture2D(tRuido, q * 0.45 + 0.3).r;
-                    float ruidoB = texture2D(tRuido, q * 1.6 + 0.7).r;
-                    float brazos = pow(0.5 + 0.5 * sin(ang * 2.0 - log(r + 0.03) * 6.5 + ruidoA * 2.0), 1.6);
-                    float nucleo = exp(-r * r * 60.0) * 2.4 + exp(-r * 7.0) * 0.9;
-                    float disco = exp(-r * 1.7) * (0.3 + 0.7 * brazos) * smoothstep(1.7, 1.1, r);
-                    float polvo = smoothstep(0.42, 0.7, ruidoA * 0.6 + ruidoB * 0.4) * (0.5 + 0.5 * sin(r * 15.0 + ruidoA * 4.0));
-                    polvo *= smoothstep(0.12, 0.35, r) * smoothstep(1.4, 0.7, r) * (q.y > 0.0 ? 1.0 : 0.45);
-                    float nudos = smoothstep(0.7, 0.85, ruidoB) * brazos * smoothstep(0.35, 0.6, r) * smoothstep(1.3, 0.9, r);
-                    col = vec3(1.0, 0.8, 0.56) * nucleo;
-                    col += mix(vec3(0.42, 0.58, 1.0), vec3(0.95, 0.78, 0.66), exp(-r * 2.6)) * disco;
-                    col += vec3(0.55, 0.7, 1.0) * nudos * 0.6 + vec3(1.0, 0.45, 0.6) * nudos * smoothstep(0.8, 0.95, ruidoA) * 0.5;
-                    col *= 1.0 - polvo * 0.75;
+                    float corte = texture2D(tRuido, vec2(ang * 0.6, r * 1.3) + 0.21).r;
+                    float anillos = 0.0;
+                    for (int i = 0; i < 3; i++) {
+                        float ri = 0.42 + float(i) * 0.24 + sin(ang * 2.0 + float(i) * 1.7) * 0.03;
+                        float ancho = 0.025 + 0.03 * ruidoA;
+                        anillos += exp(-pow((r - ri - (ruidoB - 0.5) * 0.12) / ancho, 2.0)) * smoothstep(0.3, 0.6, corte + float(i) * 0.08);
+                    }
+                    // Polvo fino y deshilachado entre los anillos
+                    anillos += smoothstep(0.62, 0.8, ruidoC) * smoothstep(0.3, 0.5, r) * smoothstep(1.2, 0.8, r) * 0.6;
+                    float lado = q.y > 0.0 ? 1.0 : 0.45;
+                    float polvo = clamp(anillos * lado * (0.6 + 0.5 * ruidoC), 0.0, 1.0) * smoothstep(0.2, 0.4, r);
+                    col = mix(col, col * vec3(0.42, 0.26, 0.16), polvo * 0.85);
+                    // Cúmulos azules y alguna nube rosada en los brazos de fuera
+                    float nudos = smoothstep(0.74, 0.88, ruidoC) * smoothstep(0.55, 0.8, r) * smoothstep(1.5, 1.1, r);
+                    col += vec3(0.55, 0.72, 1.0) * nudos * 0.5 + vec3(1.0, 0.5, 0.65) * nudos * smoothstep(0.85, 0.95, ruidoB) * 0.5;
                 }
-                // M32, pegada al disco, y M110, más lejos y alargada
-                vec2 a1 = (p - vec2(0.12, 0.2)) / vec2(0.05, 0.045);
-                vec2 a2 = mat2(0.6, -0.8, 0.8, 0.6) * (p - vec2(-0.5, -0.62)) / vec2(0.14, 0.07);
-                col += vec3(1.0, 0.86, 0.7) * (exp(-dot(a1, a1) * 1.6) * 0.8 + exp(-dot(a2, a2) * 1.4) * 0.35);
-                return col * 0.32;
+                // Sus dos galaxias pequeñas, pegadas: M32 justo encima del
+                // disco y M110 abajo a la derecha, alargada
+                vec2 a1 = (p - vec2(-0.12, 0.2)) / vec2(0.045, 0.04);
+                vec2 a2 = mat2(0.94, -0.34, 0.34, 0.94) * (p - vec2(0.36, -0.42)) / vec2(0.1, 0.05);
+                col += vec3(1.0, 0.92, 0.82) * (exp(-dot(a1, a1) * 1.8) * 0.9 + exp(-dot(a2, a2) * 1.5) * 0.35);
+                return col * 0.34;
             }
 
             void main() {
@@ -293,7 +310,7 @@ fondo.renderOrder = -1;
 escena.add(fondo);
 // Andrómeda queda arriba a la izquierda del agujero vista desde el sitio
 // de partida; al girar alrededor pasa por detrás y se dobla
-fondo.material.uniforms.uGalaxia.value.set(-Math.sin(BASE_GIRO - 0.3), -Math.sin(BASE_ALTURA) + 0.14, -Math.cos(BASE_GIRO - 0.3)).normalize();
+fondo.material.uniforms.uGalaxia.value.set(-Math.sin(BASE_GIRO - 0.27), -Math.sin(BASE_ALTURA) + 0.17, -Math.cos(BASE_GIRO - 0.27)).normalize();
 
 
 
