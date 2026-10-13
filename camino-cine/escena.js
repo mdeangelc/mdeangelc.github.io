@@ -33,14 +33,36 @@ const parametros = new URLSearchParams(location.search);
 // abre despacio, como si se saliera del planeta
 if (parametros.get("desde") === "gargantua") document.body.classList.add("desde-gargantua");
 
-// Abierto dentro de Gargantua (sin cambiar de página): el botón de volver
-// le avisa para que cierre el camino y vuelva a enseñarse
-if (parametros.get("dentro") === "si" && window.parent !== window) {
-    document.querySelector(".volver").addEventListener("click", (e) => {
-        e.preventDefault();
-        window.parent.postMessage("volver-gargantua", "*");
-    });
+// Abierto dentro de Gargantua (sin cambiar de página): volver le avisa
+// para que cierre el camino y vuelva a enseñarse. Desde el mirador del
+// final, antes de volver se vuela hacia Gargantua (ver moverVuelo)
+const dentroDeGargantua = parametros.get("dentro") === "si" && window.parent !== window;
+
+function irAGargantua() {
+    const enlace = document.querySelector(".volver");
+    if (dentroDeGargantua) window.parent.postMessage("volver-gargantua", "*");
+    else if (enlace.target === "_top") {
+        try {
+            window.top.location.href = enlace.href;
+        } catch (error) {
+            window.open(enlace.href, "_blank");
+        }
+    } else location.href = enlace.href;
 }
+
+document.querySelector(".volver").addEventListener("click", (e) => {
+    if (vuelo.activo) {
+        e.preventDefault();
+        return;
+    }
+    if (document.body.classList.contains("al-final") && !movimientoReducido) {
+        e.preventDefault();
+        empezarVuelo();
+    } else if (dentroDeGargantua) {
+        e.preventDefault();
+        irAGargantua();
+    }
+});
 const movil = window.innerWidth < 760 || window.matchMedia("(pointer: coarse)").matches;
 const movimientoReducido = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const tocarHierba = parametros.get("tocar") !== "no";
@@ -282,7 +304,9 @@ const comunes = {
     uConSombra: { value: 0 },
     uTamSombra: { value: new THREE.Vector2(1 / 2048, 1 / 2048) },
     uDirLuna: { value: new THREE.Vector3(0.5, 0.3, -0.8).normalize() },
-    uDirLunaVista: { value: new THREE.Vector3(0.5, 0.3, -0.8).normalize() }
+    uDirLunaVista: { value: new THREE.Vector3(0.5, 0.3, -0.8).normalize() },
+    // Hacia dónde está Gargantua en el cielo (xyz) y su tamaño en radianes (w)
+    uDirGargantua: { value: new THREE.Vector4(0, 0.1, -1, 0.03) }
 };
 
 // Sombras de la luna en el suelo y la hierba (los árboles y objetos las
@@ -1000,6 +1024,7 @@ const fragmentSuelo = `
     uniform vec3 uReflejoBajo;
     uniform vec3 uLuzLuna;
     uniform vec3 uDirLuna;
+    uniform vec4 uDirGargantua;
     uniform float uParpadeo;
     varying vec3 vMundo;
     ${terrenoGLSL}
@@ -1163,6 +1188,11 @@ const fragmentSuelo = `
             vec3 R = reflect(rayoVista, normalize(vec3(ondas.x * 0.05, 1.0, ondas.y * 0.05)));
             float alaLunaR = max(dot(R, uDirLuna), 0.0);
             cielo += uLuzLuna * (pow(alaLunaR, 1500.0) * 8.0 + pow(alaLunaR, 80.0) * 0.6 + pow(alaLunaR, 8.0) * 0.06);
+            // Gargantua también se refleja en los charcos
+            float aGc = acos(clamp(dot(R, uDirGargantua.xyz), -1.0, 1.0));
+            float rG = uDirGargantua.w;
+            cielo *= 1.0 - (1.0 - smoothstep(rG * 0.9, rG, aGc)) * 0.6;
+            cielo += vec3(1.0, 0.68, 0.38) * (exp(-pow((aGc - rG * 1.07) / (rG * 0.14), 2.0)) * 1.2 + exp(-max(aGc - rG, 0.0) / (rG * 1.4)) * 0.3) * min(rG / 0.03, 2.5) * 0.5;
             // Las farolas de este tramo y de los dos de al lado, para que el
             // reflejo no salte al pasar de un tramo a otro
             float alFarol = 0.0;
@@ -1194,6 +1224,13 @@ const fragmentSuelo = `
             vec3 Ra = reflect(rayoVista, normalize(vec3(ondasA.x * 0.14, 1.0, ondasA.y * 0.14)));
             float alaLunaA = max(dot(Ra, uDirLuna), 0.0);
             rio += uLuzLuna * (pow(alaLunaA, 300.0) * 5.0 + pow(alaLunaA, 30.0) * 0.35);
+            // Gargantua reflejado: su anillo de luz temblando en el agua
+            float aG = acos(clamp(dot(Ra, uDirGargantua.xyz), -1.0, 1.0));
+            float radioG = uDirGargantua.w;
+            float anilloG = exp(-pow((aG - radioG * 1.07) / (radioG * 0.16), 2.0));
+            float haloG = exp(-max(aG - radioG, 0.0) / (radioG * 1.4)) * 0.35;
+            rio = mix(rio, rio * 0.35, (1.0 - smoothstep(radioG * 0.9, radioG, aG)) * 0.7);
+            rio += vec3(1.0, 0.68, 0.38) * (anilloG * 1.3 + haloG) * min(radioG / 0.03, 2.5) * 0.5;
             color = mix(color, rio, agua);
         }
         #endif
@@ -3369,6 +3406,7 @@ function moverFinal() {
     const fin = THREE.MathUtils.smoothstep(metros, FIN - 80, FIN - 2);
     gargantua.lerpVectors(gargantuaBase, gargantuaFinal, fin * fin * (3 - 2 * fin));
     uniformesFondo.uAmanecer.value = fin;
+    calcularDirGargantua();
     const ahora = metros > FIN - 3;
     if (ahora !== alFinal) {
         alFinal = ahora;
@@ -3464,6 +3502,65 @@ function actualizarRaton(delta) {
     comunes.uFuerzaRaton.value += (objetivo - comunes.uFuerzaRaton.value) * Math.min(1, delta * 4);
     if (comunes.uFuerzaRaton.value < 0.002) comunes.uFuerzaRaton.value = 0;
 }
+
+// El vuelo del final: la cámara se levanta del camino, gira hacia
+// Gargantua, se acerca (se cierra el ángulo) y todo se funde a negro
+const vuelo = { activo: false, t: 0, ido: false };
+const telon = document.createElement("div");
+telon.className = "telon";
+document.body.appendChild(telon);
+const dirGargantua = new THREE.Vector3();
+
+function empezarVuelo() {
+    vuelo.activo = true;
+    vuelo.t = 0;
+    caminandoSolo = false;
+    document.body.classList.add("volando");
+}
+
+function moverVuelo(delta) {
+    if (!vuelo.activo) return;
+    vuelo.t += delta / 3.2;
+    const k = Math.min(1, vuelo.t);
+    const suaveK = k * k * (3 - 2 * k);
+    const sube = k * k;
+    camara.position.y += sube * 22;
+    camara.position.addScaledVector(dirGargantua, sube * 40);
+    const giroY = Math.atan2(-dirGargantua.x, -dirGargantua.z);
+    const alto = Math.asin(THREE.MathUtils.clamp(dirGargantua.y, -1, 1));
+    camara.rotation.x += (alto - camara.rotation.x) * suaveK;
+    camara.rotation.y += (giroY - camara.rotation.y) * suaveK;
+    camara.fov = (camara.aspect < 0.8 ? 64 : 55) - 30 * suaveK;
+    camara.updateProjectionMatrix();
+    comunes.uCamara.value.copy(camara.position);
+    if (vuelo.t > 0.55) telon.classList.add("activo");
+    if (vuelo.t >= 1.1 && !vuelo.ido) {
+        vuelo.ido = true;
+        irAGargantua();
+        // Dentro de Gargantua el camino se cierra; por si se vuelve a
+        // abrir esta misma página, se deja como estaba
+        setTimeout(() => {
+            vuelo.activo = false;
+            vuelo.ido = false;
+            telon.classList.remove("activo");
+            document.body.classList.remove("volando");
+            camara.fov = camara.aspect < 0.8 ? 64 : 55;
+            camara.updateProjectionMatrix();
+        }, 1500);
+    }
+}
+
+// Dirección de Gargantua en el mundo (sale de dónde se dibuja en el
+// cielo) y su tamaño, para el reflejo en el agua y el vuelo final
+function calcularDirGargantua() {
+    const u = uniformesFondo;
+    const bx = (gargantua.x / aspectoMarco - 0.5) / visible.x;
+    const by = (gargantua.y - 0.5) / visible.y;
+    dirGargantua.set(bx * 2 * u.uTanMedio.value.x, by * 2 * u.uTanMedio.value.y, -1).applyAxisAngle(ejeX, inclinacion).normalize();
+    const radio = Math.atan((gargantua.z / visible.y) * 2 * u.uTanMedio.value.y);
+    comunes.uDirGargantua.value.set(dirGargantua.x, dirGargantua.y, dirGargantua.z, radio);
+}
+const ejeX = new THREE.Vector3(1, 0, 0);
 
 function colocarCamara() {
     const z = -metros;
@@ -4054,6 +4151,7 @@ function animar() {
 
     actualizarRaton(delta);
     colocarCamara();
+    moverVuelo(delta);
     actualizarTrozos();
     actualizarFondo(metros);
     moverLuciernagas(tiempo);

@@ -1282,7 +1282,7 @@ function moverPuertas(delta, t) {
         const x = (auxPuerta.x * 0.5 + 0.5) * innerWidth;
         const y = (-auxPuerta.y * 0.5 + 0.5) * innerHeight;
         p.nombre.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, 0)`;
-        p.nombre.classList.toggle("visible", listo && comunes.uEncendido.value > 0.8 && !viaje.activo);
+        p.nombre.classList.toggle("visible", listo && comunes.uEncendido.value > 0.8 && !viaje.activo && !vuelta.activo);
         p.nombre.classList.toggle("encima", p.objEncima > 0);
     });
 }
@@ -1334,7 +1334,21 @@ function entrarPuerta(p) {
     if (sonido.activo) sonarDespertar();
 }
 
+// La vuelta: al cerrar el camino la cámara sale desde el planeta y se
+// aleja hasta su sitio, al revés que la ida
+const vuelta = { activo: false, t: 0, puerta: null, planeta: new THREE.Vector3(), destino: new THREE.Vector3() };
+
 function moverViaje(delta) {
+    if (vuelta.activo) {
+        vuelta.t += delta / 2.2;
+        const k = vuelta.t < 1 ? 1 - Math.pow(1 - vuelta.t, 3) : 1;
+        vuelta.puerta.malla.getWorldPosition(vuelta.planeta);
+        vuelta.destino.copy(camara.position);
+        camara.position.lerpVectors(auxPuerta.copy(vuelta.destino).lerp(vuelta.planeta, 0.75), vuelta.destino, k);
+        camara.lookAt(auxPuerta.copy(vuelta.planeta).lerp(CENTRO, k));
+        if (vuelta.t >= 1) vuelta.activo = false;
+        return true;
+    }
     if (!viaje.activo) return false;
     viaje.t += delta / 1.8;
     const k = viaje.t < 1 ? 1 - Math.pow(1 - viaje.t, 3) : 1;
@@ -1395,6 +1409,7 @@ function cerrarMundo() {
     if (location.hash === "#sobre-mi") history.replaceState(null, "", location.pathname + location.search);
     // Detrás del negro la cámara vuelve a su sitio; el mundo se apaga y
     // después se quita el negro para que Gargantua aparezca
+    if (viaje.puerta) Object.assign(vuelta, { activo: true, t: 0, puerta: viaje.puerta });
     viaje.activo = false;
     viaje.puerta = null;
     viaje.ido = false;
