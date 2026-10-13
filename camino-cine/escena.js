@@ -3434,6 +3434,8 @@ const pista = document.getElementById("pista");
 if (movil) pista.textContent = "Desliza arriba para andar y de lado para mirar";
 
 function avanzar(cantidad) {
+    // Durante el vuelo final no se anda
+    if (vuelo.activo) return;
     metrosObjetivo = THREE.MathUtils.clamp(metrosObjetivo + cantidad, 0, FIN);
     pista.classList.add("oculta");
 }
