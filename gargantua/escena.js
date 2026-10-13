@@ -3,6 +3,7 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
 import { Pass, FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 
 // =====================================================================
@@ -395,8 +396,10 @@ const gasGlsl = `
         float haz = mix(1.0, pow(doppler, 3.5), 0.85);
         float brillo = temperatura * 2.0 * haz * (1.0 + 0.12 * sin(uTiempo * 1.3 + r * 2.5)) * (0.72 + 0.56 * rizo);
         col *= brillo * (1.0 - polvo * 0.85) * (1.0 + manchas * 1.5);
-        col = mix(col, col * vec3(1.1, 0.8, 0.62), smoothstep(1.0, 0.6, doppler) * 0.6);
-        col = mix(col, col * vec3(0.88, 0.98, 1.2) + vec3(0.03, 0.05, 0.1), smoothstep(1.0, 1.45, doppler) * 0.65);
+        // Color por el efecto Doppler: el gas que se aleja se ve más rojo y
+        // apagado; el que se acerca, más blanco y azulado
+        col = mix(col, col * vec3(1.12, 0.72, 0.5), smoothstep(1.0, 0.6, doppler) * 0.8);
+        col = mix(col, col * vec3(0.86, 0.98, 1.25) + vec3(0.04, 0.06, 0.12), smoothstep(1.0, 1.45, doppler) * 0.8);
         float borde = exp(-pow((r - DENTRO - 0.025) / (0.032 + delante * 0.08), 2.0)) * (0.7 + 0.3 * sin(phi * 7.0 + uTiempo * 3.1) * sin(phi * 3.0 - uTiempo * 1.7)) * (1.0 - delante * 0.75);
         col += vec3(1.0, 0.95, 0.88) * borde * 2.2 * haz;
         col *= 1.0 + uPulso * 0.45 + uPulso * 2.2 * exp(-pow((r - uOnda) / 0.3, 2.0));
@@ -572,11 +575,15 @@ function materialAnillo(radio, ancho) {
         blending: THREE.AdditiveBlending
     });
 }
-const anillo = brillar(new THREE.Mesh(new THREE.RingGeometry(0.98, 1.08, 256, 1), materialAnillo(1.028, 0.008)));
+// El anillo de fotones, más fino y nítido, con otro muy tenue por dentro
+// (la luz que da una vuelta más antes de salir) y uno suave por fuera
+const anillo = brillar(new THREE.Mesh(new THREE.RingGeometry(0.98, 1.08, 256, 1), materialAnillo(1.028, 0.0055)));
 const anillo2 = brillar(new THREE.Mesh(new THREE.RingGeometry(1.04, 1.11, 256, 1), materialAnillo(1.075, 0.004)));
+const anillo3 = brillar(new THREE.Mesh(new THREE.RingGeometry(0.99, 1.04, 256, 1), materialAnillo(1.014, 0.0025)));
 anillo.renderOrder = 9;
 anillo2.renderOrder = 9;
-arcos.add(arcoAtras, arcoDelante, anillo, anillo2);
+anillo3.renderOrder = 9;
+arcos.add(arcoAtras, arcoDelante, anillo, anillo2, anillo3);
 escena.add(arcos);
 
 function texturaHalo() {
@@ -1692,6 +1699,9 @@ compositor.addPass(new RenderPass(escena, camara));
 const brillo = new PaseBrillo();
 compositor.addPass(brillo);
 compositor.addPass(new OutputPass());
+// Suavizado de bordes (SMAA): quita los dientes de sierra del borde de la
+// sombra, del anillo fino y de las líneas del disco
+compositor.addPass(new SMAAPass(innerWidth * renderizador.getPixelRatio(), innerHeight * renderizador.getPixelRatio()));
 const acabado = new ShaderPass({
     uniforms: { tDiffuse: { value: null }, uTiempo: comunes.uTiempo },
     vertexShader: `
@@ -2185,8 +2195,9 @@ function animar() {
     const encendido = moverEntrada(delta);
     const luzAnillo = THREE.MathUtils.smoothstep(encendido, 0.6, 1);
     const c = cercania();
-    anillo.material.uniforms.uColor.value.setRGB(1, 0.88, 0.7).multiplyScalar((2.4 + Math.sin(t * 2.2) * 0.4 + pulso * 3) * luzAnillo * (1 + c * 0.8 + ratonCerca.fuerza * 0.6));
+    anillo.material.uniforms.uColor.value.setRGB(1, 0.88, 0.7).multiplyScalar((2.7 + Math.sin(t * 2.2) * 0.4 + pulso * 3) * luzAnillo * (1 + c * 0.8 + ratonCerca.fuerza * 0.6));
     anillo2.material.uniforms.uColor.value.setRGB(1, 0.8, 0.6).multiplyScalar(0.45 * luzAnillo);
+    anillo3.material.uniforms.uColor.value.setRGB(1, 0.9, 0.78).multiplyScalar(0.9 * luzAnillo);
     halos.forEach((h, i) => (h.material.opacity = h.userData.fuerza * encendido * (0.85 + 0.15 * Math.sin(t * (1.1 + i * 0.7)) + pulso * 0.8 + ratonCerca.fuerza * 0.35)));
     brillo.mezclar.uniforms.uFuerza.value = 0.55 * (1 + pulso * 0.6) * (1 - c * 0.3);
     // Al acercarte el disco ocupa más pantalla: se baja la exposición para
