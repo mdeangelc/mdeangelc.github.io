@@ -738,23 +738,30 @@ const fragmentFondo = `
 
 let materialFondo = null;
 
+// El fondo es lo que más cuesta por píxel, así que se pinta dentro de la
+// escena, al final de lo opaco y pegado al fondo de la profundidad: solo
+// se calcula donde no hay árboles, suelo ni hierba delante. Lo
+// transparente (niebla, luciérnagas...) se pinta después, por encima.
 function crearFondo() {
     materialFondo = new THREE.ShaderMaterial({
-        depthTest: false,
+        depthTest: true,
         depthWrite: false,
+        depthFunc: THREE.LessEqualDepth,
         uniforms: uniformesFondo,
         vertexShader: `
             varying vec2 vUv;
             void main() {
                 vUv = uv;
-                gl_Position = vec4(position.xy, 0.0, 1.0);
+                gl_Position = vec4(position.xy, 1.0, 1.0);
             }
         `,
         fragmentShader: fragmentFondo
     });
     const plano = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), materialFondo);
     plano.frustumCulled = false;
-    escenaFondo.add(plano);
+    plano.renderOrder = 100000;
+    if (soloFondo) escenaFondo.add(plano);
+    else escena.add(plano);
 }
 
 function actualizarFondo(metros) {
@@ -1190,6 +1197,10 @@ geometriaSuelo.rotateX(-Math.PI / 2);
 geometriaSuelo.translate(0, 0, -100);
 const suelo = new THREE.Mesh(geometriaSuelo, materialSuelo);
 suelo.frustumCulled = false;
+// El suelo se pinta después de la hierba, los árboles y las piedras: así
+// la tarjeta gráfica se salta los trozos de suelo que quedan tapados, que
+// son muchos y su shader es caro
+suelo.renderOrder = 10;
 escena.add(suelo);
 
 // =====================================================================
@@ -3469,7 +3480,15 @@ function revisarRendimiento() {
     if (ultimosFps.length > 3) ultimosFps.shift();
     const limitada = ultimosFps.length === 3 && ultimosFps.every((f) => f > 28.5 && f < 31.5);
     if ((ahora - inicioPagina) / 1000 > 2 && !limitada) {
-        if (fps < 45) {
+        if (fps < 45 && resolucion > 1) {
+            // Primero se baja la resolución a 1 (en pantallas con mucha
+            // densidad casi no se nota con el resplandor y el desenfoque)
+            resolucion = 1;
+            aplicarResolucion();
+            compositor.setPixelRatio(resolucion);
+            compositor.setSize(innerWidth, innerHeight);
+            materialPolvo.uniforms.uEscala.value = resolucion * innerHeight / 22;
+        } else if (fps < 45) {
             // Último recurso: sin sombras
             if (calidadHierba <= 0.3 && resolucion <= 0.75 && fps < 30 && luzLunar.castShadow) {
                 luzLunar.castShadow = false;
@@ -3480,6 +3499,7 @@ function revisarRendimiento() {
                 aplicarResolucion();
                 compositor.setPixelRatio(resolucion);
                 compositor.setSize(innerWidth, innerHeight);
+                materialPolvo.uniforms.uEscala.value = resolucion * innerHeight / 22;
             }
             calidadHierba = Math.max(0.3, calidadHierba - 0.1);
         } else if (fps > 57) calidadHierba = Math.min(1, calidadHierba + 0.05);
@@ -3529,8 +3549,8 @@ class PaseCine extends Pass {
                 uniform float uCerca;
                 uniform float uLejos;
                 varying vec2 vUv;
-                #define TOMAS ${movil ? 6 : 10}
-                #define PASOS ${movil ? 14 : 20}
+                #define TOMAS ${movil ? 6 : 8}
+                #define PASOS ${movil ? 9 : 12}
 
                 float distancia(vec2 uv) {
                     float z = texture2D(tProfundidad, uv).x * 2.0 - 1.0;
@@ -3616,7 +3636,6 @@ const compositor = new EffectComposer(renderizador, destinoEscena);
 compositor.renderTarget2.depthTexture = new THREE.DepthTexture(innerWidth, innerHeight);
 const paseFondo = new RenderPass(escenaFondo, camaraFondo);
 const paseEscena = new RenderPass(escena, camara);
-paseEscena.clear = false;
 paseEscena.clearDepth = true;
 compositor.addPass(paseFondo);
 compositor.addPass(paseEscena);
@@ -3674,6 +3693,7 @@ function animar() {
     luzDeLaLuna();
     moverFugaz(delta);
     paseEscena.enabled = !soloFondo;
+    paseFondo.enabled = soloFondo;
     // Las sombras se repintan cada dos fotogramas (cada tres en el móvil):
     // casi no se nota y es de lo que más cuesta
     cuadroSombra = (cuadroSombra + 1) % (movil ? 3 : 2);
