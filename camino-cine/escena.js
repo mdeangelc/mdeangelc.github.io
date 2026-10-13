@@ -884,7 +884,7 @@ function ajustarEncuadre() {
     const lunaY = Math.min(0.88, (0.79 - 0.5) / visible.y + 0.5);
     luna.set(((lunaX - 0.5) * visible.x + 0.5) * aspectoMarco, (lunaY - 0.5) * visible.y + 0.5, aspecto < 0.8 ? 0.06 : 0.055);
     const gargantuaX = aspecto < 0.8 ? 0.3 : 0.4;
-    gargantua.set(((gargantuaX - 0.5) * visible.x + 0.5) * aspectoMarco, 0.625, aspecto < 0.8 ? 0.03 : 0.026);
+    gargantua.set(((gargantuaX - 0.5) * visible.x + 0.5) * aspectoMarco, 0.655, aspecto < 0.8 ? 0.032 : 0.028);
     const mitad = Math.tan(THREE.MathUtils.degToRad(camara.fov / 2));
     // La vista de partida (sin girar y con la inclinación de siempre): el
     // cielo se dibuja tal cual se ve desde ahí y queda fijo en el mundo
