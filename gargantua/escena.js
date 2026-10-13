@@ -10,7 +10,7 @@ import { Pass, FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 // Gargantua, flotando en el espacio y haciendo de portada del
 // portfolio. El disco de gas son tres capas que giran (más rápido por
 // dentro), la luz doblada son dos arcos que abrazan la sombra negra, y
-// detrás hay estrellas, la Vía Láctea y Andrómeda, todo deformado por la
+// detrás hay estrellas y Andrómeda, todo deformado por la
 // gravedad. De vez en cuando se come un planeta. Arrastrando se gira
 // alrededor y con la rueda o pellizcando te acercas. El menú lleva la
 // cámara a una toma distinta por sección. Al cargar llegas desde lejos
@@ -146,7 +146,7 @@ const tRuido = { value: texturaRuido() };
 // =====================================================================
 // 4. EL FONDO: ESTRELLAS DOBLADAS POR LA GRAVEDAD
 // Un cielo hecho en el shader: estrellas en una rejilla sobre las caras
-// de un cubo y una nebulosa muy tenue. Cada píxel primero se dobla con
+// de un cubo y Andrómeda. Cada píxel primero se dobla con
 // la ecuación de una lente gravitatoria, así que alrededor del agujero
 // las estrellas se estiran, se acercan a un anillo y aparecen
 // repetidas al otro lado.
@@ -227,10 +227,10 @@ const fondo = new THREE.Mesh(
             // pasa por detrás del agujero se curva a su alrededor.
             vec3 andromeda(vec3 d) {
                 vec3 g = normalize(uGalaxia);
-                if (dot(d, g) < 0.94) return vec3(0.0);
+                if (dot(d, g) < 0.9) return vec3(0.0);
                 vec3 e1 = normalize(cross(g, vec3(0.0, 1.0, 0.0)));
                 vec3 e2 = cross(e1, g);
-                vec2 p = vec2(dot(d, e1), dot(d, e2)) / 0.17;
+                vec2 p = vec2(dot(d, e1), dot(d, e2)) / 0.22;
                 p = mat2(0.83, -0.56, 0.56, 0.83) * p;
                 vec2 q = vec2(p.x, p.y / 0.3);
                 float r = length(q);
@@ -257,23 +257,6 @@ const fondo = new THREE.Mesh(
                 return col * 0.32;
             }
 
-            // La Vía Láctea: una banda ancha que cruza todo el cielo, con
-            // nubes de estrellas, una zona central más cálida y una franja
-            // de polvo oscuro en medio
-            vec3 viaLactea(vec3 d, out float densidad) {
-                vec3 n = normalize(vec3(0.35, 0.8, -0.45));
-                float lat = dot(d, n);
-                float banda = exp(-lat * lat / 0.07);
-                float lon = atan(dot(d, normalize(cross(n, vec3(1.0, 0.0, 0.0)))), dot(d, normalize(cross(n, vec3(0.0, 0.0, 1.0))))) / 6.2832;
-                float nubes = texture2D(tRuido, vec2(lon * 3.0, lat * 1.5 + 0.5)).r;
-                float finas = texture2D(tRuido, vec2(lon * 9.0 + 0.3, lat * 4.0 + 0.2)).r;
-                float polvo = smoothstep(0.45, 0.7, finas) * exp(-lat * lat / 0.006);
-                float centro = exp(-pow((lon - 0.12) * 4.0, 2.0));
-                densidad = banda * (0.5 + nubes) * (1.0 - polvo * 0.8);
-                vec3 color = mix(vec3(0.38, 0.45, 0.7), vec3(0.9, 0.72, 0.52), centro * 0.8);
-                return color * banda * smoothstep(0.35, 0.8, nubes * 0.7 + finas * 0.4) * (1.0 - polvo * 0.85) * (0.05 + centro * 0.05);
-            }
-
             void main() {
                 vec3 dir = normalize(vMundo - cameraPosition);
                 vec3 haciaAgujero = normalize(uAgujero - cameraPosition);
@@ -288,8 +271,9 @@ const fondo = new THREE.Mesh(
                 float aumento = clamp(1.0 / abs(1.0 - e2 * e2 / pow(max(theta, 0.0005), 4.0)), 0.0, 6.0);
 
                 vec3 cielo = mix(vec3(0.004, 0.005, 0.01), vec3(0.012, 0.012, 0.022), exp(-theta * 2.5));
-                float nebulosa;
-                cielo += viaLactea(d, nebulosa);
+                // Sin Vía Láctea: al doblarse con la lente quedaba mal; el
+                // protagonista del fondo es Andrómeda
+                float nebulosa = 0.0;
 
                 vec3 estrellas = capaEstrellas(d, 110.0, 0.3, 0.07, 1.0) * 0.6;
                 estrellas += capaEstrellas(d, 40.0, 0.22, 0.05, 2.0) * 1.6;
@@ -429,7 +413,7 @@ const brillar = (o) => {
 };
 
 // Lo que brilla solo un momento (el planeta que se rompe, sus trozos y
-// el fogonazo) tiene resplandor pero no hace el destello horizontal
+// el fogonazo) se pinta aparte en el resplandor
 const brillarFugaz = (o) => {
     o.layers.enable(CAPA_FUGAZ);
     return o;
@@ -1514,7 +1498,6 @@ class PaseBrillo extends Pass {
         const op = { type: hayFlotantes ? THREE.HalfFloatType : THREE.UnsignedByteType, depthBuffer: false };
         this.escena = new THREE.WebGLRenderTarget(1, 1, { ...op, depthBuffer: true });
         this.niveles = [0, 1, 2].map(() => [new THREE.WebGLRenderTarget(1, 1, op), new THREE.WebGLRenderTarget(1, 1, op)]);
-        this.raya = [new THREE.WebGLRenderTarget(1, 1, op), new THREE.WebGLRenderTarget(1, 1, op)];
         this.difuminar = new THREE.ShaderMaterial({
             uniforms: { tEntrada: { value: null }, uDir: { value: new THREE.Vector2() } },
             vertexShader: VERTICE_PLANO,
@@ -1564,8 +1547,6 @@ class PaseBrillo extends Pass {
                 tN0: { value: null },
                 tN1: { value: null },
                 tN2: { value: null },
-                tRaya: { value: null },
-                uRaya: { value: 0.22 },
                 uFuerza: { value: 0.55 },
                 uCentro: { value: new THREE.Vector2(0.5, 0.5) },
                 uElipse: { value: new THREE.Matrix3() }
@@ -1576,8 +1557,6 @@ class PaseBrillo extends Pass {
                 uniform sampler2D tN0;
                 uniform sampler2D tN1;
                 uniform sampler2D tN2;
-                uniform sampler2D tRaya;
-                uniform float uRaya;
                 uniform float uFuerza;
                 uniform vec2 uCentro;
                 uniform mat3 uElipse;
@@ -1590,7 +1569,6 @@ class PaseBrillo extends Pass {
                     vec2 d = vUv - uCentro;
                     vec2 e = mat2(uElipse[0].xy, uElipse[1].xy) * d;
                     float bola = 1.0 - smoothstep(0.8, 1.0, sqrt(dot(d, e)));
-                    brillo += texture2D(tRaya, vUv).rgb * vec3(0.8, 0.88, 1.0) * uRaya;
                     brillo *= 1.0 - bola * 0.88;
                     gl_FragColor = vec4(base.rgb + brillo * uFuerza, base.a);
                 }
@@ -1609,7 +1587,6 @@ class PaseBrillo extends Pass {
             const f = 1 << i;
             par.forEach((rt) => rt.setSize(Math.max(1, Math.round(m / f)), Math.max(1, Math.round(n / f))));
         });
-        this.raya.forEach((rt) => rt.setSize(Math.max(1, Math.round(m / 2)), Math.max(1, Math.round(n / 4))));
     }
 
     pasada(renderizador, material, destino) {
@@ -1638,14 +1615,10 @@ class PaseBrillo extends Pass {
         renderizador.clear();
         renderizador.render(escena, camara);
 
-        // El destello horizontal se saca antes de pintar lo fugaz: solo lo
-        // más fuerte del disco, estirado de lado
-        const [ra, rb] = this.raya;
+        // (Sin destello horizontal: dejaba una raya de luz cruzando la
+        // pantalla)
         this.recortar.uniforms.tEntrada.value = this.escena.texture;
         this.recortar.uniforms.uPaso.value.set(1 / this.escena.width, 1 / this.escena.height);
-        this.recortar.uniforms.uUmbral.value = 3.0;
-        this.pasada(renderizador, this.recortar, ra);
-        this.recortar.uniforms.uUmbral.value = 0.7;
 
         // Lo fugaz se suma encima, respetando lo que tapa la sombra (solo
         // si hay algo que pintar)
@@ -1671,19 +1644,11 @@ class PaseBrillo extends Pass {
         this.difumina(renderizador, n2, 1.6);
         this.difumina(renderizador, n2, 3.0);
 
-        const d = this.difuminar.uniforms;
-        [[ra, rb, 2], [rb, ra, 4.5], [ra, rb, 10], [rb, ra, 22]].forEach(([desde, hacia, escala]) => {
-            d.tEntrada.value = desde.texture;
-            d.uDir.value.set(escala / desde.width, 0);
-            this.pasada(renderizador, this.difuminar, hacia);
-        });
-
         const u = this.mezclar.uniforms;
         u.tBase.value = origen.texture;
         u.tN0.value = n0[0].texture;
         u.tN1.value = n1[0].texture;
         u.tN2.value = n2[0].texture;
-        u.tRaya.value = ra.texture;
         this.pasada(renderizador, this.mezclar, this.renderToScreen ? null : destino);
     }
 }

@@ -613,17 +613,20 @@ export class PaseBrillo extends Pass {
         this.difumina(renderizador, n2, 1.6);
         this.difumina(renderizador, n2, 3.0);
 
+        // El destello horizontal solo se calcula si tiene fuerza
         const [ra, rb] = this.raya;
-        r.uUmbral.value = this.umbralRaya;
-        r.tEntrada.value = n0[0].texture;
-        r.uPaso.value.set(0, 0);
-        this.pasada(renderizador, this.recortar, ra);
-        const d = this.difuminar.uniforms;
-        [[ra, rb, 2], [rb, ra, 4.5], [ra, rb, 10], [rb, ra, 22]].forEach(([desde, hacia, escala]) => {
-            d.tEntrada.value = desde.texture;
-            d.uDir.value.set(escala / desde.width, 0);
-            this.pasada(renderizador, this.difuminar, hacia);
-        });
+        if (this.mezclar.uniforms.uRaya.value > 0) {
+            r.uUmbral.value = this.umbralRaya;
+            r.tEntrada.value = n0[0].texture;
+            r.uPaso.value.set(0, 0);
+            this.pasada(renderizador, this.recortar, ra);
+            const d = this.difuminar.uniforms;
+            [[ra, rb, 2], [rb, ra, 4.5], [ra, rb, 10], [rb, ra, 22]].forEach(([desde, hacia, escala]) => {
+                d.tEntrada.value = desde.texture;
+                d.uDir.value.set(escala / desde.width, 0);
+                this.pasada(renderizador, this.difuminar, hacia);
+            });
+        }
 
         const u = this.mezclar.uniforms;
         u.tBase.value = origen.texture;

@@ -4,7 +4,7 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { Pass, FullScreenQuad } from "three/addons/postprocessing/Pass.js";
-import { PaseBrillo, crearAcabado, crearZumbido } from "./cine.js?v=2";
+import { PaseBrillo, crearAcabado, crearZumbido } from "./cine.js?v=3";
 
 // =====================================================================
 // 1. AJUSTES GENERALES
@@ -4190,7 +4190,7 @@ paseEscena.clearDepth = true;
 compositor.addPass(paseFondo);
 compositor.addPass(paseEscena);
 compositor.addPass(paseCine);
-compositor.addPass(new PaseBrillo({ flotantes: hayFlotantes, escala: movil ? 3 : 2, umbral: 0.62, umbralRaya: 0.85, fuerza: 0.5, raya: 0.18 }));
+compositor.addPass(new PaseBrillo({ flotantes: hayFlotantes, escala: movil ? 3 : 2, umbral: 0.62, umbralRaya: 0.85, fuerza: 0.5, raya: 0 }));
 compositor.addPass(new OutputPass());
 compositor.addPass(crearAcabado(comunes.uTiempo));
 
