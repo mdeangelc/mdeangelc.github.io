@@ -76,6 +76,8 @@ canvas {
     text-transform: uppercase;
     color: var(--suave);
     margin-bottom: 14px;
+    pointer-events: auto;
+    user-select: none;
 }
 
 .cabecera h1 {

@@ -4216,8 +4216,19 @@ let cuadroSombra = -1;
 renderizador.shadowMap.autoUpdate = false;
 renderizador.shadowMap.needsUpdate = true;
 
+// Con ?medir=si sale el panel de rendimiento y la calidad se queda al
+// máximo para medir lo que cuesta de verdad
+let medirGuardado = false;
+try {
+    medirGuardado = localStorage.getItem("medir") === "si";
+} catch {}
+const medir = parametros.get("medir") === "si" || medirGuardado;
+let medidor = null;
+if (medir) import("./medidor.js").then((m) => (medidor = m.crearMedidor(renderizador, () => "hierba " + Math.round(calidadHierba * 100) + "% · sombras " + (luzLunar.castShadow ? "sí" : "no"))));
+
 function animar() {
     requestAnimationFrame(animar);
+    medidor?.inicio();
     const delta = Math.min(reloj.getDelta(), 0.1);
     if (!movimientoReducido) tiempo += delta;
     comunes.uTiempo.value = tiempo;
@@ -4266,8 +4277,9 @@ function animar() {
     cuadroSombra = (cuadroSombra + 1) % (movil ? 3 : 2);
     if (cuadroSombra === 0) renderizador.shadowMap.needsUpdate = true;
     compositor.render();
+    medidor?.fin();
 
-    revisarRendimiento();
+    if (!medir) revisarRendimiento();
 }
 
 Promise.resolve()

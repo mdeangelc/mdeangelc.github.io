@@ -2172,12 +2172,40 @@ function moverEntrada(delta) {
     return gas;
 }
 
+// Con ?medir=si (o tocando 5 veces "Portfolio") sale el panel de
+// rendimiento y la resolución se queda fija. Se guarda para que el
+// camino también lo enseñe
+function leerMedir() {
+    try {
+        return localStorage.getItem("medir") === "si";
+    } catch {
+        return false;
+    }
+}
+const medir = parametros.get("medir") === "si" || leerMedir();
+if (medir) ritmo.fija = true;
+let medidor = null;
+if (medir) import("./medidor.js").then((m) => (medidor = m.crearMedidor(renderizador)));
+
+const toquesMedir = [];
+document.querySelector(".etiqueta")?.addEventListener("click", () => {
+    const ahora = performance.now();
+    toquesMedir.push(ahora);
+    while (toquesMedir.length && ahora - toquesMedir[0] > 3000) toquesMedir.shift();
+    if (toquesMedir.length < 5) return;
+    try {
+        localStorage.setItem("medir", medir ? "no" : "si");
+    } catch {}
+    location.reload();
+});
+
 function animar() {
     requestAnimationFrame(animar);
     if (!listo || mundo.abierto) {
         reloj.getDelta();
         return;
     }
+    medidor?.inicio();
     const real = reloj.getDelta();
     const delta = Math.min(real, 0.1);
     // Cerca del agujero el tiempo pasa más despacio: el gas gira más lento
@@ -2208,6 +2236,7 @@ function animar() {
     sonidoCercania();
     destellos.forEach((d) => (d.material.opacity = d.userData.fuerza * fondo.material.uniforms.uAparece.value * (0.8 + 0.2 * Math.sin(t * 1.3 + d.userData.fase))));
     compositor.render();
+    medidor?.fin();
 }
 
 requestAnimationFrame(() => {
