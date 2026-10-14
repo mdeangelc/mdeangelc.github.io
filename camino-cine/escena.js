@@ -407,7 +407,8 @@ const uniformesFondo = {
     uTapada: { value: 0 },
     uSubida: { value: 1 },
     uFugaz: { value: new THREE.Vector4(0, 0, 0, 0) },
-    uFugazT: { value: -1 }
+    uFugazT: { value: -1 },
+    uReducido: { value: 0 }
 };
 ["cieloAlto", "cieloMedio", "cieloBajo", "nubeLuz", "nubeMedia", "nubeSombra", "montanaLejos", "montanaCerca", "nieve", "bosqueLejos", "bosqueCerca"].forEach((n) => {
     uniformesFondo["u" + n[0].toUpperCase() + n.slice(1)] = { value: actual[n] };
@@ -446,6 +447,7 @@ const fragmentFondo = `
     uniform float uSubida;
     uniform vec4 uFugaz;
     uniform float uFugazT;
+    uniform float uReducido;
     varying vec2 vUv;
 
     float hash(vec2 p) {
@@ -473,6 +475,27 @@ const fragmentFondo = `
             a *= 0.5;
         }
         return suma;
+    }
+
+    float visEstrellas = 0.0;
+
+    // Estrellas: puntos redondos y suaves que titilan
+    float puntoEstrella(vec2 f) {
+        vec2 rejilla = f * 260.0;
+        vec2 celda = floor(rejilla);
+        float h = hash(celda);
+        vec2 centro = vec2(hash(celda + 7.1), hash(celda + 3.3)) * 0.6 + 0.2;
+        float punto = smoothstep(0.32, 0.0, length(fract(rejilla) - centro));
+        return step(0.993, h) * punto * (0.55 + 0.45 * sin(uTiempo * 2.0 + hash(celda + 3.0) * 30.0)) * (0.5 + 2.0 * pow(hash(celda + 9.0), 6.0));
+    }
+
+    // Las estrellas apretadas dentro de la Vía Láctea
+    float estrellasBanda(vec2 f, float banda) {
+        vec2 rejilla = f * 420.0;
+        vec2 celda = floor(rejilla);
+        float h = hash(celda + 31.0);
+        float punto = smoothstep(0.35, 0.0, length(fract(rejilla) - 0.5 - (vec2(hash(celda + 2.0), hash(celda + 6.0)) - 0.5) * 0.5));
+        return step(1.0 - 0.06 * banda, h) * punto * 0.7;
     }
 
     // Ruido fino por píxel
@@ -518,17 +541,13 @@ const fragmentFondo = `
         float alto = clamp((f.y - uLinea) / (1.0 - uLinea), 0.0, 1.0);
         vec3 c = alto < 0.3 ? mix(uCieloBajo, uCieloMedio, alto / 0.3) : mix(uCieloMedio, uCieloAlto, (alto - 0.3) / 0.7);
 
-        // Estrellas: puntos redondos y suaves que titilan
-        vec2 rejilla = f * 260.0;
-        vec2 celda = floor(rejilla);
-        float h = hash(celda);
-        vec2 centro = vec2(hash(celda + 7.1), hash(celda + 3.3)) * 0.6 + 0.2;
-        float punto = smoothstep(0.32, 0.0, length(fract(rejilla) - centro));
-        float estrella = step(0.993, h) * punto * (0.55 + 0.45 * sin(uTiempo * 2.0 + hash(celda + 3.0) * 30.0)) * (0.5 + 2.0 * pow(hash(celda + 9.0), 6.0));
-        estrella *= smoothstep(0.1, 0.45, alto) * (1.0 - uAmanecer * 0.55);
         // Al final del camino empieza a clarear por el horizonte
         c += vec3(0.62, 0.34, 0.3) * exp(-alto / 0.22) * uAmanecer * 0.32 + vec3(0.05, 0.06, 0.1) * uAmanecer;
-        c += vec3(0.85, 0.9, 1.0) * estrella * (1.0 - luzLuna(f) * 0.7);
+        // Las estrellas: con el cielo reducido no se pintan aquí (saldrían
+        // gordas y borrosas) sino en la copia a resolución completa; aquí
+        // solo se apunta cuánto se ven
+        visEstrellas = smoothstep(0.1, 0.45, alto) * (1.0 - uAmanecer * 0.55) * (1.0 - luzLuna(f) * 0.7);
+        if (uReducido < 0.5) c += vec3(0.85, 0.9, 1.0) * puntoEstrella(f) * visEstrellas;
 
         return c;
     }
@@ -703,11 +722,7 @@ const fragmentFondo = `
         vec3 color = mix(vec3(0.3, 0.38, 0.62), vec3(0.75, 0.68, 0.6), exp(-dist * dist / 0.004));
         float fuerza = banda * (0.35 + 0.9 * smoothstep(0.35, 0.75, nubesV)) * (1.0 - polvo * 0.85);
         fuerza *= smoothstep(0.05, 0.35, alto) * (1.0 - luzLuna(f) * 0.8);
-        vec2 rejilla = f * 420.0;
-        vec2 celda = floor(rejilla);
-        float h = hash(celda + 31.0);
-        float punto = smoothstep(0.35, 0.0, length(fract(rejilla) - 0.5 - (vec2(hash(celda + 2.0), hash(celda + 6.0)) - 0.5) * 0.5));
-        c += vec3(0.85, 0.9, 1.0) * step(1.0 - 0.06 * banda, h) * punto * 0.7 * smoothstep(0.05, 0.35, alto);
+        if (uReducido < 0.5) c += vec3(0.85, 0.9, 1.0) * estrellasBanda(f, banda) * smoothstep(0.05, 0.35, alto);
         return c + color * fuerza * 0.11;
     }
 
@@ -762,7 +777,7 @@ const fragmentFondo = `
         vec2 marco = (enBase - 0.5) * uVisible + 0.5;
         // Muy por debajo del horizonte todo lo tapa el suelo 3D
         if (marco.y < uLinea - 0.09) {
-            gl_FragColor = vec4(uNiebla, 1.0);
+            gl_FragColor = vec4(uNiebla, uReducido > 0.5 ? 0.0 : 1.0);
             #include <colorspace_fragment>
             return;
         }
@@ -780,18 +795,23 @@ const fragmentFondo = `
 
         vec4 capa = montana(enPlano(dm, 4200.0), t, 3.0, 0.03, 0.62, 1.25, uMontanaLejos, 0.16, 0.24);
         c = mix(c, capa.rgb, capa.a);
+        visEstrellas *= 1.0 - capa.a;
 
         capa = nubes(enPlano(dm, 3000.0), t, 7.0, uLinea + 0.1, uLinea + 0.3, 0.58, 2.2);
         c = mix(c, capa.rgb + vec3(0.6, 0.66, 0.85) * luz * 0.35 + vec3(1.0, 0.6, 0.3) * luzGargantua(fg) * 0.22, capa.a);
+        visEstrellas *= 1.0 - capa.a;
 
         capa = montana(enPlano(dm, 2300.0), t, 11.0, 0.0, 0.36, 2.0, uMontanaCerca, 0.05, 0.19);
         c = mix(c, capa.rgb, capa.a);
+        visEstrellas *= 1.0 - capa.a;
 
         capa = colina(enPlano(dm, 1000.0), t, 21.0, 0.0, 0.05, 0.012, uBosqueLejos, 0.18);
         c = mix(c, capa.rgb, capa.a);
+        visEstrellas *= 1.0 - capa.a;
 
         capa = colina(enPlano(dm, 700.0), t, 33.0, -0.015, 0.045, 0.02, uBosqueCerca, 0.0);
         c = mix(c, capa.rgb, capa.a);
+        visEstrellas *= 1.0 - capa.a;
 
         c += vec3(0.5, 0.56, 0.75) * luz * 0.04;
         c += vec3(1.0, 0.62, 0.32) * luzGargantua(fg) * 0.035;
@@ -801,13 +821,19 @@ const fragmentFondo = `
         float franjas = ruido(vec2(marco.x * 7.0 + uTiempo * 0.012, marco.y * 34.0)) * 0.7 + ruido(vec2(marco.x * 20.0 - uTiempo * 0.02, marco.y * 70.0)) * 0.3;
         float bruma = (1.0 - smoothstep(0.0, 0.07 + franjas * 0.08, sobre)) * 0.85;
         c = mix(c, uNiebla, bruma);
+        visEstrellas *= 1.0 - bruma;
 
-        gl_FragColor = vec4(c, 1.0);
+        gl_FragColor = vec4(c, uReducido > 0.5 ? visEstrellas : 1.0);
         #include <colorspace_fragment>
     }
 `;
 
 let materialFondo = null;
+let materialCopiaCielo = null;
+// El cielo con las montañas se calcula a menos resolución en su propia
+// pasada (PaseCieloBajo) y en la escena solo se copia donde se ve
+const cieloEscala = parametros.has("cielo") ? Number(parametros.get("cielo")) : 0.5;
+const destinoCielo = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
 
 // El fondo es lo que más cuesta por píxel, así que se pinta dentro de la
 // escena, al final de lo opaco y pegado al fondo de la profundidad: solo
@@ -828,7 +854,74 @@ function crearFondo() {
         `,
         fragmentShader: fragmentFondo
     });
-    const plano = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), materialFondo);
+    materialCopiaCielo = new THREE.ShaderMaterial({
+        depthTest: true,
+        depthWrite: false,
+        depthFunc: THREE.LessEqualDepth,
+        uniforms: { ...uniformesFondo, tCielo: { value: destinoCielo.texture } },
+        vertexShader: `
+            varying vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = vec4(position.xy, 1.0, 1.0);
+            }
+        `,
+        // Copia el cielo reducido y le pone encima las estrellas a
+        // resolución completa, con lo que dejan ver las montañas y nubes
+        fragmentShader: `
+            uniform sampler2D tCielo;
+            uniform vec2 uVisible;
+            uniform float uTiempo;
+            uniform float uAspectoMarco;
+            uniform mat4 uInvProy;
+            uniform mat3 uGiroCamara;
+            uniform mat3 uBase;
+            uniform vec2 uTanMedio;
+            varying vec2 vUv;
+
+            float hash(vec2 p) {
+                vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+                p3 += dot(p3, p3.yzx + 33.33);
+                return fract((p3.x + p3.y) * p3.z);
+            }
+
+            float puntoEstrella(vec2 f) {
+                vec2 rejilla = f * 260.0;
+                vec2 celda = floor(rejilla);
+                float h = hash(celda);
+                vec2 centro = vec2(hash(celda + 7.1), hash(celda + 3.3)) * 0.6 + 0.2;
+                float punto = smoothstep(0.32, 0.0, length(fract(rejilla) - centro));
+                return step(0.993, h) * punto * (0.55 + 0.45 * sin(uTiempo * 2.0 + hash(celda + 3.0) * 30.0)) * (0.5 + 2.0 * pow(hash(celda + 9.0), 6.0));
+            }
+
+            float estrellasBanda(vec2 f, float banda) {
+                vec2 rejilla = f * 420.0;
+                vec2 celda = floor(rejilla);
+                float h = hash(celda + 31.0);
+                float punto = smoothstep(0.35, 0.0, length(fract(rejilla) - 0.5 - (vec2(hash(celda + 2.0), hash(celda + 6.0)) - 0.5) * 0.5));
+                return step(1.0 - 0.06 * banda, h) * punto * 0.7;
+            }
+
+            void main() {
+                vec4 cielo = texture2D(tCielo, vUv);
+                vec3 c = cielo.rgb;
+                if (cielo.a > 0.001) {
+                    vec4 v = uInvProy * vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
+                    vec3 dir = uBase * (uGiroCamara * normalize(v.xyz / v.w));
+                    vec2 marco = (dir.xy / max(-dir.z, 0.05) / uTanMedio * 0.5) * uVisible + 0.5;
+                    vec2 fc = vec2(marco.x * uAspectoMarco, marco.y);
+                    float dist = dot(fc - vec2(0.55, 0.62), normalize(vec2(-0.55, 1.0)));
+                    float banda = exp(-dist * dist / 0.018);
+                    float brillo = puntoEstrella(fc) + (banda > 0.01 ? estrellasBanda(fc, banda) : 0.0);
+                    c += vec3(0.85, 0.9, 1.0) * brillo * cielo.a;
+                }
+                gl_FragColor = vec4(c, 1.0);
+            }
+        `
+    });
+    const reducido = cieloEscala < 1 && !soloFondo;
+    uniformesFondo.uReducido.value = reducido ? 1 : 0;
+    const plano = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), reducido ? materialCopiaCielo : materialFondo);
     plano.frustumCulled = false;
     plano.renderOrder = 100000;
     if (soloFondo) escenaFondo.add(plano);
@@ -4114,7 +4207,10 @@ class PaseCine extends Pass {
                 void main() {
                     float j = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
                     vec3 color = texture2D(tDiffuse, vUv).rgb;
-                    float radio = emborronar(distancia(vUv)) * uRadio;
+                    // El cielo y las montañas (al fondo del todo) ya vienen
+                    // suaves de su pasada reducida: no se emborronan
+                    float lejania = distancia(vUv);
+                    float radio = lejania > uLejos * 0.97 ? 0.0 : emborronar(lejania) * uRadio;
                     if (radio > 0.4) {
                         vec3 suma = color;
                         float pesos = 1.0;
@@ -4173,6 +4269,27 @@ class PaseCine extends Pass {
         this.cuadro.dispose();
     }
 }
+class PaseCieloBajo extends Pass {
+    constructor() {
+        super();
+        this.needsSwap = false;
+        this.cuadro = null;
+    }
+
+    setSize(ancho, alto) {
+        destinoCielo.setSize(Math.max(1, Math.round(ancho * cieloEscala)), Math.max(1, Math.round(alto * cieloEscala)));
+    }
+
+    render(renderizador) {
+        if (!materialFondo) return;
+        if (!this.cuadro) this.cuadro = new FullScreenQuad(materialFondo);
+        renderizador.setRenderTarget(destinoCielo);
+        this.cuadro.render(renderizador);
+    }
+}
+const paseCieloBajo = new PaseCieloBajo();
+paseCieloBajo.nombreMedidor = "cielo (pasada reducida)";
+
 const paseCine = new PaseCine();
 paseCine.enabled = !ligero;
 
@@ -4190,6 +4307,7 @@ paseEscena.clearDepth = true;
 paseFondo.nombreMedidor = "cielo (solo fondo)";
 paseEscena.nombreMedidor = "escena (resto)";
 compositor.addPass(paseFondo);
+compositor.addPass(paseCieloBajo);
 compositor.addPass(paseEscena);
 compositor.addPass(paseCine);
 compositor.addPass(new PaseBrillo({ flotantes: hayFlotantes, escala: movil ? 3 : 2, umbral: 0.62, umbralRaya: 0.85, fuerza: 0.5, raya: 0 }));
@@ -4211,7 +4329,7 @@ materialPolvo.uniforms.uEscala.value = renderizador.getPixelRatio() * innerHeigh
 // =====================================================================
 
 const soloFondo = parametros.get("fondo") === "solo";
-if (parametros.has("depurar")) window.__camino = { comunes, luzLunar, escena, camara, renderizador, sucesoDeTrozo };
+if (parametros.has("depurar")) window.__camino = { comunes, luzLunar, escena, camara, renderizador, sucesoDeTrozo, uniformesFondo, cielo: () => ({ materialFondo, materialCopiaCielo, destinoCielo, paseCieloBajo }) };
 const reloj = new THREE.Clock();
 let tiempo = 0;
 let cuadroSombra = -1;
@@ -4230,6 +4348,7 @@ if (medir)
     import("./medidor.js").then((m) => {
         const nombres = new Map([
             [materialFondo, "cielo, montañas y nubes"],
+            [materialCopiaCielo, "cielo (copia)"],
             [suelo, "suelo y camino"],
             [hierba.material, "hierba"],
             [materialMundo, "árboles y rocas"],
@@ -4257,6 +4376,7 @@ if (medir)
             compositor,
             nombres,
             pases: { PaseCine: "desenfoque y rayos", PaseBrillo: "brillo", OutputPass: "salida", ShaderPass: "acabado" },
+            detallar: true,
             extra: () => "hierba " + Math.round(calidadHierba * 100) + "% · sombras " + (luzLunar.castShadow ? "sí" : "no"),
         });
     });
@@ -4307,6 +4427,7 @@ function animar() {
     moverNubeLuna(delta);
     paseEscena.enabled = !soloFondo;
     paseFondo.enabled = soloFondo;
+    paseCieloBajo.enabled = !soloFondo && cieloEscala < 1;
     // Las sombras se repintan cada dos fotogramas (cada tres en el móvil):
     // casi no se nota y es de lo que más cuesta
     cuadroSombra = (cuadroSombra + 1) % (movil ? 3 : 2);

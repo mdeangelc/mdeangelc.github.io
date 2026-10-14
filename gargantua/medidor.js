@@ -70,7 +70,7 @@ export function crearMedidor(renderizador, opciones = {}) {
         if (material && objeto && (material === objeto.customDepthMaterial || material === objeto.customDistanceMaterial)) return "sombras";
         let nombre = nombres.get(material);
         for (let o = objeto; o && !nombre; o = o.parent) nombre = nombres.get(o) || o.userData.medidor;
-        if (!nombre) return enPase;
+        if (!nombre) return enEscena && opciones.detallar ? "? " + (material?.name || objeto?.name || material?.type || "") + "#" + material?.id : enPase;
         // Si se vuelve a dibujar dentro de otra pasada (el brillo pinta
         // otra vez lo que brilla) se apunta a parte
         return enEscena ? nombre : nombre + " (" + enPase + ")";
@@ -183,7 +183,7 @@ export function crearMedidor(renderizador, opciones = {}) {
                 .map(([nombre, ms]) => [nombre, ms / gpuCuadros])
                 .sort((a, b) => b[1] - a[1])
                 .filter(([, ms]) => ms >= 0.05)
-                .slice(0, 12)
+                .slice(0, 16)
                 .forEach(([nombre, ms]) => lineas.push("  " + nombre.slice(0, 26).padEnd(26, " ") + ms.toFixed(2).padStart(6, " ") + " ms  " + String(Math.round((ms / msGpu) * 100)).padStart(3, " ") + "%"));
             lineas.push("");
         }
