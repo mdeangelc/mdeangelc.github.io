@@ -1733,7 +1733,7 @@ class PaseCielo extends Pass {
         renderizador.setRenderTarget(this.destino);
         renderizador.render(escenaCielo, camara);
         renderizador.setRenderTarget(origen);
-        renderizador.clear(true, true, false);
+        renderizador.clear(false, true, false);
         this.cuadro.render(renderizador);
     }
 }
@@ -1741,6 +1741,17 @@ const cielo = new PaseCielo();
 compositor.addPass(cielo);
 const paseEscena = new RenderPass(escena, camara);
 paseEscena.clear = false;
+
+// Cielo a media resolución (con copia) o a resolución completa dentro
+// de la escena (sin copia). En el modo de medición se cambia con la C
+// para comparar cuál sale más barato en cada tarjeta
+function cieloReducido(si) {
+    cielo.enabled = si;
+    paseEscena.clear = !si;
+    if (si) escenaCielo.add(fondo);
+    else escena.add(fondo);
+}
+cieloReducido(ajustes.cieloEscala < 1);
 compositor.addPass(paseEscena);
 const brillo = new PaseBrillo();
 compositor.addPass(brillo);
@@ -2233,7 +2244,12 @@ function leerMedir() {
     }
 }
 const medir = parametros.get("medir") === "si" || leerMedir();
-if (medir) ritmo.fija = true;
+if (medir) {
+    ritmo.fija = true;
+    addEventListener("keydown", (e) => {
+        if (e.key.toLowerCase() === "c") cieloReducido(!cielo.enabled);
+    });
+}
 let medidor = null;
 if (medir)
     import("./medidor.js").then((m) => {
@@ -2246,6 +2262,7 @@ if (medir)
             compositor,
             nombres,
             pases: { PaseCielo: "fondo (copia)", RenderPass: "escena (resto)", PaseBrillo: "brillo", OutputPass: "salida", ShaderPass: "acabado" },
+            extra: () => "cielo: " + (cielo.enabled ? "al " + Math.round(cielo.escala * 100) + "% con copia" : "completo, sin copia") + " (tecla C)",
         });
     });
 
