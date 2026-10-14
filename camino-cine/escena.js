@@ -4187,6 +4187,8 @@ compositor.renderTarget2.depthTexture = new THREE.DepthTexture(innerWidth, inner
 const paseFondo = new RenderPass(escenaFondo, camaraFondo);
 const paseEscena = new RenderPass(escena, camara);
 paseEscena.clearDepth = true;
+paseFondo.nombreMedidor = "cielo (solo fondo)";
+paseEscena.nombreMedidor = "escena (resto)";
 compositor.addPass(paseFondo);
 compositor.addPass(paseEscena);
 compositor.addPass(paseCine);
@@ -4224,7 +4226,40 @@ try {
 } catch {}
 const medir = parametros.get("medir") === "si" || medirGuardado;
 let medidor = null;
-if (medir) import("./medidor.js").then((m) => (medidor = m.crearMedidor(renderizador, () => "hierba " + Math.round(calidadHierba * 100) + "% · sombras " + (luzLunar.castShadow ? "sí" : "no"))));
+if (medir)
+    import("./medidor.js").then((m) => {
+        const nombres = new Map([
+            [materialFondo, "cielo, montañas y nubes"],
+            [suelo, "suelo y camino"],
+            [hierba.material, "hierba"],
+            [materialMundo, "árboles y rocas"],
+            [materialPlantas, "plantas"],
+            [materialHojas, "hojas"],
+            [materialPuente, "puentes"],
+            [materialFarol, "farolas"],
+            [materialHalo, "halos de farolas"],
+            [materialHaz, "conos de luz"],
+            [materialFlores, "flores"],
+            [maderaPoste, "carteles"],
+            [luciernagas, "bichos y partículas"],
+            [petalos, "bichos y partículas"],
+            [polvo, "bichos y partículas"],
+            [murcielagos, "bichos y partículas"],
+            [polillas, "bichos y partículas"],
+            [chispas.material, "bichos y partículas"],
+            [niebla, "niebla y vaho"],
+            [vaho, "niebla y vaho"],
+            [ciervo, "animales"],
+            [zorro, "animales"],
+            [ojosBuho, "animales"],
+        ]);
+        medidor = m.crearMedidor(renderizador, {
+            compositor,
+            nombres,
+            pases: { PaseCine: "desenfoque y rayos", PaseBrillo: "brillo", OutputPass: "salida", ShaderPass: "acabado" },
+            extra: () => "hierba " + Math.round(calidadHierba * 100) + "% · sombras " + (luzLunar.castShadow ? "sí" : "no"),
+        });
+    });
 
 function animar() {
     requestAnimationFrame(animar);

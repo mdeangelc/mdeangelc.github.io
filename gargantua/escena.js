@@ -2185,7 +2185,19 @@ function leerMedir() {
 const medir = parametros.get("medir") === "si" || leerMedir();
 if (medir) ritmo.fija = true;
 let medidor = null;
-if (medir) import("./medidor.js").then((m) => (medidor = m.crearMedidor(renderizador)));
+if (medir)
+    import("./medidor.js").then((m) => {
+        const nombres = new Map([[fondo, "fondo, lente y Andrómeda"], [sombra, "sombra"], [arcoAtras, "arcos del disco"], [arcoDelante, "arcos del disco"], [anillo, "anillos de fotones"], [anillo2, "anillos de fotones"], [anillo3, "anillos de fotones"], [rioMarea, "estelas"], [estelas, "estelas"], [polvo, "polvo"], [planeta, "planeta comido"]]);
+        halos.forEach((h) => nombres.set(h, "halos"));
+        destellos.forEach((d) => nombres.set(d, "destellos"));
+        agujero.children.forEach((o) => !nombres.has(o) && o.isMesh && o.geometry.type !== "SphereGeometry" && nombres.set(o, "disco"));
+        puertas.forEach((p) => (nombres.set(p.malla, "planeta portal"), nombres.set(p.aro, "planeta portal")));
+        medidor = m.crearMedidor(renderizador, {
+            compositor,
+            nombres,
+            pases: { RenderPass: "escena (resto)", PaseBrillo: "brillo", OutputPass: "salida", SMAAPass: "suavizado SMAA", ShaderPass: "acabado" },
+        });
+    });
 
 const toquesMedir = [];
 document.querySelector(".etiqueta")?.addEventListener("click", () => {

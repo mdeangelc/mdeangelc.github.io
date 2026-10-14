@@ -1,16 +1,24 @@
 // =====================================================================
 // MEDIDOR DE RENDIMIENTO (solo con ?medir=si)
-// Enseña cuánto tarda cada fotograma en la GPU y en el procesador para
-// saber cuánto margen queda. A 60 FPS cada fotograma tiene 16,7 ms
+// Enseña cuánto tarda cada fotograma en la GPU y en el procesador, y en
+// qué se va ese tiempo. A 60 FPS cada fotograma tiene 16,7 ms
 // =====================================================================
 
-export function crearMedidor(renderizador, extra = () => "") {
+// opciones.compositor: para saber qué pasada se está dibujando
+// opciones.nombres: Map de objeto o material -> nombre que sale en el panel
+// opciones.pases: nombres de las pasadas por su clase (RenderPass...)
+// opciones.extra: función que devuelve una línea más para el panel
+export function crearMedidor(renderizador, opciones = {}) {
+    const { compositor, nombres = new Map(), pases = {}, extra = () => "" } = opciones;
     const gl = renderizador.getContext();
     const ext = gl.getExtension("EXT_disjoint_timer_query_webgl2");
     const info = gl.getExtension("WEBGL_debug_renderer_info");
     const tarjeta = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
     renderizador.info.autoReset = false;
 
+    // -----------------------------------------------------------------
+    // Panel
+    // -----------------------------------------------------------------
     const panel = document.createElement("div");
     panel.className = "medidor";
     Object.assign(panel.style, {
@@ -31,14 +39,77 @@ export function crearMedidor(renderizador, extra = () => "") {
     // panel se esconde para no tapar el otro
     setInterval(() => (panel.style.display = performance.now() - ultimo > 2500 ? "none" : ""), 500);
 
-    // Consultas de tiempo de la GPU: llegan con unos fotogramas de retraso
+    // -----------------------------------------------------------------
+    // Tiempos de la GPU por partes
+    // Solo puede haber una consulta abierta a la vez: cada vez que cambia
+    // lo que se dibuja se cierra la anterior y se abre otra con su nombre
+    // -----------------------------------------------------------------
     const libres = [];
     const pendientes = [];
-    let midiendo = null;
+    let abierta = null;
+    let enPase = "";
+    let enEscena = true;
+    let cuadroActual = [];
 
+    function cambiar(nombre) {
+        if (!ext) return;
+        if (abierta && abierta.nombre === nombre) return;
+        if (abierta) {
+            gl.endQuery(ext.TIME_ELAPSED_EXT);
+            cuadroActual.push(abierta);
+            abierta = null;
+        }
+        if (!nombre) return;
+        const q = libres.pop() || gl.createQuery();
+        gl.beginQuery(ext.TIME_ELAPSED_EXT, q);
+        abierta = { q, nombre };
+    }
+
+    function nombreDe(objeto, material) {
+        if (material && (material.isMeshDepthMaterial || material.isMeshDistanceMaterial)) return "sombras";
+        if (material && objeto && (material === objeto.customDepthMaterial || material === objeto.customDistanceMaterial)) return "sombras";
+        let nombre = nombres.get(material);
+        for (let o = objeto; o && !nombre; o = o.parent) nombre = nombres.get(o) || o.userData.medidor;
+        if (!nombre) return enPase;
+        // Si se vuelve a dibujar dentro de otra pasada (el brillo pinta
+        // otra vez lo que brilla) se apunta a parte
+        return enEscena ? nombre : nombre + " (" + enPase + ")";
+    }
+
+    if (ext) {
+        const dibujar = renderizador.renderBufferDirect.bind(renderizador);
+        renderizador.renderBufferDirect = (camara, escena, geometria, material, objeto, grupo) => {
+            cambiar(nombreDe(objeto, material));
+            dibujar(camara, escena, geometria, material, objeto, grupo);
+        };
+        const vaciar = renderizador.clear.bind(renderizador);
+        renderizador.clear = (...a) => {
+            cambiar(enPase);
+            vaciar(...a);
+        };
+        if (compositor) {
+            compositor.passes.forEach((pase) => {
+                const clase = pase.constructor.name;
+                const nombre = pase.nombreMedidor || pases[clase] || clase;
+                const pintar = pase.render.bind(pase);
+                pase.render = (...a) => {
+                    enPase = nombre;
+                    enEscena = clase === "RenderPass";
+                    cambiar(nombre);
+                    pintar(...a);
+                };
+            });
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Fotogramas
+    // -----------------------------------------------------------------
     const cuadros = [];
-    const gpu = [];
     const cpu = [];
+    const totales = [];
+    const partes = new Map();
+    let gpuCuadros = 0;
     let inicioCpu = 0;
     let ultimo = performance.now();
     let ultimoPanel = 0;
@@ -46,10 +117,8 @@ export function crearMedidor(renderizador, extra = () => "") {
     function inicio() {
         renderizador.info.reset();
         inicioCpu = performance.now();
-        if (ext && !midiendo) {
-            midiendo = libres.pop() || gl.createQuery();
-            gl.beginQuery(ext.TIME_ELAPSED_EXT, midiendo);
-        }
+        enPase = "escena";
+        enEscena = true;
     }
 
     function fin() {
@@ -57,22 +126,33 @@ export function crearMedidor(renderizador, extra = () => "") {
         cpu.push(ahora - inicioCpu);
         cuadros.push(ahora - ultimo);
         ultimo = ahora;
-        if (ext && midiendo) {
-            gl.endQuery(ext.TIME_ELAPSED_EXT);
-            pendientes.push(midiendo);
-            midiendo = null;
-        }
+        cambiar(null);
+        if (cuadroActual.length) pendientes.push(cuadroActual);
+        cuadroActual = [];
         leerGpu();
-        if (ahora - ultimoPanel > 500) pintar(ahora);
+        if (ahora - ultimoPanel > 1000) pintar(ahora);
     }
 
     function leerGpu() {
         if (!ext) return;
         const descartar = gl.getParameter(ext.GPU_DISJOINT_EXT);
-        while (pendientes.length && gl.getQueryParameter(pendientes[0], gl.QUERY_RESULT_AVAILABLE)) {
-            const q = pendientes.shift();
-            if (!descartar) gpu.push(gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6);
-            libres.push(q);
+        while (pendientes.length) {
+            const cuadro = pendientes[0];
+            if (!gl.getQueryParameter(cuadro[cuadro.length - 1].q, gl.QUERY_RESULT_AVAILABLE)) break;
+            pendientes.shift();
+            let total = 0;
+            cuadro.forEach(({ q, nombre }) => {
+                if (!descartar) {
+                    const ms = gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6;
+                    total += ms;
+                    partes.set(nombre, (partes.get(nombre) || 0) + ms);
+                }
+                libres.push(q);
+            });
+            if (!descartar) {
+                totales.push(total);
+                gpuCuadros++;
+            }
         }
     }
 
@@ -88,16 +168,24 @@ export function crearMedidor(renderizador, extra = () => "") {
     function pintar(ahora) {
         ultimoPanel = ahora;
         const fps = 1000 / media(cuadros);
-        const msGpu = media(gpu);
+        const msGpu = media(totales);
         const msCpu = media(cpu);
         const lineas = [
             Math.round(fps) + " FPS   (peor 5%: " + p95(cuadros).toFixed(1) + " ms)",
-            "GPU  " + (ext ? (gpu.length ? msGpu.toFixed(2) + " ms" : "...") : "no disponible en este navegador"),
+            "GPU  " + (ext ? (gpuCuadros ? msGpu.toFixed(2) + " ms" : "...") : "no disponible en este navegador"),
             "CPU  " + msCpu.toFixed(2) + " ms",
         ];
-        if (ext && gpu.length) {
+        if (ext && gpuCuadros) {
             const margen = 16.7 - Math.max(msGpu, msCpu);
             lineas.push("margen a 60 FPS: " + (margen > 0 ? margen.toFixed(1) + " ms (" + Math.round((margen / 16.7) * 100) + "%)" : "ninguno"));
+            lineas.push("", "en qué se va la GPU:");
+            [...partes.entries()]
+                .map(([nombre, ms]) => [nombre, ms / gpuCuadros])
+                .sort((a, b) => b[1] - a[1])
+                .filter(([, ms]) => ms >= 0.05)
+                .slice(0, 12)
+                .forEach(([nombre, ms]) => lineas.push("  " + nombre.slice(0, 26).padEnd(26, " ") + ms.toFixed(2).padStart(6, " ") + " ms  " + String(Math.round((ms / msGpu) * 100)).padStart(3, " ") + "%"));
+            lineas.push("");
         }
         lineas.push(
             "dibujos " + renderizador.info.render.calls + " · triángulos " + Math.round(renderizador.info.render.triangles / 1000) + "k",
@@ -108,8 +196,10 @@ export function crearMedidor(renderizador, extra = () => "") {
         lineas.push(tarjeta.slice(0, 58));
         panel.textContent = lineas.join("\n");
         cuadros.length = 0;
-        gpu.length = 0;
         cpu.length = 0;
+        totales.length = 0;
+        partes.clear();
+        gpuCuadros = 0;
     }
 
     return { inicio, fin };
