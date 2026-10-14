@@ -3,7 +3,7 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
-import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
+import { FXAAShader } from "three/addons/shaders/FXAAShader.js";
 import { Pass, FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 
 // =====================================================================
@@ -31,7 +31,8 @@ const pocoMovimiento = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const ajustes = {
     resolucionMax: movil ? 1.5 : 1.75,
     resolucionMin: movil ? 0.75 : 1,
-    brilloEscala: movil ? 3 : 2
+    brilloEscala: movil ? 3 : 2,
+    cieloEscala: parametros.has("cielo") ? Number(parametros.get("cielo")) : movil ? 0.6 : 0.75
 };
 const ALTURA = 3.6;
 const CENTRO = new THREE.Vector3(0, ALTURA, 0);
@@ -308,7 +309,10 @@ const fondo = new THREE.Mesh(
     })
 );
 fondo.renderOrder = -1;
-escena.add(fondo);
+// El fondo va en su propia escena: se dibuja a menos resolución (ver
+// PaseCielo) porque es lo que más píxeles ocupa y casi no se mueve
+const escenaCielo = new THREE.Scene();
+escenaCielo.add(fondo);
 // Andrómeda queda arriba a la izquierda del agujero vista desde el sitio
 // de partida; al girar alrededor pasa por detrás y se dobla
 fondo.material.uniforms.uGalaxia.value.set(-Math.sin(BASE_GIRO - 0.27), -Math.sin(BASE_ALTURA) + 0.17, -Math.cos(BASE_GIRO - 0.27)).normalize();
@@ -1610,8 +1614,11 @@ class PaseBrillo extends Pass {
     }
 
     setSize(ancho, alto) {
-        const m = Math.max(1, Math.round(ancho / ajustes.brilloEscala));
-        const n = Math.max(1, Math.round(alto / ajustes.brilloEscala));
+        // Tamaño fijo respecto a la pantalla, no a la densidad de píxeles:
+        // el resplandor es borroso y no gana nada con más resolución
+        const pr = renderizador.getPixelRatio();
+        const m = Math.max(1, Math.round(ancho / (ajustes.brilloEscala * pr)));
+        const n = Math.max(1, Math.round(alto / (ajustes.brilloEscala * pr)));
         this.escena.setSize(m, n);
         this.niveles.forEach((par, i) => {
             const f = 1 << i;
@@ -1695,13 +1702,54 @@ class PaseBrillo extends Pass {
 const contexto = renderizador.getContext();
 const hayFlotantes = renderizador.capabilities.isWebGL2 && !!(contexto.getExtension("EXT_color_buffer_float") || contexto.getExtension("EXT_color_buffer_half_float"));
 const compositor = new EffectComposer(renderizador, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: hayFlotantes ? THREE.HalfFloatType : THREE.UnsignedByteType }));
-compositor.addPass(new RenderPass(escena, camara));
+// El cielo de fondo (estrellas, lente y Andrómeda) se pinta a media
+// resolución y se estira a pantalla completa; encima va la escena
+class PaseCielo extends Pass {
+    constructor() {
+        super();
+        this.needsSwap = false;
+        this.escala = ajustes.cieloEscala;
+        this.destino = new THREE.WebGLRenderTarget(1, 1, { type: hayFlotantes ? THREE.HalfFloatType : THREE.UnsignedByteType, depthBuffer: false });
+        this.cuadro = new FullScreenQuad(new THREE.ShaderMaterial({
+            uniforms: { tEntrada: { value: this.destino.texture } },
+            vertexShader: VERTICE_PLANO,
+            fragmentShader: `
+                uniform sampler2D tEntrada;
+                varying vec2 vUv;
+                void main() {
+                    gl_FragColor = vec4(texture2D(tEntrada, vUv).rgb, 1.0);
+                }
+            `,
+            depthTest: false,
+            depthWrite: false
+        }));
+    }
+
+    setSize(ancho, alto) {
+        this.destino.setSize(Math.max(1, Math.round(ancho * this.escala)), Math.max(1, Math.round(alto * this.escala)));
+    }
+
+    render(renderizador, destino, origen) {
+        renderizador.setRenderTarget(this.destino);
+        renderizador.render(escenaCielo, camara);
+        renderizador.setRenderTarget(origen);
+        renderizador.clear(true, true, false);
+        this.cuadro.render(renderizador);
+    }
+}
+const cielo = new PaseCielo();
+compositor.addPass(cielo);
+const paseEscena = new RenderPass(escena, camara);
+paseEscena.clear = false;
+compositor.addPass(paseEscena);
 const brillo = new PaseBrillo();
 compositor.addPass(brillo);
 compositor.addPass(new OutputPass());
-// Suavizado de bordes (SMAA): quita los dientes de sierra del borde de la
-// sombra, del anillo fino y de las líneas del disco
-compositor.addPass(new SMAAPass(innerWidth * renderizador.getPixelRatio(), innerHeight * renderizador.getPixelRatio()));
+// Suavizado de bordes (FXAA): quita los dientes de sierra del borde de
+// la sombra y del anillo fino. Cuesta mucho menos que el SMAA
+const suavizado = new ShaderPass(FXAAShader);
+suavizado.nombreMedidor = "suavizado FXAA";
+compositor.addPass(suavizado);
 const acabado = new ShaderPass({
     uniforms: { tDiffuse: { value: null }, uTiempo: comunes.uTiempo },
     vertexShader: `
@@ -2117,6 +2165,8 @@ function ajustarTamano() {
     camara.updateProjectionMatrix();
     renderizador.setSize(innerWidth, innerHeight);
     compositor.setSize(innerWidth, innerHeight);
+    const pr = renderizador.getPixelRatio();
+    suavizado.material.uniforms.resolution.value.set(1 / (innerWidth * pr), 1 / (innerHeight * pr));
     materialMarea.uniforms.uEscala.value = renderizador.getPixelRatio() * innerHeight * 0.12;
     polvo.uniforms.uEscala.value = renderizador.getPixelRatio() * innerHeight * 0.04;
 }
@@ -2195,7 +2245,7 @@ if (medir)
         medidor = m.crearMedidor(renderizador, {
             compositor,
             nombres,
-            pases: { RenderPass: "escena (resto)", PaseBrillo: "brillo", OutputPass: "salida", SMAAPass: "suavizado SMAA", ShaderPass: "acabado" },
+            pases: { PaseCielo: "fondo (copia)", RenderPass: "escena (resto)", PaseBrillo: "brillo", OutputPass: "salida", ShaderPass: "acabado" },
         });
     });
 
