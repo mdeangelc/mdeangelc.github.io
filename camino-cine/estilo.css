@@ -414,6 +414,10 @@ canvas {
     background: #6b3a14;
 }
 
+.enlace + .enlace {
+    margin-left: 10px;
+}
+
 .recorrido {
     position: fixed;
     top: 26px;
