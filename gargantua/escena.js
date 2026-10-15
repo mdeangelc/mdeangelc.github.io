@@ -352,6 +352,17 @@ const gasGlsl = `
         return m;
     }
 
+    // El ángulo salta de una vuelta a otra detrás del agujero: la textura
+    // se repite igual, pero el salto engañaba al mipmap y salía una raya
+    // de puntos oscuros. Se le pasa el cambio real quitando ese salto
+    vec4 muestra(vec2 uv) {
+        vec2 dx = dFdx(uv);
+        vec2 dy = dFdy(uv);
+        dx.x -= floor(dx.x + 0.5);
+        dy.x -= floor(dy.x + 0.5);
+        return textureGrad(tRuido, uv, dx, dy);
+    }
+
     vec4 gas(float r, float phi, float phiLuz, float desfase) {
         float x = (r - DENTRO) / (FUERA - DENTRO);
         float omega = 1.5 * pow(r / DENTRO, -1.5);
@@ -362,23 +373,23 @@ const gasGlsl = `
         float rT = r;
         #else
         vec2 torcer = vec2(
-            texture2D(tRuido, vec2(ang * 2.0 + uTiempo * 0.013, r * 0.3 - uTiempo * 0.021)).r,
-            texture2D(tRuido, vec2(ang * 2.0 + 0.5 - uTiempo * 0.017, r * 0.3 + 0.4 + uTiempo * 0.015)).r
+            muestra(vec2(ang * 2.0 + uTiempo * 0.013, r * 0.3 - uTiempo * 0.021)).r,
+            muestra(vec2(ang * 2.0 + 0.5 - uTiempo * 0.017, r * 0.3 + 0.4 + uTiempo * 0.015)).r
         ) - 0.5;
         float angT = ang + torcer.x * 0.018;
         float rT = r + torcer.y * 0.1;
         #endif
-        float n = texture2D(tRuido, vec2(angT + espiral * 0.3, rT * 0.16 + desfase)).r;
-        float fino = texture2D(tRuido, vec2(angT * 3.0 + espiral, rT * 0.6 + 0.37)).r;
-        float hebras = texture2D(tRuido, vec2(angT * 9.0 + espiral * 2.0, rT * 2.2 + 0.11)).r;
+        float n = muestra(vec2(angT + espiral * 0.3, rT * 0.16 + desfase)).r;
+        float fino = muestra(vec2(angT * 3.0 + espiral, rT * 0.6 + 0.37)).r;
+        float hebras = muestra(vec2(angT * 9.0 + espiral * 2.0, rT * 2.2 + 0.11)).r;
         #ifdef GAS_LIGERO
         float rizo = 0.5;
         float manchas = manchasFijas;
         #else
-        float rizo = texture2D(tRuido, vec2(angT * 22.0 + espiral * 4.0, rT * 5.0 + 0.53)).r;
+        float rizo = muestra(vec2(angT * 22.0 + espiral * 4.0, rT * 5.0 + 0.53)).r;
         float manchas = manchasEn(r, phi);
         #endif
-        float polvo = smoothstep(0.55, 0.8, texture2D(tRuido, vec2(angT + 0.5, rT * 0.09 + 0.61)).r) * smoothstep(0.12, 0.6, x);
+        float polvo = smoothstep(0.55, 0.8, muestra(vec2(angT + 0.5, rT * 0.09 + 0.61)).r) * smoothstep(0.12, 0.6, x);
         // En el disco, la parte de delante pasa por encima de la sombra:
         // ahí el borde interior se suaviza para que se vea como gas y no
         // como una raya recta
