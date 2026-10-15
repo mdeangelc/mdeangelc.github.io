@@ -395,7 +395,10 @@ const gasGlsl = `
         // como una raya recta
         float delante = 0.0;
         #ifdef DISCO
-        delante = smoothstep(0.1, 0.75, dot(vec2(cos(phi), sin(phi)), normalize(uVista.xz + 0.0001)));
+        // Por los lados también, para que el borde de dentro no se vea como
+        // un gancho brillante junto a la sombra
+        float cara = dot(vec2(cos(phi), sin(phi)), normalize(uVista.xz + 0.0001));
+        delante = max(smoothstep(0.1, 0.75, cara), smoothstep(-0.9, -0.55, cara) * 0.85);
         #endif
         float perfil = smoothstep(-0.02, 0.05 + delante * 0.22, x) * pow(clamp(1.0 - x, 0.0, 1.0), 1.3);
         float anillos = 0.6 + 0.4 * sin(rT * 14.0 - uTiempo * 1.1 + n * 4.0) * sin(rT * 4.6 + uTiempo * 0.4);
@@ -416,6 +419,9 @@ const gasGlsl = `
         col = mix(col, col * vec3(1.12, 0.72, 0.5), smoothstep(1.0, 0.6, doppler) * 0.8);
         col = mix(col, col * vec3(0.86, 0.98, 1.25) + vec3(0.04, 0.06, 0.12), smoothstep(1.0, 1.45, doppler) * 0.8);
         float borde = exp(-pow((r - DENTRO - 0.025) / (0.032 + delante * 0.08), 2.0)) * (0.7 + 0.3 * sin(phi * 7.0 + uTiempo * 3.1) * sin(phi * 3.0 - uTiempo * 1.7)) * (1.0 - delante * 0.75);
+        #ifdef GAS_LIGERO
+        borde = 0.0;
+        #endif
         col += vec3(1.0, 0.95, 0.88) * borde * 2.2 * haz;
         col *= 1.0 + uPulso * 0.45 + uPulso * 2.2 * exp(-pow((r - uOnda) / 0.3, 2.0));
         float alfa = clamp((densidad + manchas * 0.4) * perfil * 1.6 + borde * 0.5, 0.0, 1.0);
