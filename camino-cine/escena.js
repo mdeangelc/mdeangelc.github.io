@@ -3574,7 +3574,7 @@ function moverFinal() {
     if (ahora !== alFinal) {
         alFinal = ahora;
         document.body.classList.toggle("al-final", ahora);
-        enlaceVolver.textContent = ahora ? "Volver volando a Gargantua" : textoVolver;
+        enlaceVolver.textContent = ahora ? "Volver al espacio" : textoVolver;
         if (ahora) {
             caminandoSolo = false;
             botonCaminar.classList.remove("activo");
