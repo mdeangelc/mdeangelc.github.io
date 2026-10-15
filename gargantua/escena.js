@@ -1040,8 +1040,6 @@ function moverMarea(delta) {
 const botonesSeccion = [...document.querySelectorAll(".seccion")];
 const carteles = [...document.querySelectorAll(".cartel")];
 const tomas = {
-    "cartel-habilidades": { orbita: -1.2, altura: -0.07, zoom: 0.82 },
-    "cartel-formacion": { orbita: 2.5, altura: 0.1, zoom: 1.12 },
     "cartel-contacto": { orbita: -2.7, altura: 0.0, zoom: 0.5 }
 };
 const seccion = { toma: null, apartar: 0, objApartar: 0 };
