@@ -12,16 +12,14 @@ import { Pass, FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 // portfolio. El disco de gas son tres capas que giran (más rápido por
 // dentro), la luz doblada son dos arcos que abrazan la sombra negra, y
 // detrás hay estrellas y Andrómeda, todo deformado por la
-// gravedad. De vez en cuando se come un planeta. Arrastrando se gira
+// gravedad. Arrastrando se gira
 // alrededor y con la rueda o pellizcando te acercas. El menú lleva la
 // cámara a una toma distinta por sección. Al cargar llegas desde lejos
 // mientras el gas se enciende en espiral. Si el sistema pide menos
-// movimiento, no hay entrada, balanceo ni planetas.
+// movimiento, no hay entrada ni balanceo.
 // Opciones en la dirección:
 //   ?sinentrada  -> sin la llegada
 //   ?fijo        -> sin llegada ni cambios de resolución
-//   ?marea=si    -> el planeta que se come Gargantua (quitado por ahora)
-//                   vuelve y cae enseguida
 //   ?pulso       -> despierta el agujero al cargar
 // =====================================================================
 
@@ -38,7 +36,6 @@ const ALTURA = 3.6;
 const CENTRO = new THREE.Vector3(0, ALTURA, 0);
 const OBJETIVO = new THREE.Vector3(0, ALTURA - 0.2, 0);
 const CAPA_BRILLO = 1;
-const CAPA_FUGAZ = 2;
 const BASE_GIRO = 0.16;
 const BASE_ALTURA = 0.19;
 
@@ -453,12 +450,6 @@ const brillar = (o) => {
     return o;
 };
 
-// Lo que brilla solo un momento (el planeta que se rompe, sus trozos y
-// el fogonazo) se pinta aparte en el resplandor
-const brillarFugaz = (o) => {
-    o.layers.enable(CAPA_FUGAZ);
-    return o;
-};
 
 // Durante la llegada la sombra aparece poco a poco con el gas, para que
 // no se vea una bola negra sola
@@ -680,372 +671,6 @@ const halos = [[10, 0.16, [1, 0.5, 0.22]], [3.8, 0.28, [1, 0.72, 0.45]]].map(([t
     return halo;
 });
 
-
-// =====================================================================
-// 6b. EL PLANETA DEVORADO
-// De vez en cuando (o al tocar) un planeta cae hacia el agujero. Al
-// acercarse se estira hacia él como un espagueti, se agrieta con la lava
-// brillando por dentro y empieza a soltar trozos por las dos puntas. Muy
-// cerca se rompe del todo: parte de los trozos sale despedida y el resto
-// da vueltas y entra en el disco como un brazo brillante. Los últimos
-// trozos, ya en el borde, se vuelven rojos y se apagan, como congelados.
-// Cada trozo se mueve con la gravedad de verdad.
-// =====================================================================
-
-const GM = 5.4;
-const TROZOS = movil ? 600 : 1200;
-const marea = {
-    estado: "nada",
-    espera: parametros.get("marea") === "si" ? 7 : 40 + Math.random() * 25,
-    ultima: -99,
-    cuerpo: { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 },
-    trozos: new Float32Array(TROZOS * 7),
-    siguiente: 0
-};
-
-const geometriaMarea = new THREE.BufferGeometry();
-geometriaMarea.setAttribute("position", new THREE.BufferAttribute(new Float32Array(TROZOS * 3), 3));
-geometriaMarea.setAttribute("aBrillo", new THREE.BufferAttribute(new Float32Array(TROZOS), 1));
-geometriaMarea.setAttribute("aRadio", new THREE.BufferAttribute(new Float32Array(TROZOS).fill(9), 1));
-const materialMarea = new THREE.ShaderMaterial({
-    uniforms: { uEscala: { value: 1 } },
-    vertexShader: `
-        attribute float aBrillo;
-        attribute float aRadio;
-        uniform float uEscala;
-        varying float vBrillo;
-        varying float vRadio;
-        void main() {
-            vBrillo = aBrillo;
-            vRadio = aRadio;
-            vec4 vista = modelViewMatrix * vec4(position, 1.0);
-            gl_PointSize = uEscala * (0.6 + min(aBrillo, 1.5) * 0.5) / -vista.z;
-            gl_Position = projectionMatrix * vista;
-        }
-    `,
-    fragmentShader: `
-        varying float vBrillo;
-        varying float vRadio;
-        void main() {
-            float r = length(gl_PointCoord - 0.5) * 2.0;
-            float a = exp(-r * r * 5.0);
-            vec3 color = mix(vec3(1.0, 0.5, 0.2), vec3(1.0, 0.86, 0.66), clamp(vBrillo - 0.8, 0.0, 1.0));
-            // Pegado al borde la luz sale enrojecida y cada vez más débil
-            float rojo = smoothstep(2.3, 1.4, vRadio);
-            color = mix(color, vec3(0.7, 0.08, 0.03), rojo);
-            float apaga = smoothstep(1.22, 1.75, vRadio);
-            gl_FragColor = vec4(color * a * vBrillo * 2.4 * apaga, a * min(vBrillo, 1.0) * apaga);
-        }
-    `,
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending
-});
-const rioMarea = brillarFugaz(new THREE.Points(geometriaMarea, materialMarea));
-rioMarea.frustumCulled = false;
-rioMarea.renderOrder = 8;
-rioMarea.visible = false;
-agujero.add(rioMarea);
-
-// Estelas: una raya de cada trozo hasta donde estaba hace un momento
-const geometriaEstelas = new THREE.BufferGeometry();
-geometriaEstelas.setAttribute("position", new THREE.BufferAttribute(new Float32Array(TROZOS * 6), 3));
-geometriaEstelas.setAttribute("aBrillo", new THREE.BufferAttribute(new Float32Array(TROZOS * 2), 1));
-const materialEstelas = new THREE.ShaderMaterial({
-    vertexShader: `
-        attribute float aBrillo;
-        varying float vBrillo;
-        void main() {
-            vBrillo = aBrillo;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-    `,
-    fragmentShader: `
-        varying float vBrillo;
-        void main() {
-            gl_FragColor = vec4(vec3(1.0, 0.55, 0.28) * vBrillo * 0.9, vBrillo);
-        }
-    `,
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending
-});
-const estelas = brillarFugaz(new THREE.LineSegments(geometriaEstelas, materialEstelas));
-estelas.frustumCulled = false;
-estelas.renderOrder = 8;
-estelas.visible = false;
-agujero.add(estelas);
-const anteriores = new Float32Array(TROZOS * 3);
-
-// El planeta: roca rojiza y seca, muy distinta del planeta azul de
-// "Sobre mí", con grietas por las que asoma la lava. Lo ilumina el
-// disco por el lado que mira al agujero.
-const materialPlaneta = new THREE.ShaderMaterial({
-    uniforms: { tRuido, uGrietas: { value: 0 }, uTiempo: comunes.uTiempo },
-    vertexShader: `
-        varying vec3 vLocal;
-        varying vec3 vNormal;
-        varying vec3 vMundo;
-        void main() {
-            vLocal = position;
-            vNormal = normalize(mat3(modelMatrix) * normal);
-            vec4 m = modelMatrix * vec4(position, 1.0);
-            vMundo = m.xyz;
-            gl_Position = projectionMatrix * viewMatrix * m;
-        }
-    `,
-    fragmentShader: `
-        uniform sampler2D tRuido;
-        uniform float uGrietas;
-        uniform float uTiempo;
-        varying vec3 vLocal;
-        varying vec3 vNormal;
-        varying vec3 vMundo;
-        void main() {
-            vec3 d = normalize(vLocal);
-            vec2 uv = vec2(atan(d.z, d.x) / 6.2832, d.y * 0.5 + 0.5);
-            float roca = texture2D(tRuido, uv * vec2(2.0, 1.0)).r * 0.6 + texture2D(tRuido, uv * vec2(7.0, 3.5) + 0.3).r * 0.4;
-            vec3 base = mix(vec3(0.2, 0.08, 0.05), vec3(0.66, 0.33, 0.18), smoothstep(0.3, 0.75, roca));
-            // Cráteres: manchas oscuras con el borde algo más claro
-            float hueco = texture2D(tRuido, uv * vec2(9.0, 4.5) + 0.17).r;
-            base *= 1.0 - smoothstep(0.68, 0.74, hueco) * 0.45;
-            base += vec3(0.08, 0.04, 0.02) * (smoothstep(0.62, 0.68, hueco) - smoothstep(0.68, 0.72, hueco));
-            vec3 n = normalize(vNormal);
-            vec3 haciaDisco = normalize(vec3(${CENTRO.x.toFixed(2)}, ${CENTRO.y.toFixed(2)}, ${CENTRO.z.toFixed(2)}) - vMundo);
-            vec3 color = base * (vec3(1.0, 0.6, 0.3) * max(dot(n, haciaDisco), 0.0) * 1.8 + 0.03);
-            // Grietas: líneas finas del ruido que se abren al acercarse
-            float g = texture2D(tRuido, uv * vec2(5.0, 2.5) + 0.61).r;
-            float ancho = 0.01 + 0.05 * uGrietas;
-            float grieta = smoothstep(ancho, 0.0, abs(g - 0.5)) * smoothstep(0.05, 0.3, uGrietas);
-            float latido = 0.8 + 0.2 * sin(uTiempo * 6.0 + g * 30.0);
-            color += vec3(1.0, 0.42, 0.1) * grieta * (1.5 + 3.0 * uGrietas) * latido;
-            color += vec3(1.0, 0.35, 0.1) * uGrietas * uGrietas * 0.6;
-            gl_FragColor = vec4(color, 1.0);
-        }
-    `
-});
-const planeta = brillarFugaz(new THREE.Mesh(new THREE.SphereGeometry(0.36, 48, 32), materialPlaneta));
-planeta.visible = false;
-planeta.renderOrder = 8;
-agujero.add(planeta);
-const ejeZ = new THREE.Vector3(0, 0, 1);
-const haciaAgujero = new THREE.Vector3();
-
-const fogonazo = brillarFugaz(new THREE.Sprite(new THREE.SpriteMaterial({ map: mapaHalo, color: new THREE.Color(1, 0.7, 0.45).multiplyScalar(1.6), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
-fogonazo.visible = false;
-fogonazo.renderOrder = 8;
-agujero.add(fogonazo);
-
-function lanzarPlaneta() {
-    if (marea.estado !== "nada" || comunes.uTiempo.value - marea.ultima < 15) return;
-    // Órbita casi parabólica que pasa muy cerca, inclinada respecto al
-    // disco para que se vea por encima antes de caer en él
-    const q = 2.3;
-    const phi = -2.3 + (Math.random() - 0.5) * 0.15;
-    const r = (2 * q) / (1 + Math.cos(phi));
-    const v = Math.sqrt((2 * GM) / r) * 0.985;
-    const h = Math.sqrt(2 * GM * q) * 0.985;
-    const vt = h / r;
-    const vr = -Math.sqrt(Math.max(0, v * v - vt * vt));
-    const e = marea.cuerpo;
-    const c = Math.cos(phi);
-    const s = Math.sin(phi);
-    const inc = 0.5;
-    const z = r * s;
-    const vz = vr * s + vt * c;
-    e.x = r * c;
-    e.y = z * Math.sin(inc);
-    e.z = z * Math.cos(inc);
-    e.vx = vr * c - vt * s;
-    e.vy = vz * Math.sin(inc);
-    e.vz = vz * Math.cos(inc);
-    // Se gira la órbita para que llegue por la derecha y abajo, lejos del
-    // planeta de "Sobre mí", y no se confundan
-    const giro = -1.6;
-    const cg = Math.cos(giro);
-    const sg = Math.sin(giro);
-    [e.x, e.z] = [e.x * cg + e.z * sg, -e.x * sg + e.z * cg];
-    [e.vx, e.vz] = [e.vx * cg + e.vz * sg, -e.vx * sg + e.vz * cg];
-    marea.estado = "cae";
-    marea.t = 0;
-    marea.siguiente = 0;
-    marea.trozos.fill(0);
-    for (let i = 0; i < TROZOS; i++) marea.trozos[i * 7 + 6] = -1;
-    planeta.visible = true;
-    rioMarea.visible = true;
-    estelas.visible = true;
-}
-
-// Suelta "cuantos" trozos desde el planeta: por las dos puntas del eje
-// que apunta al agujero (donde tira más la gravedad) o, al romperse, de
-// todo el planeta y repartidos a lo largo de su camino
-function soltarTrozos(cuantos, rompe) {
-    const e = marea.cuerpo;
-    const t = marea.trozos;
-    const v = Math.hypot(e.vx, e.vy, e.vz);
-    const estiramiento = planeta.scale.z;
-    for (let n = 0; n < cuantos && marea.siguiente < TROZOS; n++) {
-        const i = marea.siguiente++;
-        const k = i * 7;
-        const punta = Math.random() < 0.5 ? 1 : -1;
-        const largo = rompe ? (Math.random() - 0.5) * 1.2 : punta * 0.3 * estiramiento * (0.8 + Math.random() * 0.3);
-        const dir = rompe ? [e.vx / v, e.vy / v, e.vz / v] : [haciaAgujero.x, haciaAgujero.y, haciaAgujero.z];
-        t[k] = e.x + dir[0] * largo + (Math.random() - 0.5) * 0.12;
-        t[k + 1] = e.y + dir[1] * largo + (Math.random() - 0.5) * 0.12;
-        t[k + 2] = e.z + dir[2] * largo + (Math.random() - 0.5) * 0.12;
-        // Los de la punta de dentro van un poco más lentos (quedan ligados
-        // al agujero) y los de fuera un poco más rápidos (se escapan)
-        const extra = rompe ? 1 + (Math.random() - 0.5) * 0.18 : 1 - punta * 0.05 + (Math.random() - 0.5) * 0.04;
-        t[k + 3] = e.vx * extra;
-        t[k + 4] = e.vy * extra;
-        t[k + 5] = e.vz * extra;
-        t[k + 6] = 1;
-        anteriores.set([t[k], t[k + 1], t[k + 2]], i * 3);
-    }
-}
-
-function romperPlaneta() {
-    soltarTrozos(TROZOS, true);
-    marea.estado = "rio";
-    marea.t = 0;
-    planeta.visible = false;
-    fogonazo.position.copy(planeta.position);
-    despertar();
-    sonarMarea();
-}
-
-// Un paso de gravedad (y, dentro del disco, rozamiento que va metiendo
-// el gas en órbitas circulares cada vez más pequeñas)
-function gravedad(p, k, dt, conRoce) {
-    const x = p[k];
-    const y = p[k + 1];
-    const z = p[k + 2];
-    const r2 = x * x + y * y + z * z;
-    const r = Math.sqrt(r2);
-    const a = -GM / (r2 * r);
-    p[k + 3] += a * x * dt;
-    p[k + 4] += a * y * dt;
-    p[k + 5] += a * z * dt;
-    if (conRoce && r < 5.2) {
-        // Velocidad circular en el plano del disco
-        const vc = Math.sqrt(GM / r) * 0.97;
-        const sentido = Math.sign(x * p[k + 5] - z * p[k + 3]) || 1;
-        const tx = (-z / r) * vc * sentido;
-        const tz = (x / r) * vc * sentido;
-        const roce = Math.min(1, dt * 0.9);
-        p[k + 3] += (tx - p[k + 3]) * roce;
-        p[k + 5] += (tz - p[k + 5]) * roce;
-        p[k + 4] += (-y * 1.2 - p[k + 4]) * roce * 0.5;
-    }
-    p[k] += p[k + 3] * dt;
-    p[k + 1] += p[k + 4] * dt;
-    p[k + 2] += p[k + 5] * dt;
-    return r;
-}
-
-const estadoPlaneta = new Float32Array(6);
-
-function moverPlaneta(delta, pasos, dt) {
-    const e = marea.cuerpo;
-    const s = estadoPlaneta;
-    s.set([e.x, e.y, e.z, e.vx, e.vy, e.vz]);
-    let r = 99;
-    for (let i = 0; i < pasos; i++) r = gravedad(s, 0, dt, false);
-    [e.x, e.y, e.z, e.vx, e.vy, e.vz] = s;
-    planeta.position.set(e.x, e.y, e.z);
-    // Se estira hacia el agujero y se agrieta al acercarse
-    haciaAgujero.set(-e.x, -e.y, -e.z).normalize();
-    planeta.quaternion.setFromUnitVectors(ejeZ, haciaAgujero);
-    const cerca = THREE.MathUtils.smoothstep(r, 9.5, 2.6);
-    const largo = 1 + cerca * cerca * 2.6;
-    planeta.scale.set(1 / Math.sqrt(largo), 1 / Math.sqrt(largo), largo);
-    planeta.rotateZ(marea.t * 0.3);
-    materialPlaneta.uniforms.uGrietas.value = cerca;
-    // Empieza a soltar trozos por las puntas
-    if (r < 7) soltarTrozos(Math.ceil(TROZOS * 0.2 * delta * cerca * cerca), false);
-    if (r < 2.7) romperPlaneta();
-}
-
-// El planeta que se come Gargantua está quitado por ahora: solo sale
-// con ?marea=si (el código se queda para más adelante)
-const comerPlanetas = parametros.get("marea") === "si";
-
-function moverMarea(delta) {
-    if (!comerPlanetas) return;
-    if (marea.estado === "nada") {
-        marea.espera -= delta;
-        if (marea.espera <= 0 && comunes.uEncendido.value > 0.95 && !pocoMovimiento) {
-            lanzarPlaneta();
-            marea.espera = 55 + Math.random() * 35;
-        }
-        return;
-    }
-    marea.t += delta;
-    const pasos = 4;
-    const dt = delta / pasos;
-    if (marea.estado === "cae") moverPlaneta(delta, pasos, dt);
-    // El fogonazo al romperse: un destello que se hincha y se apaga
-    if (marea.estado === "rio" && marea.t < 1.2) {
-        fogonazo.visible = true;
-        fogonazo.scale.setScalar(1.2 + marea.t * 3);
-        fogonazo.material.opacity = Math.max(0, 1 - marea.t / 1.2);
-    } else fogonazo.visible = false;
-    const p = marea.trozos;
-    const pos = geometriaMarea.attributes.position.array;
-    const lin = geometriaEstelas.attributes.position.array;
-    const linB = geometriaEstelas.attributes.aBrillo.array;
-    const brilloT = geometriaMarea.attributes.aBrillo.array;
-    const radioT = geometriaMarea.attributes.aRadio.array;
-    let vivos = 0;
-    let enDisco = 0;
-    const roce = marea.estado === "rio" && marea.t > 2.0;
-    for (let i = 0; i < TROZOS; i++) {
-        const k = i * 7;
-        if (p[k + 6] <= 0) {
-            brilloT[i] = 0;
-            linB[i * 2 + 1] = 0;
-            continue;
-        }
-        let r = 99;
-        for (let j = 0; j < pasos; j++) r = gravedad(p, k, dt, roce);
-        // Se apaga al llegar al borde o al alejarse mucho
-        if (r < 1.5) p[k + 6] -= delta * 0.9;
-        else if (r > 25) p[k + 6] -= delta * 0.6;
-        else if (marea.t > 16 && marea.estado === "rio") p[k + 6] -= delta * 0.12;
-        if (r < 4.8) enDisco++;
-        pos[i * 3] = p[k];
-        pos[i * 3 + 1] = p[k + 1];
-        pos[i * 3 + 2] = p[k + 2];
-        radioT[i] = r;
-        // Recién roto, con todo el gas junto, cada trozo brilla menos para
-        // no hacer una mancha blanca
-        const junto = marea.estado === "rio" ? 0.3 + 0.7 * THREE.MathUtils.smoothstep(marea.t, 0, 1.4) : 1;
-        brilloT[i] = Math.max(0, p[k + 6]) * junto * (0.5 + 0.7 * Math.exp(-marea.t * 0.25) + 0.45 / Math.max(r - 0.8, 0.6));
-        vivos++;
-        // La estela va de la posición de hace un momento a la de ahora
-        const q = i * 3;
-        const seguir = Math.min(1, delta * 7);
-        anteriores[q] += (p[k] - anteriores[q]) * seguir;
-        anteriores[q + 1] += (p[k + 1] - anteriores[q + 1]) * seguir;
-        anteriores[q + 2] += (p[k + 2] - anteriores[q + 2]) * seguir;
-        lin.set([anteriores[q], anteriores[q + 1], anteriores[q + 2], p[k], p[k + 1], p[k + 2]], i * 6);
-        linB[i * 2] = 0;
-        linB[i * 2 + 1] = brilloT[i] * 0.35 * THREE.MathUtils.smoothstep(r, 1.3, 1.9);
-    }
-    // Mientras el gas del planeta entra en el disco, el disco brilla más
-    comunes.uPulso.value = Math.max(comunes.uPulso.value, (enDisco / TROZOS) * 0.35);
-    geometriaMarea.attributes.position.needsUpdate = true;
-    geometriaMarea.attributes.aBrillo.needsUpdate = true;
-    geometriaMarea.attributes.aRadio.needsUpdate = true;
-    geometriaEstelas.attributes.position.needsUpdate = true;
-    geometriaEstelas.attributes.aBrillo.needsUpdate = true;
-    if (marea.estado === "rio" && (!vivos || marea.t > 32)) {
-        marea.estado = "nada";
-        marea.ultima = comunes.uTiempo.value;
-        rioMarea.visible = false;
-        estelas.visible = false;
-    }
-}
 
 // =====================================================================
 // 6c. LAS SECCIONES DEL PORTFOLIO
@@ -1679,16 +1304,6 @@ class PaseBrillo extends Pass {
         this.recortar.uniforms.tEntrada.value = this.escena.texture;
         this.recortar.uniforms.uPaso.value.set(1 / this.escena.width, 1 / this.escena.height);
 
-        // Lo fugaz se suma encima, respetando lo que tapa la sombra (solo
-        // si hay algo que pintar)
-        if (planeta.visible || rioMarea.visible || fogonazo.visible) {
-            camara.layers.set(CAPA_FUGAZ);
-            const limpiarAntes = renderizador.autoClear;
-            renderizador.autoClear = false;
-            renderizador.setRenderTarget(this.escena);
-            renderizador.render(escena, camara);
-            renderizador.autoClear = limpiarAntes;
-        }
         camara.layers.mask = mascara;
         renderizador.setClearColor(this.antes, alfaAntes);
 
@@ -2013,38 +1628,6 @@ function cambiarSonido() {
     botonSonido.classList.toggle("activo", sonido.activo);
 }
 
-// Al romperse la estrella: un rugido de ruido que sube y se apaga
-function sonarMarea() {
-    if (!sonido.activo) return;
-    const ctx = sonido.ctx;
-    const t = ctx.currentTime;
-    const largo = ctx.sampleRate * 3;
-    const buffer = ctx.createBuffer(1, largo, ctx.sampleRate);
-    const datos = buffer.getChannelData(0);
-    let ultimo = 0;
-    for (let i = 0; i < largo; i++) {
-        ultimo = (ultimo + 0.04 * (Math.random() * 2 - 1)) / 1.04;
-        datos[i] = ultimo * 3;
-    }
-    const fuente = ctx.createBufferSource();
-    fuente.buffer = buffer;
-    const filtro = ctx.createBiquadFilter();
-    filtro.type = "lowpass";
-    filtro.frequency.setValueAtTime(120, t);
-    filtro.frequency.exponentialRampToValueAtTime(900, t + 0.6);
-    filtro.frequency.exponentialRampToValueAtTime(80, t + 3);
-    const vol = ctx.createGain();
-    vol.gain.setValueAtTime(0, t);
-    vol.gain.linearRampToValueAtTime(0.5, t + 0.3);
-    vol.gain.exponentialRampToValueAtTime(0.001, t + 3);
-    fuente.connect(filtro).connect(vol).connect(sonido.maestro);
-    fuente.onended = () => {
-        fuente.disconnect();
-        vol.disconnect();
-    };
-    fuente.start(t);
-}
-
 // Cerca del agujero el zumbido baja de tono y se apaga lo agudo
 function sonidoCercania() {
     if (!sonido.ctx || !sonido.activo) return;
@@ -2174,7 +1757,6 @@ const soltar = (e) => {
             return;
         }
         despertar();
-        if (comerPlanetas) lanzarPlaneta();
     }
 };
 lienzo.addEventListener("pointerup", soltar);
@@ -2200,7 +1782,6 @@ function ajustarTamano() {
     compositor.setSize(innerWidth, innerHeight);
     const pr = renderizador.getPixelRatio();
     suavizado.material.uniforms.resolution.value.set(1 / (innerWidth * pr), 1 / (innerHeight * pr));
-    materialMarea.uniforms.uEscala.value = renderizador.getPixelRatio() * innerHeight * 0.12;
     polvo.uniforms.uEscala.value = renderizador.getPixelRatio() * innerHeight * 0.04;
 }
 
@@ -2275,7 +1856,7 @@ if (medir) {
 let medidor = null;
 if (medir)
     import("./medidor.js").then((m) => {
-        const nombres = new Map([[fondo, "fondo, lente y Andrómeda"], [sombra, "sombra"], [arcoAtras, "arcos del disco"], [arcoDelante, "arcos del disco"], [anillo, "anillos de fotones"], [anillo2, "anillos de fotones"], [anillo3, "anillos de fotones"], [rioMarea, "estelas"], [estelas, "estelas"], [polvo, "polvo"], [planeta, "planeta comido"]]);
+        const nombres = new Map([[fondo, "fondo, lente y Andrómeda"], [sombra, "sombra"], [arcoAtras, "arcos del disco"], [arcoDelante, "arcos del disco"], [anillo, "anillos de fotones"], [anillo2, "anillos de fotones"], [anillo3, "anillos de fotones"], [polvo, "polvo"]]);
         halos.forEach((h) => nombres.set(h, "halos"));
         destellos.forEach((d) => nombres.set(d, "destellos"));
         agujero.children.forEach((o) => !nombres.has(o) && o.isMesh && o.geometry.type !== "SphereGeometry" && nombres.set(o, "disco"));
@@ -2333,7 +1914,6 @@ function animar() {
     // que no se queme de blanco
     comunes.uExpo.value = 1 - c * 0.38;
     marcarBola();
-    moverMarea(delta);
     sonidoCercania();
     destellos.forEach((d) => (d.material.opacity = d.userData.fuerza * fondo.material.uniforms.uAparece.value * (0.8 + 0.2 * Math.sin(t * 1.3 + d.userData.fase))));
     compositor.render();
