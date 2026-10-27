@@ -1495,11 +1495,15 @@ function abrirMundo(destino) {
     history.pushState({ mundo: true }, "", "#sobre-mi");
 }
 
-function cerrarMundo() {
+function cerrarMundo(desdeAtras = false) {
     if (!mundo.abierto) return;
     mundo.abierto = false;
     const marco = mundo.marco;
-    if (location.hash === "#sobre-mi") history.replaceState(null, "", location.pathname + location.search);
+    // Al abrir se añadió una entrada al historial: si se cierra con el
+    // botón de la página se quita esa entrada, para que luego Atrás salga
+    // de Gargantua a la primera
+    if (!desdeAtras && history.state && history.state.mundo) history.back();
+    else if (location.hash === "#sobre-mi") history.replaceState(null, "", location.pathname + location.search);
     // Detrás del negro la cámara vuelve a su sitio; el mundo se apaga y
     // después se quita el negro para que Gargantua aparezca
     if (viaje.puerta) Object.assign(vuelta, { activo: true, t: 0, puerta: viaje.puerta });
@@ -1511,7 +1515,10 @@ function cerrarMundo() {
     if (sonido.ctx && sonido.activo) sonido.ctx.resume();
     setTimeout(() => {
         marco.remove();
-        mundo.marco = null;
+        if (mundo.marco === marco) mundo.marco = null;
+        // Si mientras tanto se ha vuelto a entrar en el planeta, el negro
+        // se queda puesto
+        if (viaje.activo || mundo.abierto) return;
         fundido.classList.remove("activo");
         document.body.classList.remove("viajando");
     }, 650);
@@ -1521,7 +1528,7 @@ window.addEventListener("message", (e) => {
     if (e.data === "volver-gargantua" && mundo.abierto) cerrarMundo();
 });
 window.addEventListener("popstate", () => {
-    if (mundo.abierto) cerrarMundo();
+    if (mundo.abierto) cerrarMundo(true);
 });
 
 // =====================================================================

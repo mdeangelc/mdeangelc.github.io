@@ -13,10 +13,14 @@ function actualizarTextoBoton() {
 botonTema.addEventListener("click", () => {
     raiz.classList.toggle("oscuro");
 
-    if (raiz.classList.contains("oscuro")) {
-        localStorage.setItem("tema", "oscuro");
-    } else {
-        localStorage.setItem("tema", "claro");
+    try {
+        if (raiz.classList.contains("oscuro")) {
+            localStorage.setItem("tema", "oscuro");
+        } else {
+            localStorage.setItem("tema", "claro");
+        }
+    } catch (error) {
+        console.warn("No se puede guardar el tema", error);
     }
 
     actualizarTextoBoton();
