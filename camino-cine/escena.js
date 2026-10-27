@@ -832,7 +832,7 @@ let materialFondo = null;
 let materialCopiaCielo = null;
 // El cielo con las montañas se calcula a menos resolución en su propia
 // pasada (PaseCieloBajo) y en la escena solo se copia donde se ve
-const cieloEscala = parametros.has("cielo") ? Number(parametros.get("cielo")) : 0.35;
+const cieloEscala = parametros.has("cielo") ? Number(parametros.get("cielo")) : 0.5;
 const destinoCielo = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
 
 // El fondo es lo que más cuesta por píxel, así que se pinta dentro de la
