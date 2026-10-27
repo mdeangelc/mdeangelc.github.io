@@ -1654,7 +1654,7 @@ function sonarDespertar() {
     g.setTargetAtTime(0.22, ahora + 0.8, 1.5);
 }
 
-botonSonido.addEventListener("click", cambiarSonido);
+botonSonido?.addEventListener("click", cambiarSonido);
 // Al volver con el botón de atrás del navegador la página puede venir de
 // la caché con el fundido puesto: se quita y se reinicia el viaje
 window.addEventListener("pageshow", () => {

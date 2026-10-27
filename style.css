@@ -191,8 +191,8 @@ body {
 
 .habilidades {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: 20px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px 20px;
 }
 
 .grupo h3 {
@@ -215,6 +215,7 @@ body {
     border: 1px solid var(--borde);
     border-radius: 6px;
     padding: 2px 10px;
+    white-space: nowrap;
 }
 
 .estudio + .estudio {
@@ -251,6 +252,10 @@ body {
 }
 
 @media (max-width: 640px) {
+    .habilidades {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
     .menu-enlaces a {
         display: none;
     }
@@ -265,6 +270,12 @@ body {
 
     .bloque {
         padding: 26px;
+    }
+}
+
+@media (max-width: 380px) {
+    .grupo li {
+        white-space: normal;
     }
 }
 

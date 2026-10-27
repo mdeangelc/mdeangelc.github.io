@@ -3911,7 +3911,7 @@ function actualizarSonido() {
 }
 
 const botonSonido = document.getElementById("boton-sonido");
-botonSonido.addEventListener("click", async () => {
+botonSonido?.addEventListener("click", async () => {
     if (!audio) {
         audio = crearSonido();
         await audio.ctx.resume();
