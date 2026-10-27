@@ -62,7 +62,7 @@ function sin3D() {
     document.querySelectorAll(".seccion").forEach((b) =>
         b.addEventListener("click", () => {
             if (b.dataset.puerta) {
-                location.href = "../camino-cine/";
+                location.href = "../sobre-mi/";
                 return;
             }
             const abierto = document.getElementById(b.dataset.cartel).classList.contains("visible");
@@ -814,7 +814,7 @@ const polvo = (() => {
 const PUERTAS = [
     {
         id: "camino",
-        destino: "../camino-cine/?desde=gargantua",
+        destino: "../sobre-mi/?desde=gargantua",
         posicion: [-2.5, -0.85, 1.3],
         movil: [-0.7, -2.0, 1.3],
         radio: 0.33,
@@ -1104,7 +1104,7 @@ function abrirMundo(destino) {
         // antes de que cargara el camino), se cierra el mundo
         try {
             const ruta = marco.contentWindow.location.pathname;
-            if (ruta.endsWith("/gargantua/") || ruta.endsWith("/gargantua/index.html")) {
+            if (ruta.endsWith("/espacio/") || ruta.endsWith("/espacio/index.html")) {
                 cerrarMundo();
                 return;
             }
